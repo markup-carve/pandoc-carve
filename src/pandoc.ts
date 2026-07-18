@@ -79,8 +79,14 @@ export type ListNumberStyle =
     | 'LowerRoman'
     | 'UpperRoman';
 
-export const OrderedList = (start: number, style: ListNumberStyle, items: Block[][]): Block =>
-    node('OrderedList', [[start, node(style), node('DefaultDelim')], items]);
+export type ListNumberDelim = 'DefaultDelim' | 'Period' | 'OneParen' | 'TwoParens';
+
+export const OrderedList = (
+    start: number,
+    style: ListNumberStyle,
+    items: Block[][],
+    delim: ListNumberDelim = 'DefaultDelim',
+): Block => node('OrderedList', [[start, node(style), node(delim)], items]);
 
 export const DefinitionList = (items: [Inline[], Block[][]][]): Block =>
     node('DefinitionList', items);

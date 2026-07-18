@@ -376,7 +376,10 @@ function list(ctx: Ctx, n: CNode): P.Block {
     });
     if (n.ordered) {
         const style = OL_TYPE[String(n.olType ?? '')] ?? 'Decimal';
-        return P.OrderedList(Number(n.start ?? 1), style, converted);
+        // `delim` lands in the Carve AST with carve-js PR 342; older parsers
+        // simply leave it undefined and we emit pandoc's default.
+        const delim = n.delim === ')' ? 'OneParen' : n.delim === '.' ? 'Period' : 'DefaultDelim';
+        return P.OrderedList(Number(n.start ?? 1), style, converted, delim);
     }
     return P.BulletList(converted);
 }

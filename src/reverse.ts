@@ -383,12 +383,19 @@ const OL_STYLE: Record<string, string> = {
 };
 
 function orderedList(ctx: Ctx, c: never): CNode {
-    const [[start, style], rawItems] = c as [[number, PandocNode, PandocNode], PandocNode[][]];
+    const [[start, style, delim], rawItems] = c as [
+        [number, PandocNode, PandocNode],
+        PandocNode[][],
+    ];
     const { items, tight } = listItems(ctx, rawItems);
     const node: CNode = { type: 'list', ordered: true, tight, items };
     if (start !== 1) node.start = start;
     const olType = OL_STYLE[style.t];
     if (olType) node.olType = olType;
+    // Source-style metadata for AST consumers; renderCarve currently
+    // normalizes to `1.` regardless (fmt canonical form).
+    if (delim?.t === 'OneParen' || delim?.t === 'TwoParens') node.delim = ')';
+    else if (delim?.t === 'Period') node.delim = '.';
     return node;
 }
 
