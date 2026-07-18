@@ -376,3 +376,22 @@ test('smart typography flows through as text', () => {
   assert.ok(text.includes('→'));
   assert.ok(text.includes('©'));
 });
+
+test('tab panel [label] degrades to a div-label caption (graceful degradation)', () => {
+  // A grouping [label] that no group extension consumes MUST survive as a
+  // visible caption, or the LaTeX/DOCX reader cannot tell the panels apart.
+  const [container] = blocks(
+    ':::: tabs\n::: tab [Installation]\nRun it.\n:::\n::: tab [Usage]\nCall it.\n:::\n::::',
+  );
+  const [panelA, panelB] = container.c[1];
+  const captionA = panelA.c[1][0];
+  assert.equal(captionA.t, 'Para');
+  assert.deepEqual(captionA.c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Installation' }] }]);
+  assert.deepEqual(panelB.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Usage' }] }]);
+});
+
+test('title precedes the [label] caption when a div carries both', () => {
+  const [div] = blocks('::: note "Heads up" [side]\nBody.\n:::');
+  assert.deepEqual(div.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Heads' }, { t: 'Space' }, { t: 'Str', c: 'up' }] }]);
+  assert.deepEqual(div.c[1][1].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'side' }] }]);
+});

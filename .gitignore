@@ -3,3 +3,9 @@
 *.log
 _*.md
 /_*/
+
+# Binary example outputs are generated on demand, never committed (see examples/README.md)
+examples/**/*.docx
+examples/**/*.pdf
+examples/**/*.epub
+examples/**/*.odt

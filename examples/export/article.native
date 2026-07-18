@@ -1,0 +1,401 @@
+[ Header 1 ( "" , [] , [] ) [ Str "Introduction" ]
+, Para
+    [ Str "This"
+    , Space
+    , Str "is"
+    , Space
+    , Str "a"
+    , Space
+    , Str "small,"
+    , Space
+    , Str "hand-written"
+    , Space
+    , Str "Carve"
+    , Space
+    , Str "document."
+    , Space
+    , Str "It"
+    , Space
+    , Str "exercises"
+    , Space
+    , Str "the"
+    , Space
+    , Str "constructs"
+    , SoftBreak
+    , Str "that"
+    , Space
+    , Str "survive"
+    , Space
+    , Str "a"
+    , Space
+    , Str "round-trip"
+    , Space
+    , Str "through"
+    , Space
+    , Str "Pandoc"
+    , Space
+    , Str "into"
+    , Space
+    , Emph [ Str "every" ]
+    , Space
+    , Str "writer:"
+    , Space
+    , Str "emphasis,"
+    , SoftBreak
+    , Strong [ Str "strong" ]
+    , Space
+    , Str "text,"
+    , Space
+    , Str "links,"
+    , Space
+    , Str "lists,"
+    , Space
+    , Str "tables,"
+    , Space
+    , Str "footnotes,"
+    , Space
+    , Str "math,"
+    , Space
+    , Str "and"
+    , Space
+    , Str "raw"
+    , Space
+    , Str "passthrough."
+    ]
+, Para
+    [ Str "Carve"
+    , Space
+    , Str "swaps"
+    , Space
+    , Str "the"
+    , Space
+    , Str "Markdown"
+    , Space
+    , Str "emphasis"
+    , Space
+    , Str "delimiters:"
+    , Space
+    , Code ( "" , [] , [] ) "/italic/"
+    , Space
+    , Str "is"
+    , Space
+    , Str "emphasis"
+    , Space
+    , Str "and"
+    , SoftBreak
+    , Code ( "" , [] , [] ) "*bold*"
+    , Space
+    , Str "is"
+    , Space
+    , Str "strong."
+    , Space
+    , Str "A"
+    , Space
+    , Str "footnote"
+    , Space
+    , Str "reference"
+    , Space
+    , Str "looks"
+    , Space
+    , Str "like"
+    , Space
+    , Str "this."
+    , Note
+        [ Para
+            [ Str "Footnotes"
+            , Space
+            , Str "become"
+            , Space
+            , Str "Pandoc"
+            , Space
+            , Code ( "" , [] , [] ) "Note"
+            , Space
+            , Str "nodes"
+            , Space
+            , Str "and"
+            , Space
+            , Str "render"
+            , Space
+            , Str "natively"
+            , Space
+            , Str "in"
+            , Space
+            , Str "LaTeX,"
+            , SoftBreak
+            , Str "Typst,"
+            , Space
+            , Str "DOCX,"
+            , Space
+            , Str "and"
+            , Space
+            , Str "the"
+            , Space
+            , Str "rest."
+            ]
+        ]
+    ]
+, Header 2 ( "" , [] , [] ) [ Str "Lists" ]
+, BulletList
+    [ [ Plain [ Str "First" , Space , Str "item" ] ]
+    , [ Plain
+          [ Str "Second"
+          , Space
+          , Str "item,"
+          , Space
+          , Str "with"
+          , Space
+          , Emph [ Str "emphasis" ]
+          ]
+      , BulletList
+          [ [ Plain
+                [ Str "A" , Space , Str "nested" , Space , Str "item" ]
+            ]
+          ]
+      ]
+    , [ Plain [ Str "Third" , Space , Str "item" ] ]
+    ]
+, OrderedList
+    ( 1 , Decimal , DefaultDelim )
+    [ [ Plain [ Str "Ordered" , Space , Str "one" ] ]
+    , [ Plain [ Str "Ordered" , Space , Str "two" ] ]
+    ]
+, Header
+    2 ( "" , [] , [] ) [ Str "A" , Space , Str "table" ]
+, Table
+    ( "" , [] , [] )
+    (Caption Nothing [])
+    [ ( AlignDefault , ColWidthDefault )
+    , ( AlignDefault , ColWidthDefault )
+    , ( AlignDefault , ColWidthDefault )
+    ]
+    (TableHead
+       ( "" , [] , [] )
+       [ Row
+           ( "" , [] , [] )
+           [ Cell
+               ( "" , [] , [] )
+               AlignDefault
+               (RowSpan 1)
+               (ColSpan 1)
+               [ Plain [ Str "Format" ] ]
+           , Cell
+               ( "" , [] , [] )
+               AlignDefault
+               (RowSpan 1)
+               (ColSpan 1)
+               [ Plain [ Str "Binary?" ] ]
+           , Cell
+               ( "" , [] , [] )
+               AlignDefault
+               (RowSpan 1)
+               (ColSpan 1)
+               [ Plain [ Str "Text" , Space , Str "golden?" ] ]
+           ]
+       ])
+    [ TableBody
+        ( "" , [] , [] )
+        (RowHeadColumns 0)
+        []
+        [ Row
+            ( "" , [] , [] )
+            [ Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "LaTeX" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "no" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "yes" ] ]
+            ]
+        , Row
+            ( "" , [] , [] )
+            [ Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "Typst" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "no" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "yes" ] ]
+            ]
+        , Row
+            ( "" , [] , [] )
+            [ Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "DOCX" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "yes" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "no" ] ]
+            ]
+        ]
+    ]
+    (TableFoot ( "" , [] , [] ) [])
+, Header
+    2
+    ( "" , [] , [] )
+    [ Str "Math"
+    , Space
+    , Str "and"
+    , Space
+    , Str "raw"
+    , Space
+    , Str "passthrough"
+    ]
+, Para
+    [ Str "Inline"
+    , Space
+    , Str "math:"
+    , Space
+    , Math InlineMath "e^{i\\pi} + 1 = 0"
+    , Str "."
+    ]
+, Para
+    [ Str "A"
+    , Space
+    , Str "target-routed"
+    , Space
+    , Str "raw"
+    , Space
+    , Str "span"
+    , Space
+    , Str "reaches"
+    , Space
+    , Str "only"
+    , Space
+    , Str "the"
+    , Space
+    , Str "LaTeX"
+    , Space
+    , Str "writer"
+    , Space
+    , Str "and"
+    , Space
+    , Str "is"
+    , Space
+    , Str "dropped"
+    , Space
+    , Str "by"
+    , Space
+    , Str "every"
+    , SoftBreak
+    , Str "other"
+    , Space
+    , Str "format:"
+    , Space
+    , RawInline (Format "latex") "\\LaTeX"
+    , Str "."
+    , Space
+    , Str "This"
+    , Space
+    , Str "is"
+    , Space
+    , Str "the"
+    , Space
+    , Str "pandoc-Markdown"
+    , Space
+    , Str "raw-span"
+    , Space
+    , Str "semantics"
+    , SoftBreak
+    , Str "that"
+    , Space
+    , Str "Carve\8217s"
+    , Space
+    , Code ( "" , [] , [] ) "{=format}"
+    , Space
+    , Str "syntax"
+    , Space
+    , Str "was"
+    , Space
+    , Str "born"
+    , Space
+    , Str "from."
+    ]
+, BlockQuote
+    [ Para
+        [ Str "A"
+        , Space
+        , Str "blockquote"
+        , Space
+        , Str "closes"
+        , Space
+        , Str "the"
+        , Space
+        , Str "tour."
+        , Space
+        , Str "Every"
+        , Space
+        , Str "node"
+        , Space
+        , Str "above"
+        , Space
+        , Str "maps"
+        , Space
+        , Str "to"
+        , Space
+        , Str "a"
+        , Space
+        , Str "Pandoc"
+        , Space
+        , Str "AST"
+        , Space
+        , Str "node,"
+        , SoftBreak
+        , Str "so"
+        , Space
+        , Code ( "" , [] , [] ) "pandoc"
+        , Space
+        , Str "can"
+        , Space
+        , Str "then"
+        , Space
+        , Str "emit"
+        , Space
+        , Str "LaTeX,"
+        , Space
+        , Str "Typst,"
+        , Space
+        , Str "RST,"
+        , Space
+        , Str "DOCX,"
+        , Space
+        , Str "and"
+        , Space
+        , Str "dozens"
+        , Space
+        , Str "more."
+        ]
+    ]
+]

@@ -86,6 +86,37 @@ function plainText(nodes: CNode[]): string {
     return out;
 }
 
+function hasLabel(n: CNode): n is CNode & { label: string } {
+    return typeof n.label === 'string' && n.label.length > 0;
+}
+
+/**
+ * A fenced div's grouping `[label]` rendered as a caption Para, or [] when the
+ * node has none. Normative graceful-degradation rule: a `[label]` that no group
+ * extension consumes (tabs/code-group are extensions; this bridge runs none)
+ * MUST survive as a visible caption, else a reader of the LaTeX/Typst/DOCX
+ * output cannot tell the panels apart. The reference HTML renderer emits
+ * `<p class="div-label">`; here it is a bold line - the same slot the quoted
+ * title uses, and title comes first when a block carries both.
+ *
+ * In roundtrip mode the label is preserved structurally instead (see
+ * `labelKv`), so the reverse importer can rebuild the `[label]` grouping token
+ * exactly; a flattened caption Para would be indistinguishable from a title.
+ */
+function labelCaption(ctx: Ctx, n: CNode): P.Block[] {
+    return !ctx.roundtrip && hasLabel(n) ? [P.Para([P.Strong(textInlines(n.label))])] : [];
+}
+
+/**
+ * Roundtrip-only kv that carries the grouping `[label]` for exact re-import.
+ * The `.` in the key is deliberate: Carve's attribute grammar rejects dotted
+ * keys, so a document can never carry a user-authored `carve.label` attribute
+ * that the reverse importer would mistake for this internal marker.
+ */
+function labelKv(ctx: Ctx, n: CNode): [string, string][] {
+    return ctx.roundtrip && hasLabel(n) ? [['carve.label', n.label]] : [];
+}
+
 /** Split text into Str/Space the way pandoc readers do. */
 function textInlines(value: string): P.Inline[] {
     const out: P.Inline[] = [];
@@ -326,10 +357,22 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
                 : [];
             const body = untight(ctx, () => blocks(ctx, n.children as CNode[]));
             const [id, classes, kvs] = toAttr(n.attrs);
-            return [P.Div([id, ['admonition', kind, ...classes], kvs], [...title, ...body])];
+            return [
+                P.Div(
+                    [id, ['admonition', kind, ...classes], [...kvs, ...labelKv(ctx, n)]],
+                    [...title, ...labelCaption(ctx, n), ...body],
+                ),
+            ];
         }
-        case 'div':
-            return [P.Div(toAttr(n.attrs), untight(ctx, () => blocks(ctx, n.children as CNode[])))];
+        case 'div': {
+            const [id, classes, kvs] = toAttr(n.attrs);
+            return [
+                P.Div([id, classes, [...kvs, ...labelKv(ctx, n)]], [
+                    ...labelCaption(ctx, n),
+                    ...untight(ctx, () => blocks(ctx, n.children as CNode[])),
+                ]),
+            ];
+        }
         case 'image':
             // A sole image on its own line is a block-level node in Carve.
             return [P.Para(inline(ctx, n))];

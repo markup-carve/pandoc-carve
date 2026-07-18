@@ -1,0 +1,72 @@
+\section{Interactive constructs and graceful degradation}
+
+pandoc-carve runs \textbf{no} renderer extensions - it maps the parsed
+core AST to Pandoc. So every script-dependent construct (tabs,
+code-group, spoiler, mermaid, math) degrades to its static form on the
+way to LaTeX, Typst, DOCX, and the rest. Content and structure survive;
+only the interaction is dropped. This file is the worked proof - compare
+it against the generated \texttt{interactive.tex} / \texttt{.typ} /
+\texttt{.native} beside it.
+
+\subsection{Tabs}
+
+A \texttt{{[}label{]}} on each panel is a grouping identifier. With a
+tabs extension it becomes a clickable tab button; here, with no
+extension, it degrades to a visible caption so a print reader can still
+tell the panels apart.
+
+\textbf{Installation}
+
+Run \texttt{npm\ install\ @markup-carve/pandoc-carve}.
+
+\textbf{Usage}
+
+Call the \emph{converter} on your \texttt{.crv} source.
+
+\subsection{Code group}
+
+Same grouping mechanism, code panels instead of prose. Each fence keeps
+its language (so syntax highlighting survives every writer); the panels
+stack.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{export} \ImportTok{default}\NormalTok{ \{ }\DataTypeTok{port}\OperatorTok{:} \DecValTok{3000}\NormalTok{ \}}\OperatorTok{;}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{} \DataTypeTok{"port"}\FunctionTok{:} \DecValTok{3000} \FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{Spoiler}
+
+A quoted title survives as a caption; the ``hide until revealed''
+interaction is meaningless offline, so the body is simply shown.
+
+\textbf{Answer}
+
+The hidden \emph{answer} is 42.
+
+\subsection{Disclosure}
+
+\textbf{Show details}
+
+A disclosure carries its title and body through as a labelled block.
+
+\subsection{Mermaid and math}
+
+The diagram source is never lost - it stays a fenced code block that a
+Markdown host can re-render, and a build step can pre-render to an image
+for PDF.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{graph TD; A[Carve] {-}{-}\textgreater{} B[Pandoc]; B {-}{-}\textgreater{} C[LaTeX];}
+\end{Highlighting}
+\end{Shaded}
+
+Inline math keeps its source too:
+\(\sum_{i=1}^{n} i = \frac{n(n+1)}{2}\).

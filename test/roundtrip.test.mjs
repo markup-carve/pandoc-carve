@@ -89,3 +89,28 @@ test('meta title reaches standalone output', { skip: !pandoc && 'pandoc not foun
   assert.ok(latex.includes('\\title{The Title}'));
   assert.ok(latex.includes('\\author{Jane Doe}'));
 });
+
+test('roundtrip mode preserves a grouping [label] structurally, not as a caption', async () => {
+  const { pandocToCarve } = await import('../dist/index.js');
+  const { carveToHtml } = await import('@markup-carve/carve');
+  const src = ':::: tabs\n::: tab [Installation]\nRun it.\n:::\n::: tab [Usage]\nUse it.\n:::\n::::\n';
+  // Default (export) mode degrades the label to a visible caption for print.
+  assert.ok(carveToHtml(src).includes('div-label'), 'reference emits div-label caption');
+  // Roundtrip mode instead carries the label so it rebuilds exactly.
+  const { doc } = carveToPandoc(src, { roundtrip: true });
+  const { carve } = pandocToCarve(doc);
+  assert.ok(carve.includes('[Installation]'), 'label survives roundtrip');
+  assert.ok(carve.includes('[Usage]'), 'second label survives roundtrip');
+  assert.equal(carveToHtml(src), carveToHtml(carve), 'roundtrip is HTML-equivalent');
+});
+
+test('a user carve-label attribute is not mistaken for the internal label marker', async () => {
+  const { pandocToCarve } = await import('../dist/index.js');
+  // The internal marker key is `carve.label` (dotted, non-authorable); a real
+  // `{carve-label=..}` attribute (hyphen) must survive untouched.
+  const src = '{carve-label="mine"}\n::: note\nBody.\n:::\n';
+  const { doc } = carveToPandoc(src, { roundtrip: true });
+  const { carve } = pandocToCarve(doc);
+  assert.ok(carve.includes('carve-label=mine'), 'user attribute preserved');
+  assert.ok(!carve.includes('[mine]'), 'attribute not turned into a grouping label');
+});

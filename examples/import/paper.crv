@@ -1,0 +1,24 @@
+{#import-from-latex}
+# Import from LaTeX
+
+This is a small LaTeX source\. Running it through `pandoc -t json` and
+then `pandocToCarve` yields the `paper.crv` next to this file\.
+
+{#emphasis-and-lists}
+## Emphasis and lists
+
+Pandoc maps /emphasis/ and *strong* to Carve’s `/.../` and
+`*...*` delimiters\.
+
+- First bullet
+
+- Second bullet
+
+1. Ordered one
+
+2. Ordered two
+
+{#math}
+## Math
+
+An inline formula $`E = mc^2` becomes Carve inline math\.
