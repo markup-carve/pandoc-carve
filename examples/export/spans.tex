@@ -1,0 +1,28 @@
+\section{Table spans}
+
+Carve tables carry cell spans with two markers: \texttt{\textless{}}
+merges a cell into its left neighbor (colspan) and \texttt{\^{}} merges
+a cell into the one above it (rowspan). pandoc-carve rewrites these into
+Pandoc's origin-cell span model (the origin cell holds the width/height;
+covered cells are omitted), so the merged regions survive into LaTeX
+\texttt{\textbackslash{}multicolumn}/\texttt{\textbackslash{}multirow},
+DOCX merged cells, Typst, and the rest - not just HTML.
+
+\begin{longtable}[]{@{}lll@{}}
+\caption{Sales by region (North 2024 spans both years; South spans two
+rows)}\tabularnewline
+\toprule\noalign{}
+Region & 2024 & 2025 \\
+\midrule\noalign{}
+\endfirsthead
+\toprule\noalign{}
+Region & 2024 & 2025 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+North & \multicolumn{2}{l@{}}{%
+100} \\
+\multirow{2}{=}{South} & 40 & 60 \\
+& 30 & 50 \\
+\end{longtable}

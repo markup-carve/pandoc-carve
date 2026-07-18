@@ -25,15 +25,21 @@ export const EXPORT_TARGETS = [
   { target: 'latex', ext: 'tex', needsPandoc: true },
   { target: 'typst', ext: 'typ', needsPandoc: true },
   { target: 'rst', ext: 'rst', needsPandoc: true },
+  { target: 'plain', ext: 'txt', needsPandoc: true },
 ];
 
 // One .crv source under examples/export/ each.
-export const EXPORT_EXAMPLES = ['article', 'interactive'];
+export const EXPORT_EXAMPLES = ['article', 'interactive', 'spans'];
 
-// Pandoc reader name + source file under examples/import/; output is <name>.crv.
+// Import examples. `src` is a committed source file read directly. `seed` is a
+// committed Markdown file rendered to a throwaway binary (`via`) in memory - the
+// repo stays all-text while still exercising a real binary reader (e.g. docx).
+// Output is always <name>.crv.
 export const IMPORT_EXAMPLES = [
   { name: 'paper', from: 'latex', src: 'paper.tex' },
   { name: 'notes', from: 'rst', src: 'notes.rst' },
+  { name: 'webpage', from: 'html', src: 'webpage.html' },
+  { name: 'report', from: 'docx', seed: 'report.md', via: 'docx' },
 ];
 
 // The .json golden is the pandoc-free guard: it comes straight from
@@ -67,6 +73,31 @@ function pandocToJson(pandoc, source, from) {
   return result.stdout;
 }
 
+/** Render a Markdown seed to a binary format (e.g. docx) in memory; returns a Buffer. */
+function pandocSeedToBinary(pandoc, seed, to) {
+  const result = spawnSync(pandoc, ['-f', 'markdown', '-t', to], {
+    input: seed,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(`pandoc -t ${to} (seed) failed: ${result.stderr}`);
+  }
+  return result.stdout;
+}
+
+/** pandoc -f <from> -t json over a binary Buffer; returns the JSON string. */
+function pandocBinaryToJson(pandoc, buffer, from) {
+  const result = spawnSync(pandoc, ['-f', from, '-t', 'json'], {
+    input: buffer,
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(`pandoc -f ${from} (binary) failed: ${result.stderr}`);
+  }
+  return result.stdout;
+}
+
 /**
  * Generate every output for one export example.
  * Returns [{ file, content }]. Pandoc-gated targets are skipped when
@@ -95,8 +126,15 @@ export function generateImport(spec, pandoc) {
   if (!pandoc) {
     return null;
   }
-  const source = readFileSync(join(examplesDir, 'import', spec.src), 'utf8');
-  const json = pandocToJson(pandoc, source, spec.from);
+  let json;
+  if (spec.seed) {
+    const seed = readFileSync(join(examplesDir, 'import', spec.seed), 'utf8');
+    const binary = pandocSeedToBinary(pandoc, seed, spec.via);
+    json = pandocBinaryToJson(pandoc, binary, spec.from);
+  } else {
+    const source = readFileSync(join(examplesDir, 'import', spec.src), 'utf8');
+    json = pandocToJson(pandoc, source, spec.from);
+  }
   const { carve } = pandocToCarve(json);
   const content = carve.endsWith('\n') ? carve : carve + '\n';
   return { file: join('import', `${spec.name}.crv`), content };
