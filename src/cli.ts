@@ -13,12 +13,19 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { carveToPandoc } from './index.js';
 
 function usage(exitCode: number): never {
-    const text = `Usage: pandoc-carve <input.crv | -> [options] [-- pandoc-args...]
+    const text = `Usage: pandoc-carve <input | -> [options] [-- pandoc-args...]
 
-Options:
+Export (Carve -> anything pandoc writes):
   -t, --to FORMAT    output format (default: json; any pandoc writer, or pdf)
+
+Import (anything pandoc reads -> Carve):
+  -f, --from FORMAT  input format (any pandoc reader, or json); output is Carve
+
+Common options:
   -o, --output FILE  output file (default: stdout; required for -t pdf)
-  -s, --standalone   produce a standalone document (pandoc -s)
+  -s, --standalone   produce a standalone document (pandoc -s; export only)
+  --roundtrip        stamp export with markers so a later import restores
+                     attribute placement exactly (visible in writer output)
   --pandoc PATH      pandoc executable (default: $PANDOC or "pandoc")
   -h, --help         show this help
 `;
@@ -29,8 +36,10 @@ Options:
 interface Args {
     input: string;
     to: string;
+    from?: string;
     output?: string;
     standalone: boolean;
+    roundtrip: boolean;
     pandocPath: string;
     passthrough: string[];
 }
@@ -40,6 +49,7 @@ function parseArgs(argv: string[]): Args {
         input: '',
         to: 'json',
         standalone: false,
+        roundtrip: false,
         pandocPath: process.env.PANDOC ?? 'pandoc',
         passthrough: [],
     };
@@ -53,10 +63,14 @@ function parseArgs(argv: string[]): Args {
             usage(0);
         } else if (a === '-t' || a === '--to') {
             args.to = argv[++i] ?? usage(1);
+        } else if (a === '-f' || a === '--from') {
+            args.from = argv[++i] ?? usage(1);
         } else if (a === '-o' || a === '--output') {
             args.output = argv[++i] ?? usage(1);
         } else if (a === '-s' || a === '--standalone') {
             args.standalone = true;
+        } else if (a === '--roundtrip') {
+            args.roundtrip = true;
         } else if (a === '--pandoc') {
             args.pandocPath = argv[++i] ?? usage(1);
         } else if (!args.input) {
@@ -74,10 +88,14 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
 
+    if (args.from && args.from !== 'carve') {
+        return importToCarve(args);
+    }
+
     const source =
         args.input === '-' ? readFileSync(0, 'utf8') : readFileSync(args.input, 'utf8');
 
-    const { doc, warnings } = carveToPandoc(source);
+    const { doc, warnings } = carveToPandoc(source, { roundtrip: args.roundtrip });
     for (const w of warnings) {
         process.stderr.write(`pandoc-carve: degraded: ${w}\n`);
     }
@@ -120,6 +138,42 @@ async function main(): Promise<void> {
         throw result.error;
     }
     process.exit(result.status ?? 0);
+}
+
+/** Reverse direction: pandoc-readable input -> Carve source. */
+async function importToCarve(args: Args): Promise<void> {
+    let json: string;
+    if (args.from === 'json') {
+        json = args.input === '-' ? readFileSync(0, 'utf8') : readFileSync(args.input, 'utf8');
+    } else {
+        const { spawnSync } = await import('node:child_process');
+        const pandocArgs = ['-f', args.from!, '-t', 'json', ...args.passthrough];
+        const input = args.input === '-' ? readFileSync(0) : readFileSync(args.input);
+        const result = spawnSync(args.pandocPath, pandocArgs, {
+            input,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+        });
+        if (result.error && (result.error as NodeJS.ErrnoException).code === 'ENOENT') {
+            process.stderr.write(
+                `pandoc-carve: pandoc executable not found ("${args.pandocPath}"). Install pandoc or use --pandoc PATH / $PANDOC. (-f json needs no pandoc.)\n`,
+            );
+            process.exit(2);
+        }
+        if (result.status !== 0) {
+            process.stderr.write(result.stderr ?? '');
+            process.exit(result.status ?? 1);
+        }
+        json = result.stdout;
+    }
+
+    const { pandocToCarve } = await import('./index.js');
+    const { carve, warnings } = pandocToCarve(json);
+    for (const w of warnings) {
+        process.stderr.write(`pandoc-carve: degraded: ${w}\n`);
+    }
+    if (args.output) writeFileSync(args.output, carve);
+    else process.stdout.write(carve);
 }
 
 main().catch((err: unknown) => {

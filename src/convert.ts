@@ -26,6 +26,16 @@ export interface ConvertResult {
     warnings: string[];
 }
 
+export interface ConvertOptions {
+    /**
+     * Stamp attr-wrapper Divs with a `carve-block` key-value marker so the
+     * reverse direction can restore the attrs onto the inner block. Off by
+     * default: the marker would otherwise leak into pandoc writer output
+     * (e.g. `carve-block="paragraph"` on an HTML div).
+     */
+    roundtrip?: boolean;
+}
+
 interface Ctx {
     warnings: string[];
     footnoteDefs: Record<string, CNode[]>;
@@ -33,6 +43,7 @@ interface Ctx {
     headings: Map<string, CNode[]>;
     /** true while emitting blocks of a tight list item */
     tight: boolean;
+    roundtrip: boolean;
 }
 
 function warn(ctx: Ctx, msg: string): void {
@@ -247,7 +258,13 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
         a &&
         (a.id || a.classes?.length || Object.keys(a.keyValues ?? {}).length)
     ) {
-        return [P.Div(toAttr(a), result)];
+        // In roundtrip mode the carve-block marker lets the reverse direction
+        // restore the attrs onto the inner block instead of keeping a wrapper.
+        const [id, classes, kvs] = toAttr(a);
+        const marked: [string, string][] = ctx.roundtrip
+            ? [...kvs, ['carve-block', n.type]]
+            : kvs;
+        return [P.Div([id, classes, marked], result)];
     }
     return result;
 }
@@ -549,12 +566,13 @@ function metaValue(key: string, raw: string): P.MetaValue {
 
 // --- Entry point ---
 
-export function convert(ast: CNode): ConvertResult {
+export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult {
     const ctx: Ctx = {
         warnings: [],
         footnoteDefs: (ast.footnoteDefs as Record<string, CNode[]> | undefined) ?? {},
         headings: new Map(),
         tight: false,
+        roundtrip: options.roundtrip ?? false,
     };
 
     // Pass 1: collect heading ids (explicit, plus computed slugs) for crossrefs.

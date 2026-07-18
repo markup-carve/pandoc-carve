@@ -1,23 +1,23 @@
 # pandoc-carve
 
-Carve → Pandoc bridge. Converts [Carve](https://github.com/markup-carve/carve)
-markup to Pandoc's JSON AST, unlocking every pandoc output format for Carve
-documents: LaTeX, Typst, DOCX, PDF, RST, JATS, EPUB, and dozens more.
+Bidirectional [Carve](https://github.com/markup-carve/carve) ↔ Pandoc bridge.
+
+**Export:** converts Carve markup to Pandoc's JSON AST, unlocking every pandoc
+output format for Carve documents: LaTeX, Typst, DOCX, PDF, RST, JATS, EPUB,
+and dozens more. **Import:** converts anything pandoc reads (DOCX, LaTeX, RST,
+Org, MediaWiki, HTML, Markdown, ...) into Carve source.
 
 ```
 .crv ──parse──▶ Carve AST ──carveToPandoc()──▶ Pandoc JSON ──pandoc -f json -t X──▶ .tex / .typ / .docx / …
+.docx / .tex / … ──pandoc -t json──▶ Pandoc JSON ──pandocToCarve()──▶ Carve AST ──renderCarve──▶ .crv
 ```
 
-## Why not `pandoc -f djot`?
-
-Carve is not valid Djot. Pandoc's Djot reader reads Carve's `/italic/` as
-literal text and remaps `_underline_` to emphasis. This bridge maps the parsed
-Carve AST node-by-node instead, so emphasis, admonitions, tables with spans,
-footnotes, math, and raw passthrough all arrive correctly.
-
-It also makes Carve's target-routed raw spans finally fire: `` `\alpha`{=latex} ``
-becomes a Pandoc `RawInline` that the LaTeX writer emits and every other writer
-drops - exactly the pandoc-Markdown semantics the syntax was born from.
+The bridge maps the parsed Carve AST node-by-node, so emphasis, admonitions,
+tables with spans, footnotes, math, and raw passthrough all arrive correctly.
+It also makes Carve's target-routed raw spans finally fire:
+`` `\alpha`{=latex} `` becomes a Pandoc `RawInline` that the LaTeX writer emits
+and every other writer drops - exactly the pandoc-Markdown semantics the syntax
+was born from.
 
 ## Install
 
@@ -48,6 +48,14 @@ pandoc-carve doc.crv -t json
 
 # Read from stdin, pass extra args through to pandoc after --
 cat doc.crv | pandoc-carve - -t latex -- --toc
+
+# IMPORT: anything pandoc reads -> Carve
+pandoc-carve report.docx -f docx -o report.crv
+pandoc-carve paper.tex -f latex -o paper.crv
+pandoc-carve README.md -f markdown -o README.crv
+
+# Import from a pre-made pandoc JSON AST (no pandoc needed)
+pandoc -f rst -t json doc.rst | pandoc-carve - -f json
 ```
 
 Anything Carve cannot map faithfully is reported on stderr as a
@@ -64,6 +72,23 @@ const { doc, warnings } = carveToPandoc('Hello /world/!');
 
 const json = carveToPandocJson('Hello /world/!'); // stringified doc
 ```
+
+The reverse direction takes a Pandoc document (object or JSON string) and
+returns Carve source, serialized by carve's own `renderCarve` (the `carve fmt`
+serializer), so output formatting carries fmt's guarantees:
+
+```js
+import { pandocToCarve } from '@markup-carve/pandoc-carve';
+
+const { carve, warnings } = pandocToCarve(pandocJsonString);
+```
+
+Round-trips are tested as a hard gate: `carve -> pandoc AST -> carve` must
+render byte-identical HTML to the original source across the test corpus.
+For exact restoration of attribute placement (`{.lead}` on a paragraph or
+list), export with `carveToPandoc(src, { roundtrip: true })` or the CLI's
+`--roundtrip` flag - it stamps wrapper divs with a `carve-block` marker the
+importer uses, at the cost of that marker being visible in writer output.
 
 Pipe the JSON to pandoc yourself:
 
@@ -91,9 +116,23 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 
 The complete node-by-node contract lives in the test goldens.
 
+## Why a bridge, not a pandoc reader?
+
+A native `Text.Pandoc.Readers.Carve` upstream would be a fourth full Carve
+parser, written in Haskell, outside the conformance loop that keeps the three
+official implementations byte-identical against the shared corpus. While the
+spec is on its 0.x line and still moving, that reader would drift on pandoc's
+release cadence and ship stale behavior. The bridge reuses the canonical,
+conformance-tested `@markup-carve/carve` parser instead - correct by
+construction, and it iterates in lockstep with the spec.
+
+A pandoc custom Lua reader has the same drift problem (it would reimplement
+the parser in Lua). Once the spec reaches 1.0 and stabilizes, contributing an
+upstream reader becomes attractive - with this bridge's node map and the
+conformance corpus as the oracle any port has to pass.
+
 ## Limitations
 
-- One direction only (Carve → Pandoc). No pandoc → Carve yet.
 - Ordered-list delimiter style (`1.` vs `1)`) is not distinguished by the Carve
   AST; pandoc's default delimiter is used.
 - Tier-3 visual extensions (mermaid, chart, code-group, list-table) arrive as
