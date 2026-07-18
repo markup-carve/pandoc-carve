@@ -1,0 +1,292 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { carveToPandoc } from '../dist/index.js';
+
+const blocks = (src) => carveToPandoc(src).doc.blocks;
+const firstInlines = (src) => blocks(src)[0].c;
+
+test('paragraph with word-split text', () => {
+  assert.deepEqual(firstInlines('Hello world'), [
+    { t: 'Str', c: 'Hello' },
+    { t: 'Space' },
+    { t: 'Str', c: 'world' },
+  ]);
+});
+
+test('emphasis family maps to native constructors', () => {
+  const xs = firstInlines('/i/ *b* /*bi*/ _u_ ~s~ =h= {^sup^} {,sub,}');
+  const tags = xs.filter((x) => x.t !== 'Space').map((x) => x.t);
+  assert.deepEqual(tags, [
+    'Emph',
+    'Strong',
+    'Strong', // bold-italic outer
+    'Underline',
+    'Strikeout',
+    'Span', // highlight
+    'Superscript',
+    'Subscript',
+  ]);
+  // bold-italic nests Emph inside Strong
+  assert.equal(xs.filter((x) => x.t === 'Strong')[1].c[0].t, 'Emph');
+  // highlight carries class "mark"
+  const mark = xs.find((x) => x.t === 'Span');
+  assert.deepEqual(mark.c[0][1], ['mark']);
+});
+
+test('heading with attributes', () => {
+  const [h] = blocks('{#intro .lead}\n## Setup');
+  assert.equal(h.t, 'Header');
+  assert.equal(h.c[0], 2);
+  assert.deepEqual(h.c[1], ['intro', ['lead'], []]);
+});
+
+test('code span and code block with language and title', () => {
+  const [para] = blocks('`x = 1`');
+  assert.equal(para.c[0].t, 'Code');
+  assert.equal(para.c[0].c[1], 'x = 1');
+
+  const [cb] = blocks('```python "greet.py"\ndef f(): pass\n```');
+  assert.equal(cb.t, 'CodeBlock');
+  assert.deepEqual(cb.c[0][1], ['python']);
+  assert.deepEqual(cb.c[0][2], [['title', 'greet.py']]);
+});
+
+test('links, autolinks, images', () => {
+  const [a] = firstInlines('[t](https://e.com "Ti")');
+  assert.equal(a.t, 'Link');
+  assert.deepEqual(a.c[2], ['https://e.com', 'Ti']);
+
+  const [auto] = firstInlines('<https://e.com>');
+  assert.equal(auto.t, 'Link');
+  assert.deepEqual(auto.c[0][1], ['uri']);
+
+  const [email] = firstInlines('<hi@e.com>');
+  assert.deepEqual(email.c[0][1], ['email']);
+
+  const [img] = firstInlines('inline ![alt text](i.png) here').filter((x) => x.t === 'Image');
+  assert.deepEqual(img.c[2], ['i.png', '']);
+  assert.deepEqual(img.c[1], [{ t: 'Str', c: 'alt' }, { t: 'Space' }, { t: 'Str', c: 'text' }]);
+});
+
+test('raw inline and raw block pass through with their format', () => {
+  const xs = firstInlines('x `\\alpha`{=latex} y `<b>`{=html}');
+  const raws = xs.filter((x) => x.t === 'RawInline');
+  assert.deepEqual(raws, [
+    { t: 'RawInline', c: ['latex', '\\alpha'] },
+    { t: 'RawInline', c: ['html', '<b>'] },
+  ]);
+
+  const [rb] = blocks('```=html\n<details>x</details>\n```');
+  assert.equal(rb.t, 'RawBlock');
+  assert.equal(rb.c[0], 'html');
+});
+
+test('math inline and display', () => {
+  const xs = firstInlines('$`e=mc^2`');
+  assert.deepEqual(xs[0], { t: 'Math', c: [{ t: 'InlineMath' }, 'e=mc^2'] });
+  const [dp] = blocks('$$`e^{i\\pi}+1=0`');
+  assert.equal(dp.c[0].c[0].t, 'DisplayMath');
+});
+
+test('footnotes: reference and inline resolve to Note', () => {
+  const xs = firstInlines('x[^n]\n\n[^n]: the /def/ here');
+  const note = xs.find((x) => x.t === 'Note');
+  assert.ok(note, 'reference note present');
+  assert.equal(note.c[0].t, 'Para');
+  assert.ok(note.c[0].c.some((i) => i.t === 'Emph'));
+
+  const xs2 = firstInlines('x^[inline note]');
+  const note2 = xs2.find((x) => x.t === 'Note');
+  assert.ok(note2, 'inline note present');
+});
+
+test('missing footnote definition degrades with warning', () => {
+  const r = carveToPandoc('x[^ghost]');
+  assert.ok(r.warnings.some((w) => w.includes('ghost')));
+  assert.ok(r.doc.blocks[0].c.some((i) => i.t === 'Superscript'));
+});
+
+test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
+  const [ol] = blocks('3. c\n4. d');
+  assert.equal(ol.t, 'OrderedList');
+  assert.equal(ol.c[0][0], 3);
+  assert.equal(ol.c[0][1].t, 'Decimal');
+
+  const [alpha] = blocks('a) x\nb) y');
+  assert.equal(alpha.c[0][1].t, 'LowerAlpha');
+
+  const [roman] = blocks('i. x\nii. y');
+  assert.equal(roman.c[0][1].t, 'LowerRoman');
+
+  const [tasks] = blocks('- [x] done\n- [_] todo');
+  assert.equal(tasks.t, 'BulletList');
+  assert.deepEqual(tasks.c[0][0].c.slice(0, 2), [{ t: 'Str', c: '☒' }, { t: 'Space' }]);
+  assert.deepEqual(tasks.c[1][0].c.slice(0, 2), [{ t: 'Str', c: '☐' }, { t: 'Space' }]);
+});
+
+test('tight list items become Plain, loose stay Para', () => {
+  const [tight] = blocks('- a\n- b');
+  assert.equal(tight.c[0][0].t, 'Plain');
+  const [loose] = blocks('- a\n\n- b');
+  assert.equal(loose.c[0][0].t, 'Para');
+});
+
+test('definition list', () => {
+  const [dl] = blocks(':: Term\n:  Definition body');
+  assert.equal(dl.t, 'DefinitionList');
+  const [term, defs] = dl.c[0];
+  assert.deepEqual(term[0], { t: 'Str', c: 'Term' });
+  assert.equal(defs[0][0].t, 'Para');
+});
+
+test('blockquote and thematic break', () => {
+  const [bq] = blocks('> quoted');
+  assert.equal(bq.t, 'BlockQuote');
+  const [, hr] = blocks('a\n\n---\n');
+  assert.equal(hr.t, 'HorizontalRule');
+});
+
+test('table: alignment colspecs, head/body split, caption', () => {
+  const [t] = blocks('|= L |=> R |=~ C |\n| 1 | 2 | 3 |\n^ Table 1: caption');
+  assert.equal(t.t, 'Table');
+  const colspecs = t.c[2].map((cs) => cs[0].t);
+  assert.deepEqual(colspecs, ['AlignDefault', 'AlignRight', 'AlignCenter']);
+  // caption
+  assert.equal(t.c[1][1][0].t, 'Plain');
+  // one head row, one body row
+  assert.equal(t.c[3][1].length, 1);
+  assert.equal(t.c[4][0][3].length, 1);
+});
+
+test('table span inversion: colspan and rowspan land on origin cell', () => {
+  const [t] = blocks('|= A |= B |\n| x  | <  |\n| ^  | y  |');
+  const bodyRows = t.c[4][0][3];
+  // row 1: single cell with colSpan 2
+  const row1Cells = bodyRows[0][1];
+  assert.equal(row1Cells.length, 1);
+  assert.equal(row1Cells[0][3], 2, 'colSpan');
+  assert.equal(row1Cells[0][2], 2, 'rowSpan (x also spans down via ^ below)');
+  // row 2: only the y cell remains
+  const row2Cells = bodyRows[1][1];
+  assert.equal(row2Cells.length, 1);
+});
+
+test('figure from captioned image; blockquote attribution', () => {
+  const [fig] = blocks('![alt](i.png)\n^ Figure 1: cap');
+  assert.equal(fig.t, 'Figure');
+  assert.equal(fig.c[2][0].c[0].t, 'Image');
+
+  const [qfig] = blocks('> wise words\n^ Author');
+  assert.equal(qfig.t, 'Figure');
+  assert.equal(qfig.c[2][0].t, 'BlockQuote');
+});
+
+test('admonition becomes classed Div with title paragraph', () => {
+  const [div] = blocks('::: tip "My Title"\nbody text\n:::');
+  assert.equal(div.t, 'Div');
+  assert.deepEqual(div.c[0][1], ['admonition', 'tip']);
+  assert.equal(div.c[1][0].c[0].t, 'Strong');
+});
+
+test('generic div keeps id and classes', () => {
+  const [div] = blocks('{#box .highlight}\n:::\nhi\n:::');
+  assert.deepEqual(div.c[0], ['box', ['highlight'], []]);
+});
+
+test('crossref resolves heading text; unresolved warns', () => {
+  const r = carveToPandoc('{#sec}\n# My Section\n\nSee </#sec>.');
+  const para = r.doc.blocks[1];
+  const link = para.c.find((i) => i.t === 'Link');
+  assert.deepEqual(link.c[2], ['#sec', '']);
+  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'My' }, { t: 'Space' }, { t: 'Str', c: 'Section' }]);
+  assert.equal(r.warnings.length, 0);
+
+  const bad = carveToPandoc('See </#nowhere>.');
+  assert.ok(bad.warnings.some((w) => w.includes('nowhere')));
+});
+
+test('mentions, tags, symbols, abbreviations, extensions degrade to classed spans', () => {
+  const r = carveToPandoc('Hi @alice about #release and :kbd[Ctrl] plus :heart:\n\n*[HTML]: HyperText\n\nHTML');
+  const xs = r.doc.blocks[0].c;
+  const spans = xs.filter((i) => i.t === 'Span');
+  const classes = spans.map((s) => s.c[0][1][0]);
+  assert.deepEqual(classes, ['mention', 'tag', 'ext-kbd', 'symbol']);
+  // abbreviation in second paragraph carries title kv
+  const abbr = r.doc.blocks[1].c.find((i) => i.t === 'Span');
+  assert.deepEqual(abbr.c[0][2], [['title', 'HyperText']]);
+  // degradations are warned, not silent
+  assert.ok(r.warnings.some((w) => w.includes('ext-kbd') || w.includes('kbd')));
+  assert.ok(r.warnings.some((w) => w.includes('heart')));
+});
+
+test('inline span keeps id and classes (codex finding 1)', () => {
+  const [span] = firstInlines('[x y]{#id .red}');
+  assert.equal(span.t, 'Span');
+  assert.deepEqual(span.c[0], ['id', ['red'], []]);
+  assert.deepEqual(span.c[1], [{ t: 'Str', c: 'x' }, { t: 'Space' }, { t: 'Str', c: 'y' }]);
+});
+
+test('block attrs on non-Attr blocks preserved via Div wrapper (codex finding 2)', () => {
+  const [pdiv] = blocks('{.lead}\nparagraph text');
+  assert.equal(pdiv.t, 'Div');
+  assert.deepEqual(pdiv.c[0], ['', ['lead'], []]);
+  assert.equal(pdiv.c[1][0].t, 'Para');
+
+  const [qdiv] = blocks('{#q}\n> quote');
+  assert.equal(qdiv.t, 'Div');
+  assert.equal(qdiv.c[0][0], 'q');
+  assert.equal(qdiv.c[1][0].t, 'BlockQuote');
+
+  const [ldiv] = blocks('{#list .fancy}\n- a\n- b');
+  assert.equal(ldiv.t, 'Div');
+  assert.equal(ldiv.c[1][0].t, 'BulletList');
+
+  // attr-carrying blocks do NOT get double-wrapped
+  const [h] = blocks('{#hid}\n# Head');
+  assert.equal(h.t, 'Header');
+});
+
+test('admonition merges its own attrs into the Div', () => {
+  const [div] = blocks('{#warn1 .urgent}\n::: warning\ncareful\n:::');
+  assert.equal(div.t, 'Div');
+  assert.equal(div.c[0][0], 'warn1');
+  assert.deepEqual(div.c[0][1], ['admonition', 'warning', 'urgent']);
+});
+
+test('critic markup maps to classed spans', () => {
+  const xs = firstInlines('{+ add +} {- del -} {~ old ~> new ~} {# note #}');
+  const spans = xs.filter((i) => i.t === 'Span');
+  const classes = spans.map((s) => s.c[0][1][0]);
+  assert.deepEqual(classes, ['insertion', 'deletion', 'substitution', 'comment-annotation']);
+});
+
+test('comments render nothing', () => {
+  const r = carveToPandoc('%% gone\n\nvisible %% trailing\n\n%%%\nblock comment\n%%%');
+  assert.equal(r.doc.blocks.length, 1);
+  const text = JSON.stringify(r.doc.blocks);
+  assert.ok(!text.includes('gone'));
+  assert.ok(!text.includes('block comment'));
+});
+
+test('frontmatter maps to typed meta', () => {
+  const r = carveToPandoc('---\ntitle: My Doc\nauthor: Jane\ntags: [a, b]\n---\nbody');
+  assert.equal(r.doc.meta.title.t, 'MetaInlines');
+  assert.equal(r.doc.meta.author.t, 'MetaList');
+  assert.equal(r.doc.meta.tags.t, 'MetaList');
+  assert.equal(r.doc.meta.tags.c.length, 2);
+});
+
+test('hard break and soft break', () => {
+  const xs = firstInlines('a\\\nb');
+  assert.ok(xs.some((i) => i.t === 'LineBreak'));
+  const xs2 = firstInlines('a\nb');
+  assert.ok(xs2.some((i) => i.t === 'SoftBreak'));
+});
+
+test('smart typography flows through as text', () => {
+  const text = JSON.stringify(firstInlines('an em --- dash ... and -> arrow (c)'));
+  assert.ok(text.includes('—'));
+  assert.ok(text.includes('…'));
+  assert.ok(text.includes('→'));
+  assert.ok(text.includes('©'));
+});

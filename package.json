@@ -1,0 +1,54 @@
+{
+  "name": "@markup-carve/pandoc-carve",
+  "version": "0.1.0",
+  "description": "Carve to Pandoc bridge: convert Carve markup to Pandoc's JSON AST and reach every pandoc output format (LaTeX, Typst, DOCX, PDF, ...)",
+  "keywords": [
+    "carve",
+    "pandoc",
+    "markup",
+    "converter",
+    "latex",
+    "typst",
+    "ast"
+  ],
+  "license": "MIT",
+  "author": "Mark Scherer",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "pandoc-carve": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/markup-carve/pandoc-carve.git"
+  },
+  "support": {
+    "issues": "https://github.com/markup-carve/pandoc-carve/issues",
+    "source": "https://github.com/markup-carve/pandoc-carve"
+  },
+  "dependencies": {
+    "@markup-carve/carve": "^0.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
