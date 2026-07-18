@@ -1,0 +1,66 @@
+\section{Introduction}
+
+This is a small, hand-written Carve document. It exercises the
+constructs that survive a round-trip through Pandoc into \emph{every}
+writer: emphasis, \textbf{strong} text, links, lists, tables, footnotes,
+math, and raw passthrough.
+
+Carve swaps the Markdown emphasis delimiters: \texttt{/italic/} is
+emphasis and \texttt{*bold*} is strong. A footnote reference looks like
+this.\footnote{Footnotes become Pandoc \texttt{Note} nodes and render
+  natively in LaTeX, Typst, DOCX, and the rest.}
+
+\subsection{Lists}
+
+\begin{itemize}
+\tightlist
+\item
+  First item
+\item
+  Second item, with \emph{emphasis}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    A nested item
+  \end{itemize}
+\item
+  Third item
+\end{itemize}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Ordered one
+\item
+  Ordered two
+\end{enumerate}
+
+\subsection{A table}
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Format & Binary? & Text golden? \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+LaTeX & no & yes \\
+Typst & no & yes \\
+DOCX & yes & no \\
+\end{longtable}
+
+\subsection{Math and raw passthrough}
+
+Inline math: \(e^{i\pi} + 1 = 0\).
+
+A target-routed raw span reaches only the LaTeX writer and is dropped by
+every other format: \LaTeX. This is the pandoc-Markdown raw-span
+semantics that Carve's \texttt{\{=format\}} syntax was born from.
+
+\begin{quote}
+A blockquote closes the tour. Every node above maps to a Pandoc AST
+node, so \texttt{pandoc} can then emit LaTeX, Typst, RST, DOCX, and
+dozens more.
+\end{quote}

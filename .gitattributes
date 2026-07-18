@@ -6,6 +6,8 @@
 
 # Exclude from Composer/npm dist tarballs and GitHub archive downloads
 /test export-ignore
+/examples export-ignore
+/scripts export-ignore
 /.github export-ignore
 /.gitignore export-ignore
 /.gitattributes export-ignore

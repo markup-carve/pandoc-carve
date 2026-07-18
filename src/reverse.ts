@@ -581,7 +581,15 @@ function figure(ctx: Ctx, c: never): CNode[] {
 
 function div(ctx: Ctx, c: never): CNode[] {
     const [a, body] = c as [Attr, PandocNode[]];
-    const [id, classes, kvs] = a;
+    const [id, classes, rawKvs] = a;
+
+    // Roundtrip mode carries a fenced div's grouping `[label]` as a kv rather
+    // than a flattened caption; pull it back out and rebuild the label token.
+    // The key's `.` cannot appear in a user-authored Carve attribute (the grammar
+    // rejects dotted keys), so this never consumes real user data.
+    const labelEntry = rawKvs.find(([k]) => k === 'carve.label');
+    const label = labelEntry?.[1];
+    const kvs = label !== undefined ? rawKvs.filter(([k]) => k !== 'carve.label') : rawKvs;
 
     // convert.ts's attr-wrapper marker: restore attrs onto the inner block.
     const marker = kvs.find(([k]) => k === 'carve-block');
@@ -616,13 +624,15 @@ function div(ctx: Ctx, c: never): CNode[] {
             }
         }
         node.children = blocks(ctx, children);
+        if (label !== undefined) node.label = label;
         const attrs = fromAttr([id, rest, kvs]);
         if (attrs) node.attrs = attrs;
         return [node];
     }
 
     const node: CNode = { type: 'div', children: blocks(ctx, body) };
-    const attrs = fromAttr(a);
+    if (label !== undefined) node.label = label;
+    const attrs = fromAttr([id, classes, kvs]);
     if (attrs) node.attrs = attrs;
     return [node];
 }

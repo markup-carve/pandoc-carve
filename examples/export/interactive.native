@@ -1,0 +1,487 @@
+[ Header
+    1
+    ( "" , [] , [] )
+    [ Str "Interactive"
+    , Space
+    , Str "constructs"
+    , Space
+    , Str "and"
+    , Space
+    , Str "graceful"
+    , Space
+    , Str "degradation"
+    ]
+, Para
+    [ Str "pandoc-carve"
+    , Space
+    , Str "runs"
+    , Space
+    , Strong [ Str "no" ]
+    , Space
+    , Str "renderer"
+    , Space
+    , Str "extensions"
+    , Space
+    , Str "-"
+    , Space
+    , Str "it"
+    , Space
+    , Str "maps"
+    , Space
+    , Str "the"
+    , Space
+    , Str "parsed"
+    , Space
+    , Str "core"
+    , Space
+    , Str "AST"
+    , Space
+    , Str "to"
+    , SoftBreak
+    , Str "Pandoc."
+    , Space
+    , Str "So"
+    , Space
+    , Str "every"
+    , Space
+    , Str "script-dependent"
+    , Space
+    , Str "construct"
+    , Space
+    , Str "(tabs,"
+    , Space
+    , Str "code-group,"
+    , Space
+    , Str "spoiler,"
+    , Space
+    , Str "mermaid,"
+    , SoftBreak
+    , Str "math)"
+    , Space
+    , Str "degrades"
+    , Space
+    , Str "to"
+    , Space
+    , Str "its"
+    , Space
+    , Str "static"
+    , Space
+    , Str "form"
+    , Space
+    , Str "on"
+    , Space
+    , Str "the"
+    , Space
+    , Str "way"
+    , Space
+    , Str "to"
+    , Space
+    , Str "LaTeX,"
+    , Space
+    , Str "Typst,"
+    , Space
+    , Str "DOCX,"
+    , Space
+    , Str "and"
+    , Space
+    , Str "the"
+    , Space
+    , Str "rest."
+    , SoftBreak
+    , Str "Content"
+    , Space
+    , Str "and"
+    , Space
+    , Str "structure"
+    , Space
+    , Str "survive;"
+    , Space
+    , Str "only"
+    , Space
+    , Str "the"
+    , Space
+    , Str "interaction"
+    , Space
+    , Str "is"
+    , Space
+    , Str "dropped."
+    , Space
+    , Str "This"
+    , Space
+    , Str "file"
+    , Space
+    , Str "is"
+    , Space
+    , Str "the"
+    , SoftBreak
+    , Str "worked"
+    , Space
+    , Str "proof"
+    , Space
+    , Str "-"
+    , Space
+    , Str "compare"
+    , Space
+    , Str "it"
+    , Space
+    , Str "against"
+    , Space
+    , Str "the"
+    , Space
+    , Str "generated"
+    , Space
+    , Code ( "" , [] , [] ) "interactive.tex"
+    , Space
+    , Str "/"
+    , Space
+    , Code ( "" , [] , [] ) ".typ"
+    , Space
+    , Str "/"
+    , SoftBreak
+    , Code ( "" , [] , [] ) ".native"
+    , Space
+    , Str "beside"
+    , Space
+    , Str "it."
+    ]
+, Header 2 ( "" , [] , [] ) [ Str "Tabs" ]
+, Para
+    [ Str "A"
+    , Space
+    , Code ( "" , [] , [] ) "[label]"
+    , Space
+    , Str "on"
+    , Space
+    , Str "each"
+    , Space
+    , Str "panel"
+    , Space
+    , Str "is"
+    , Space
+    , Str "a"
+    , Space
+    , Str "grouping"
+    , Space
+    , Str "identifier."
+    , Space
+    , Str "With"
+    , Space
+    , Str "a"
+    , Space
+    , Str "tabs"
+    , Space
+    , Str "extension"
+    , Space
+    , Str "it"
+    , SoftBreak
+    , Str "becomes"
+    , Space
+    , Str "a"
+    , Space
+    , Str "clickable"
+    , Space
+    , Str "tab"
+    , Space
+    , Str "button;"
+    , Space
+    , Str "here,"
+    , Space
+    , Str "with"
+    , Space
+    , Str "no"
+    , Space
+    , Str "extension,"
+    , Space
+    , Str "it"
+    , Space
+    , Str "degrades"
+    , Space
+    , Str "to"
+    , Space
+    , Str "a"
+    , SoftBreak
+    , Str "visible"
+    , Space
+    , Str "caption"
+    , Space
+    , Str "so"
+    , Space
+    , Str "a"
+    , Space
+    , Str "print"
+    , Space
+    , Str "reader"
+    , Space
+    , Str "can"
+    , Space
+    , Str "still"
+    , Space
+    , Str "tell"
+    , Space
+    , Str "the"
+    , Space
+    , Str "panels"
+    , Space
+    , Str "apart."
+    ]
+, Div
+    ( "" , [ "admonition" , "tabs" ] , [] )
+    [ Div
+        ( "" , [ "admonition" , "tab" ] , [] )
+        [ Para [ Strong [ Str "Installation" ] ]
+        , Para
+            [ Str "Run"
+            , Space
+            , Code
+                ( "" , [] , [] )
+                "npm install @markup-carve/pandoc-carve"
+            , Str "."
+            ]
+        ]
+    , Div
+        ( "" , [ "admonition" , "tab" ] , [] )
+        [ Para [ Strong [ Str "Usage" ] ]
+        , Para
+            [ Str "Call"
+            , Space
+            , Str "the"
+            , Space
+            , Emph [ Str "converter" ]
+            , Space
+            , Str "on"
+            , Space
+            , Str "your"
+            , Space
+            , Code ( "" , [] , [] ) ".crv"
+            , Space
+            , Str "source."
+            ]
+        ]
+    ]
+, Header
+    2 ( "" , [] , [] ) [ Str "Code" , Space , Str "group" ]
+, Para
+    [ Str "Same"
+    , Space
+    , Str "grouping"
+    , Space
+    , Str "mechanism,"
+    , Space
+    , Str "code"
+    , Space
+    , Str "panels"
+    , Space
+    , Str "instead"
+    , Space
+    , Str "of"
+    , Space
+    , Str "prose."
+    , Space
+    , Str "Each"
+    , Space
+    , Str "fence"
+    , Space
+    , Str "keeps"
+    , Space
+    , Str "its"
+    , SoftBreak
+    , Str "language"
+    , Space
+    , Str "(so"
+    , Space
+    , Str "syntax"
+    , Space
+    , Str "highlighting"
+    , Space
+    , Str "survives"
+    , Space
+    , Str "every"
+    , Space
+    , Str "writer);"
+    , Space
+    , Str "the"
+    , Space
+    , Str "panels"
+    , Space
+    , Str "stack."
+    ]
+, Div
+    ( "" , [ "admonition" , "code-group" ] , [] )
+    [ CodeBlock
+        ( "" , [ "js" ] , [] ) "export default { port: 3000 };"
+    , CodeBlock ( "" , [ "json" ] , [] ) "{ \"port\": 3000 }"
+    ]
+, Header 2 ( "" , [] , [] ) [ Str "Spoiler" ]
+, Para
+    [ Str "A"
+    , Space
+    , Str "quoted"
+    , Space
+    , Str "title"
+    , Space
+    , Str "survives"
+    , Space
+    , Str "as"
+    , Space
+    , Str "a"
+    , Space
+    , Str "caption;"
+    , Space
+    , Str "the"
+    , Space
+    , Str "\8220hide"
+    , Space
+    , Str "until"
+    , Space
+    , Str "revealed\8221"
+    , Space
+    , Str "interaction"
+    , Space
+    , Str "is"
+    , SoftBreak
+    , Str "meaningless"
+    , Space
+    , Str "offline,"
+    , Space
+    , Str "so"
+    , Space
+    , Str "the"
+    , Space
+    , Str "body"
+    , Space
+    , Str "is"
+    , Space
+    , Str "simply"
+    , Space
+    , Str "shown."
+    ]
+, Div
+    ( "" , [ "admonition" , "spoiler" ] , [] )
+    [ Para [ Strong [ Str "Answer" ] ]
+    , Para
+        [ Str "The"
+        , Space
+        , Str "hidden"
+        , Space
+        , Emph [ Str "answer" ]
+        , Space
+        , Str "is"
+        , Space
+        , Str "42."
+        ]
+    ]
+, Header 2 ( "" , [] , [] ) [ Str "Disclosure" ]
+, Div
+    ( "" , [ "admonition" , "details" ] , [] )
+    [ Para [ Strong [ Str "Show" , Space , Str "details" ] ]
+    , Para
+        [ Str "A"
+        , Space
+        , Str "disclosure"
+        , Space
+        , Str "carries"
+        , Space
+        , Str "its"
+        , Space
+        , Str "title"
+        , Space
+        , Str "and"
+        , Space
+        , Str "body"
+        , Space
+        , Str "through"
+        , Space
+        , Str "as"
+        , Space
+        , Str "a"
+        , Space
+        , Str "labelled"
+        , Space
+        , Str "block."
+        ]
+    ]
+, Header
+    2
+    ( "" , [] , [] )
+    [ Str "Mermaid" , Space , Str "and" , Space , Str "math" ]
+, Para
+    [ Str "The"
+    , Space
+    , Str "diagram"
+    , Space
+    , Str "source"
+    , Space
+    , Str "is"
+    , Space
+    , Str "never"
+    , Space
+    , Str "lost"
+    , Space
+    , Str "-"
+    , Space
+    , Str "it"
+    , Space
+    , Str "stays"
+    , Space
+    , Str "a"
+    , Space
+    , Str "fenced"
+    , Space
+    , Str "code"
+    , Space
+    , Str "block"
+    , Space
+    , Str "that"
+    , Space
+    , Str "a"
+    , Space
+    , Str "Markdown"
+    , SoftBreak
+    , Str "host"
+    , Space
+    , Str "can"
+    , Space
+    , Str "re-render,"
+    , Space
+    , Str "and"
+    , Space
+    , Str "a"
+    , Space
+    , Str "build"
+    , Space
+    , Str "step"
+    , Space
+    , Str "can"
+    , Space
+    , Str "pre-render"
+    , Space
+    , Str "to"
+    , Space
+    , Str "an"
+    , Space
+    , Str "image"
+    , Space
+    , Str "for"
+    , Space
+    , Str "PDF."
+    ]
+, CodeBlock
+    ( "" , [ "mermaid" ] , [] )
+    "graph TD; A[Carve] --> B[Pandoc]; B --> C[LaTeX];"
+, Para
+    [ Str "Inline"
+    , Space
+    , Str "math"
+    , Space
+    , Str "keeps"
+    , Space
+    , Str "its"
+    , Space
+    , Str "source"
+    , Space
+    , Str "too:"
+    , Space
+    , Math InlineMath "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}"
+    , Str "."
+    ]
+]

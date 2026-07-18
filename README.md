@@ -110,11 +110,14 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
 | Images/quotes with `^ caption` lines | Figure |
 | `::: note` admonitions | Div `.admonition .note` (+ title paragraph) |
+| Tabs / code-group panels, grouping `[label]` | Div; each `[label]` becomes a bold caption so panels stay distinguishable (graceful degradation) |
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
 | `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
 | Frontmatter `title:`/`author:`/`date:`/`tags:` | Meta |
 
-The complete node-by-node contract lives in the test goldens.
+The complete node-by-node contract lives in the test goldens. Worked
+input/output pairs in both directions - including how interactive constructs
+degrade for print formats - are in [`examples/`](examples/README.md).
 
 ## Why a bridge, not a pandoc reader?
 

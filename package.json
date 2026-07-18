@@ -33,6 +33,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "examples:build": "npm run build && node scripts/build-examples.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
