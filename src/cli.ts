@@ -26,6 +26,8 @@ Common options:
   -s, --standalone   produce a standalone document (pandoc -s; export only)
   --roundtrip        stamp export with markers so a later import restores
                      attribute placement exactly (visible in writer output)
+  --list-table       convert ::: list-table blocks to real tables (export)
+  --symbols FILE     JSON map resolving :name: symbols to text (export)
   --pandoc PATH      pandoc executable (default: $PANDOC or "pandoc")
   -h, --help         show this help
 `;
@@ -40,6 +42,8 @@ interface Args {
     output?: string;
     standalone: boolean;
     roundtrip: boolean;
+    listTable: boolean;
+    symbolsFile?: string;
     pandocPath: string;
     passthrough: string[];
 }
@@ -50,6 +54,7 @@ function parseArgs(argv: string[]): Args {
         to: 'json',
         standalone: false,
         roundtrip: false,
+        listTable: false,
         pandocPath: process.env.PANDOC ?? 'pandoc',
         passthrough: [],
     };
@@ -71,6 +76,10 @@ function parseArgs(argv: string[]): Args {
             args.standalone = true;
         } else if (a === '--roundtrip') {
             args.roundtrip = true;
+        } else if (a === '--list-table') {
+            args.listTable = true;
+        } else if (a === '--symbols') {
+            args.symbolsFile = argv[++i] ?? usage(1);
         } else if (a === '--pandoc') {
             args.pandocPath = argv[++i] ?? usage(1);
         } else if (!args.input) {
@@ -95,7 +104,14 @@ async function main(): Promise<void> {
     const source =
         args.input === '-' ? readFileSync(0, 'utf8') : readFileSync(args.input, 'utf8');
 
-    const { doc, warnings } = carveToPandoc(source, { roundtrip: args.roundtrip });
+    const symbols = args.symbolsFile
+        ? (JSON.parse(readFileSync(args.symbolsFile, 'utf8')) as Record<string, string>)
+        : undefined;
+    const { doc, warnings } = carveToPandoc(source, {
+        roundtrip: args.roundtrip,
+        listTable: args.listTable,
+        symbols,
+    });
     for (const w of warnings) {
         process.stderr.write(`pandoc-carve: degraded: ${w}\n`);
     }

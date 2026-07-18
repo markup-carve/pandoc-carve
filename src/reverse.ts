@@ -470,12 +470,6 @@ function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
                 continue;
             }
             const [, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
-            let effRowSpan = rowSpan;
-            let effColSpan = colSpan;
-            if (rowSpan > 1 && colSpan > 1) {
-                warn(ctx, `table: cell at row ${r + 1}, col ${col + 1} spans both directions - clipped to colspan (Carve's grid cannot express the combination reliably)`);
-                effRowSpan = 1;
-            }
             const cell: CNode = {
                 type: 'table-cell',
                 header: isHeader,
@@ -484,13 +478,17 @@ function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
             const align = ALIGN_BACK[cellAlign.t] ?? (isHeader ? colAligns[col] : '');
             if (align) cell.align = align;
             cells.push(cell);
-            for (let j = 1; j < effColSpan && col + j < nCols; j++) {
+            for (let j = 1; j < colSpan && col + j < nCols; j++) {
                 cells.push({ type: 'table-cell', header: isHeader, children: [], span: 'colspan' });
             }
-            for (let k = 1; k < effRowSpan && r + k < allRaw.length; k++) {
-                pending[r + k]![col] = 'rowspan';
+            // A 2D block gets a rowspan continuation at EVERY covered column
+            // of the lower rows - that is how Carve's grid expresses it.
+            for (let k = 1; k < rowSpan && r + k < allRaw.length; k++) {
+                for (let j = 0; j < colSpan && col + j < nCols; j++) {
+                    pending[r + k]![col + j] = 'rowspan';
+                }
             }
-            col += effColSpan - 1;
+            col += colSpan - 1;
         }
         rows.push({ type: 'table-row', cells });
     }

@@ -34,6 +34,17 @@ export interface ConvertOptions {
      * (e.g. `carve-block="paragraph"` on an HTML div).
      */
     roundtrip?: boolean;
+    /**
+     * Resolve `:name:` symbols to replacement text (mirrors the renderer's
+     * symbols map). Unresolved symbols degrade to a classed Span + warning.
+     */
+    symbols?: Record<string, string>;
+    /**
+     * Convert `::: list-table` blocks to real Pandoc tables (the listTable
+     * extension's semantics) instead of the degraded Div-of-lists form.
+     * Pandoc cells hold full blocks, so nothing is flattened.
+     */
+    listTable?: boolean;
 }
 
 interface Ctx {
@@ -44,6 +55,8 @@ interface Ctx {
     /** true while emitting blocks of a tight list item */
     tight: boolean;
     roundtrip: boolean;
+    symbols: Record<string, string>;
+    listTable: boolean;
 }
 
 function warn(ctx: Ctx, msg: string): void {
@@ -185,7 +198,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         }
         case 'symbol': {
             const name = String(n.name ?? '');
-            warn(ctx, `symbol: :${name}: has no renderer map here - emitting literal source form`);
+            const mapped = ctx.symbols[name];
+            if (mapped !== undefined) return textInlines(mapped);
+            warn(ctx, `symbol: :${name}: has no entry in the symbols map - emitting literal source form`);
             return [P.Span(P.attr(undefined, ['symbol'], [['data-symbol', name]]), [P.Str(`:${name}:`)])];
         }
         case 'abbreviation': {
@@ -301,6 +316,11 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return figure(ctx, n);
         case 'admonition': {
             const kind = String(n.kind ?? 'note');
+            if (kind === 'list-table' && ctx.listTable) {
+                const converted = listTableToTable(ctx, n);
+                if (converted) return [converted];
+                warn(ctx, 'list-table: structure not table-shaped - kept as the degraded Div (content preserved)');
+            }
             const title = Array.isArray(n.title)
                 ? [P.Para([P.Strong(inlines(ctx, n.title as CNode[]))])]
                 : [];
@@ -428,8 +448,13 @@ function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
     const firstRow = rows[0] ?? [];
     const colAligns: P.Alignment[] = firstRow.map((c) => ALIGN[c.align ?? ''] ?? 'AlignDefault');
 
-    // origin[r][c] -> the PCell that covers grid position (r, c).
-    const origin: (P.PCell | undefined)[][] = rows.map(() => []);
+    // origin[r][c] -> the origin record covering grid position (r, c).
+    interface Origin {
+        cell: P.PCell;
+        row: number;
+        col: number;
+    }
+    const origin: (Origin | undefined)[][] = rows.map(() => []);
     const emitted: (P.PCell | null)[][] = rows.map((row) => row.map(() => null));
 
     for (let r = 0; r < rows.length; r++) {
@@ -439,7 +464,9 @@ function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
             if (cc.span === 'colspan') {
                 const org = origin[r]![c - 1];
                 if (org) {
-                    org.colSpan++;
+                    // max() keeps 2D blocks correct: interior continuations of
+                    // a lower row must not widen the origin again.
+                    if (r === org.row) org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
                     origin[r]![c] = org;
                     continue;
                 }
@@ -447,12 +474,14 @@ function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
             } else if (cc.span === 'rowspan') {
                 const org = r > 0 ? origin[r - 1]![c] : undefined;
                 if (org) {
-                    const originInHead = findCellRow(emitted, org) < headCount;
+                    const originInHead = org.row < headCount;
                     const contInBody = r >= headCount;
                     if (originInHead && contInBody) {
                         warn(ctx, `table: rowspan crossing the header/body boundary at row ${r + 1}, col ${c + 1} - clipped to an empty body cell (pandoc cannot represent it)`);
                     } else {
-                        org.rowSpan++;
+                        // max(): a 2D block has one rowspan continuation per
+                        // covered column - count rows, not continuations.
+                        org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
                         origin[r]![c] = org;
                         continue;
                     }
@@ -464,7 +493,7 @@ function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
                 ? [P.Plain(untight(ctx, () => inlines(ctx, cc.children)))]
                 : [];
             const pc = P.cell(cellBlocks, ALIGN[cc.align ?? ''] ?? 'AlignDefault');
-            origin[r]![c] = pc;
+            origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;
         }
     }
@@ -486,11 +515,112 @@ function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
     );
 }
 
-function findCellRow(emitted: (P.PCell | null)[][], target: P.PCell): number {
-    for (let r = 0; r < emitted.length; r++) {
-        if (emitted[r]!.includes(target)) return r;
+// --- List tables (listTable extension semantics) ---
+
+/** Sole-content span marker of a list-table cell: `<` joins left, `^` joins up. */
+function spanMarker(cellBlocks: CNode[]): 'colspan' | 'rowspan' | null {
+    if (cellBlocks.length !== 1) return null;
+    const only = cellBlocks[0]!;
+    if (only.type !== 'paragraph') return null;
+    const children = (only.children as CNode[] | undefined) ?? [];
+    if (children.length !== 1) return null;
+    const t = children[0]!;
+    if (t.type !== 'text') return null;
+    const v = String(t.value).trim();
+    return v === '<' ? 'colspan' : v === '^' ? 'rowspan' : null;
+}
+
+/**
+ * Resolve `header-rows` like the canonical listTable extension: absent -> 0,
+ * boolean form `{header-rows}` (stored as "") -> 1, explicit number -> count.
+ */
+function headerCount(value: string | undefined): number {
+    if (value === undefined) return 0;
+    if (value.trim() === '') return 1;
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+}
+
+/**
+ * Returns null when the block is not strictly table-shaped (extra siblings
+ * around the outer list, or a row item that is not exactly one nested list) -
+ * mirroring the canonical extension, which defers those to the degraded Div
+ * so authored content is never dropped.
+ */
+function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
+    const a = (n.attrs ?? {}) as CAttrs;
+    const headerRows = headerCount(a.keyValues?.['header-rows']);
+    const caption = Array.isArray(n.title) ? inlines(ctx, n.title as CNode[]) : null;
+
+    // Strict shape: exactly one child, the outer list; every row item holds
+    // exactly one child, the inner cell list.
+    const children = (n.children as CNode[] | undefined) ?? [];
+    if (children.length !== 1 || children[0]!.type !== 'list') return null;
+    const rowItems = (children[0]!.items as CNode[] | undefined) ?? [];
+    const grid: CNode[][][] = [];
+    for (const rowItem of rowItems) {
+        const rowChildren = (rowItem.children as CNode[] | undefined) ?? [];
+        if (rowChildren.length !== 1 || rowChildren[0]!.type !== 'list') return null;
+        grid.push(
+            ((rowChildren[0]!.items as CNode[] | undefined) ?? []).map(
+                (cellItem) => (cellItem.children as CNode[] | undefined) ?? [],
+            ),
+        );
     }
-    return -1;
+
+    const nCols = Math.max(0, ...grid.map((r) => r.length));
+
+    interface Origin {
+        cell: P.PCell;
+        row: number;
+        col: number;
+    }
+    const origin: (Origin | undefined)[][] = grid.map(() => []);
+    const emitted: (P.PCell | null)[][] = grid.map((r) => r.map(() => null));
+
+    for (let r = 0; r < grid.length; r++) {
+        for (let c = 0; c < grid[r]!.length; c++) {
+            const cellBlocks = grid[r]![c]!;
+            const marker = spanMarker(cellBlocks);
+            if (marker === 'colspan' && origin[r]![c - 1]) {
+                const org = origin[r]![c - 1]!;
+                if (r === org.row) org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
+                origin[r]![c] = org;
+                continue;
+            }
+            if (marker === 'rowspan' && r > 0 && origin[r - 1]![c]) {
+                const org = origin[r - 1]![c]!;
+                const crossesHead = org.row < headerRows && r >= headerRows;
+                if (!crossesHead) {
+                    org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
+                    origin[r]![c] = org;
+                    continue;
+                }
+                warn(ctx, `list-table: rowspan crossing the header/body boundary at row ${r + 1} - clipped`);
+            }
+            const pc = P.cell(untight(ctx, () => blocks(ctx, cellBlocks)));
+            origin[r]![c] = { cell: pc, row: r, col: c };
+            emitted[r]![c] = pc;
+        }
+    }
+
+    const toRows = (from: number, to: number): P.PCell[][] => {
+        const out: P.PCell[][] = [];
+        for (let r = from; r < to; r++) {
+            out.push(emitted[r]!.filter((x): x is P.PCell => x !== null));
+        }
+        return out;
+    };
+
+    const head = Math.min(headerRows, grid.length);
+    const [id, classes, kvs] = toAttr(a);
+    return P.Table(
+        [id, classes, kvs.filter(([k]) => k !== 'header-rows')],
+        caption,
+        Array<P.Alignment>(nCols).fill('AlignDefault'),
+        toRows(0, head),
+        toRows(head, grid.length),
+    );
 }
 
 // --- Figures ---
@@ -573,6 +703,8 @@ export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult
         headings: new Map(),
         tight: false,
         roundtrip: options.roundtrip ?? false,
+        symbols: options.symbols ?? {},
+        listTable: options.listTable ?? false,
     };
 
     // Pass 1: collect heading ids (explicit, plus computed slugs) for crossrefs.

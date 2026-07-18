@@ -131,12 +131,26 @@ the parser in Lua). Once the spec reaches 1.0 and stabilizes, contributing an
 upstream reader becomes attractive - with this bridge's node map and the
 conformance corpus as the oracle any port has to pass.
 
+## Options
+
+```js
+carveToPandoc(src, {
+  roundtrip: true,               // stamp attr wrappers for exact re-import
+  listTable: true,               // ::: list-table -> real Table (full block cells)
+  symbols: { heart: '♥' },       // resolve :name: symbols like the renderer would
+});
+```
+
+CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
+
 ## Limitations
 
 - Ordered-list delimiter style (`1.` vs `1)`) is not distinguished by the Carve
   AST; pandoc's default delimiter is used.
-- Tier-3 visual extensions (mermaid, chart, code-group, list-table) arrive as
-  their degraded block forms (code blocks / divs), same as Carve's static mode.
+- Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
+  degraded block forms (code blocks / divs), same as Carve's static mode.
+  `list-table` is the exception: opt in with `listTable: true` / `--list-table`
+  to get a real Pandoc table with full block content per cell.
 
 ## License
 

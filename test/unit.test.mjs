@@ -171,6 +171,60 @@ test('table span inversion: colspan and rowspan land on origin cell', () => {
   assert.equal(row2Cells.length, 1);
 });
 
+test('2D table span: rowspan+colspan block counts rows, not continuations', () => {
+  const [t] = blocks('|= A |= B |= C |\n| x | < | c1 |\n| ^ | ^ | c2 |');
+  const bodyRows = t.c[4][0][3];
+  const [rowSpan, colSpan] = [bodyRows[0][1][0][2], bodyRows[0][1][0][3]];
+  assert.equal(rowSpan, 2, 'rowSpan = rows covered');
+  assert.equal(colSpan, 2, 'colSpan = cols covered');
+  // row 2 has only the c2 cell left
+  assert.equal(bodyRows[1][1].length, 1);
+});
+
+test('symbols option resolves :name:, unmapped still degrades', () => {
+  const r = carveToPandoc('a :heart: b :ghost: c', { symbols: { heart: '♥' } });
+  const json = JSON.stringify(r.doc.blocks);
+  assert.ok(json.includes('♥'), 'mapped symbol replaced');
+  assert.ok(json.includes('data-symbol'), 'unmapped still classed span');
+  assert.ok(!r.warnings.some((w) => w.includes('heart')), 'no warning for mapped');
+  assert.ok(r.warnings.some((w) => w.includes('ghost')), 'warning for unmapped');
+});
+
+test('listTable option converts ::: list-table to a real Table', () => {
+  const src = '{header-rows=1}\n::: list-table "Cap"\n- - A\n  - B\n- - EMEA\n  - Strong.\n\n    Second para.\n- - APAC\n  - <\n:::';
+  // default: degraded Div
+  const [div] = blocks(src);
+  assert.equal(div.t, 'Div');
+  // opt-in: real table with head row, caption, colspan, block cells
+  const [t] = carveToPandoc(src, { listTable: true }).doc.blocks;
+  assert.equal(t.t, 'Table');
+  assert.equal(t.c[1][1][0].c[0].c, 'Cap');
+  assert.equal(t.c[3][1].length, 1, 'one header row');
+  const bodyRows = t.c[4][0][3];
+  assert.equal(bodyRows.length, 2);
+  // EMEA row second cell holds TWO Para blocks (multi-block cell)
+  assert.equal(bodyRows[0][1][1][4].length, 2);
+  // APAC row: single cell with colSpan 2
+  assert.equal(bodyRows[1][1].length, 1);
+  assert.equal(bodyRows[1][1][0][3], 2, 'colspan from < marker');
+});
+
+test('listTable: boolean {header-rows} means one header row (codex finding)', () => {
+  const src = '{header-rows}\n::: list-table\n- - A\n- - 1\n:::';
+  const [t] = carveToPandoc(src, { listTable: true }).doc.blocks;
+  assert.equal(t.t, 'Table');
+  assert.equal(t.c[3][1].length, 1, 'boolean form promotes first row to header');
+});
+
+test('listTable: malformed structure falls back to Div, content preserved (codex finding)', () => {
+  const src = '::: list-table\nstray paragraph\n\n- - A\n- - 1\n:::';
+  const r = carveToPandoc(src, { listTable: true });
+  const [div] = r.doc.blocks;
+  assert.equal(div.t, 'Div', 'defers to degraded Div');
+  assert.ok(JSON.stringify(div).includes('stray'), 'stray content kept');
+  assert.ok(r.warnings.some((w) => w.includes('not table-shaped')));
+});
+
 test('figure from captioned image; blockquote attribution', () => {
   const [fig] = blocks('![alt](i.png)\n^ Figure 1: cap');
   assert.equal(fig.t, 'Figure');

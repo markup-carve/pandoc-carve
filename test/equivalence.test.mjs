@@ -34,6 +34,7 @@ const snippets = [
   '|= A |=> B |\n| 1 | 2 |',
   '|= A |= B |= C |\n| x | < | z |',
   '|= A |= B |\n| x | y |\n| ^ | z |',
+  '|= A |= B |= C |\n| x | < | c1 |\n| ^ | ^ | c2 |',
   'note[^n]\n\n[^n]: def',
   'inline^[note here]',
   '$`x^2` and $$`\\sum x`',
