@@ -50,6 +50,9 @@ const snippets = [
   '{#sec}\n# Sec\n\n</#sec>',
   '[spanned]{#sid .red}',
   '{.lead}\nattributed paragraph',
+  '*[HTML]: HyperText Markup\n\nHTML is neat',
+  '![alt](i.png "My Title")',
+  '- $`a^2`\n- inline^[note]',
 ];
 
 for (const src of snippets) {

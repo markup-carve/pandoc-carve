@@ -330,6 +330,9 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         }
         case 'div':
             return [P.Div(toAttr(n.attrs), untight(ctx, () => blocks(ctx, n.children as CNode[])))];
+        case 'image':
+            // A sole image on its own line is a block-level node in Carve.
+            return [P.Para(inline(ctx, n))];
         case 'comment':
         case 'abbreviation-def':
             return [];

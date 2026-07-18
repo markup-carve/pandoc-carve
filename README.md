@@ -146,7 +146,14 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 ## Limitations
 
 - Ordered-list delimiter style (`1.` vs `1)`) is not distinguished by the Carve
-  AST; pandoc's default delimiter is used.
+  AST (and `renderCarve` always writes `1.`); pandoc's default delimiter is
+  used. Fixable only upstream (an AST `delim` field + fmt support).
+- Attribute order inside `{...}` is normalized to `#id .class key=val` on
+  round-trip - pandoc's Attr has fixed slots, so the author's original order
+  is not representable. Semantics are unchanged.
+- Import fidelity is bounded by `renderCarve` (carve fmt): the bridge hands it
+  a byte-exact AST, but known fmt issues (e.g. trailing whitespace inside code
+  blocks, carve-js issue 340) surface in the serialized output.
 - Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
   degraded block forms (code blocks / divs), same as Carve's static mode.
   `list-table` is the exception: opt in with `listTable: true` / `--list-table`

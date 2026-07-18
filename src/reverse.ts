@@ -25,6 +25,8 @@ interface Ctx {
     warnings: string[];
     footnoteDefs: Record<string, CNode[]>;
     noteCounter: number;
+    /** abbr -> expansion, collected so renderCarve gets the `*[abbr]:` defs */
+    abbrevDefs: Map<string, string>;
 }
 
 function warn(ctx: Ctx, msg: string): void {
@@ -223,7 +225,11 @@ function span(ctx: Ctx, c: never): CNode[] {
             break;
         case 'abbr':
             if (kv['title']) {
-                return [{ type: 'abbreviation', abbr: stringify(xs), expansion: kv['title'] }];
+                const abbr = stringify(xs);
+                // renderCarve only re-emits `*[abbr]: expansion` definitions;
+                // the inline node alone would serialize as plain text.
+                ctx.abbrevDefs.set(abbr, kv['title']);
+                return [{ type: 'abbreviation', abbr, expansion: kv['title'] }];
             }
             break;
         case 'insertion':
@@ -655,8 +661,11 @@ function metaValueToYaml(value: PandocNode): string | null {
 // --- Entry point ---
 
 export function pandocToCarve(doc: PandocDoc): ReverseResult {
-    const ctx: Ctx = { warnings: [], footnoteDefs: {}, noteCounter: 0 };
+    const ctx: Ctx = { warnings: [], footnoteDefs: {}, noteCounter: 0, abbrevDefs: new Map() };
     const children = blocks(ctx, doc.blocks);
+    for (const [abbr, expansion] of [...ctx.abbrevDefs].reverse()) {
+        children.unshift({ type: 'abbreviation-def', abbr, expansion });
+    }
     const ast: CNode = { type: 'document', children };
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
     const yaml = metaToYaml(ctx, doc.meta ?? {});
