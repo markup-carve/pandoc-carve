@@ -21,6 +21,7 @@ export const examplesDir = join(here, '..', 'examples');
 export const EXPORT_TARGETS = [
   { target: 'json', ext: 'json', needsPandoc: false },
   { target: 'native', ext: 'native', needsPandoc: true },
+  { target: 'gfm', ext: 'md', needsPandoc: true },
   { target: 'latex', ext: 'tex', needsPandoc: true },
   { target: 'typst', ext: 'typ', needsPandoc: true },
   { target: 'rst', ext: 'rst', needsPandoc: true },

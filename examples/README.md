@@ -13,6 +13,7 @@ examples/
     article.crv      SOURCE (hand-written)
     article.json     Pandoc JSON AST      (carveToPandocJson; compact, no pandoc needed)
     article.native   Pandoc native AST    (pandoc -t native)
+    article.md       GitHub Markdown       (pandoc -t gfm)
     article.tex      LaTeX                 (pandoc -t latex)
     article.typ      Typst                 (pandoc -t typst)
     article.rst      reStructuredText      (pandoc -t rst)
