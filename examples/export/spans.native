@@ -1,0 +1,253 @@
+[ Header
+    1 ( "" , [] , [] ) [ Str "Table" , Space , Str "spans" ]
+, Para
+    [ Str "Carve"
+    , Space
+    , Str "tables"
+    , Space
+    , Str "carry"
+    , Space
+    , Str "cell"
+    , Space
+    , Str "spans"
+    , Space
+    , Str "with"
+    , Space
+    , Str "two"
+    , Space
+    , Str "markers:"
+    , Space
+    , Code ( "" , [] , [] ) "<"
+    , Space
+    , Str "merges"
+    , Space
+    , Str "a"
+    , Space
+    , Str "cell"
+    , Space
+    , Str "into"
+    , Space
+    , Str "its"
+    , Space
+    , Str "left"
+    , SoftBreak
+    , Str "neighbor"
+    , Space
+    , Str "(colspan)"
+    , Space
+    , Str "and"
+    , Space
+    , Code ( "" , [] , [] ) "^"
+    , Space
+    , Str "merges"
+    , Space
+    , Str "a"
+    , Space
+    , Str "cell"
+    , Space
+    , Str "into"
+    , Space
+    , Str "the"
+    , Space
+    , Str "one"
+    , Space
+    , Str "above"
+    , Space
+    , Str "it"
+    , Space
+    , Str "(rowspan)."
+    , SoftBreak
+    , Str "pandoc-carve"
+    , Space
+    , Str "rewrites"
+    , Space
+    , Str "these"
+    , Space
+    , Str "into"
+    , Space
+    , Str "Pandoc\8217s"
+    , Space
+    , Str "origin-cell"
+    , Space
+    , Str "span"
+    , Space
+    , Str "model"
+    , Space
+    , Str "(the"
+    , Space
+    , Str "origin"
+    , SoftBreak
+    , Str "cell"
+    , Space
+    , Str "holds"
+    , Space
+    , Str "the"
+    , Space
+    , Str "width/height;"
+    , Space
+    , Str "covered"
+    , Space
+    , Str "cells"
+    , Space
+    , Str "are"
+    , Space
+    , Str "omitted),"
+    , Space
+    , Str "so"
+    , Space
+    , Str "the"
+    , Space
+    , Str "merged"
+    , Space
+    , Str "regions"
+    , SoftBreak
+    , Str "survive"
+    , Space
+    , Str "into"
+    , Space
+    , Str "LaTeX"
+    , Space
+    , Code ( "" , [] , [] ) "\\multicolumn"
+    , Str "/"
+    , Code ( "" , [] , [] ) "\\multirow"
+    , Str ","
+    , Space
+    , Str "DOCX"
+    , Space
+    , Str "merged"
+    , Space
+    , Str "cells,"
+    , Space
+    , Str "Typst,"
+    , Space
+    , Str "and"
+    , Space
+    , Str "the"
+    , SoftBreak
+    , Str "rest"
+    , Space
+    , Str "-"
+    , Space
+    , Str "not"
+    , Space
+    , Str "just"
+    , Space
+    , Str "HTML."
+    ]
+, Table
+    ( "" , [] , [] )
+    (Caption
+       Nothing
+       [ Plain
+           [ Str "Sales"
+           , Space
+           , Str "by"
+           , Space
+           , Str "region"
+           , Space
+           , Str "(North"
+           , Space
+           , Str "2024"
+           , Space
+           , Str "spans"
+           , Space
+           , Str "both"
+           , Space
+           , Str "years;"
+           , Space
+           , Str "South"
+           , Space
+           , Str "spans"
+           , Space
+           , Str "two"
+           , Space
+           , Str "rows)"
+           ]
+       ])
+    [ ( AlignDefault , ColWidthDefault )
+    , ( AlignDefault , ColWidthDefault )
+    , ( AlignDefault , ColWidthDefault )
+    ]
+    (TableHead
+       ( "" , [] , [] )
+       [ Row
+           ( "" , [] , [] )
+           [ Cell
+               ( "" , [] , [] )
+               AlignDefault
+               (RowSpan 1)
+               (ColSpan 1)
+               [ Plain [ Str "Region" ] ]
+           , Cell
+               ( "" , [] , [] )
+               AlignDefault
+               (RowSpan 1)
+               (ColSpan 1)
+               [ Plain [ Str "2024" ] ]
+           , Cell
+               ( "" , [] , [] )
+               AlignDefault
+               (RowSpan 1)
+               (ColSpan 1)
+               [ Plain [ Str "2025" ] ]
+           ]
+       ])
+    [ TableBody
+        ( "" , [] , [] )
+        (RowHeadColumns 0)
+        []
+        [ Row
+            ( "" , [] , [] )
+            [ Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "North" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 2)
+                [ Plain [ Str "100" ] ]
+            ]
+        , Row
+            ( "" , [] , [] )
+            [ Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 2)
+                (ColSpan 1)
+                [ Plain [ Str "South" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "40" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "60" ] ]
+            ]
+        , Row
+            ( "" , [] , [] )
+            [ Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "30" ] ]
+            , Cell
+                ( "" , [] , [] )
+                AlignDefault
+                (RowSpan 1)
+                (ColSpan 1)
+                [ Plain [ Str "50" ] ]
+            ]
+        ]
+    ]
+    (TableFoot ( "" , [] , [] ) [])
+]

@@ -130,6 +130,10 @@
     , Space
     , Str "generated"
     , Space
+    , Code ( "" , [] , [] ) "interactive.md"
+    , Space
+    , Str "/"
+    , SoftBreak
     , Code ( "" , [] , [] ) "interactive.tex"
     , Space
     , Str "/"
@@ -137,7 +141,7 @@
     , Code ( "" , [] , [] ) ".typ"
     , Space
     , Str "/"
-    , SoftBreak
+    , Space
     , Code ( "" , [] , [] ) ".native"
     , Space
     , Str "beside"

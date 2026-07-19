@@ -13,19 +13,27 @@ examples/
     article.crv      SOURCE (hand-written)
     article.json     Pandoc JSON AST      (carveToPandocJson; compact, no pandoc needed)
     article.native   Pandoc native AST    (pandoc -t native)
+    article.md       GitHub Markdown       (pandoc -t gfm)
     article.tex      LaTeX                 (pandoc -t latex)
     article.typ      Typst                 (pandoc -t typst)
     article.rst      reStructuredText      (pandoc -t rst)
+    article.txt      plain text            (pandoc -t plain)
     interactive.crv  SOURCE - tabs, code-group, spoiler, mermaid, math
     interactive.*    same target set, showing how each degrades
+    spans.crv        SOURCE - table row/col spans
+    spans.*          same target set (LaTeX \multicolumn/\multirow etc.)
   import/            other formats -> Pandoc -> Carve
     paper.tex        SOURCE (LaTeX)
     paper.crv        GENERATED (pandocToCarve)
     notes.rst        SOURCE (reStructuredText)
     notes.crv        GENERATED (pandocToCarve)
+    webpage.html     SOURCE (HTML - paste-from-web)
+    webpage.crv      GENERATED (pandocToCarve)
+    report.md        SEED - rendered to a throwaway .docx, then imported back
+    report.crv       GENERATED (docx -> pandocToCarve)
 ```
 
-Edit the `SOURCE` files; never edit the generated ones by hand.
+Edit the `SOURCE`/`SEED` files; never edit the generated ones by hand.
 
 ## Regenerating
 
@@ -39,8 +47,9 @@ that caused them. The golden test fails with
 
 ## Which outputs are committed, and why
 
-- **Text writers only** - `.json`, `.native`, `.tex`, `.typ`, `.rst`, `.crv`.
-  They are diffable, so a converter change shows up as a readable diff in review.
+- **Text writers only** - `.json`, `.native`, `.tex`, `.typ`, `.rst`, `.txt`,
+  `.md`, `.crv`. They are diffable, so a converter change shows up as a readable
+  diff in review.
 - **No binary writers** - `.docx`, `.pdf`, `.epub` are intentionally absent.
   They are non-deterministic (embedded timestamps), binary (undiffable), and
   large. Produce them on demand instead:
@@ -49,6 +58,12 @@ that caused them. The golden test fails with
   pandoc-carve examples/export/article.crv -t docx -o article.docx
   pandoc-carve examples/export/article.crv -t pdf  -o article.pdf
   ```
+
+- **Binary *import* is exercised without committing a binary.** The DOCX example
+  keeps a Markdown seed (`report.md`), renders it to a `.docx` in memory at build
+  time, and imports that back to `report.crv`. So the repo stays all-text while
+  `report.crv` still proves the real `pandoc -f docx` reader path. (The generated
+  `.docx` is never written to disk; any stray one is gitignored.)
 
 - **`.json` needs no pandoc** - it comes straight from `carveToPandocJson`, so
   that golden is always regenerated and checked. It is kept compact (one line)

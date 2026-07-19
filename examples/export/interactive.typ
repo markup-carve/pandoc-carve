@@ -4,8 +4,8 @@ core AST to Pandoc. So every script-dependent construct (tabs,
 code-group, spoiler, mermaid, math) degrades to its static form on the
 way to LaTeX, Typst, DOCX, and the rest. Content and structure survive;
 only the interaction is dropped. This file is the worked proof - compare
-it against the generated `interactive.tex` / `.typ` / `.native` beside
-it.
+it against the generated `interactive.md` / `interactive.tex` / `.typ` /
+`.native` beside it.
 
 == Tabs
 A `[label]` on each panel is a grouping identifier. With a tabs
