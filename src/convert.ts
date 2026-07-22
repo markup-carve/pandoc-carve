@@ -146,25 +146,23 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
     switch (n.type) {
         case 'text':
             return textInlines(String(n.value ?? ''));
-        case 'soft-break':
+        case 'soft_break':
             return [P.SoftBreak];
-        case 'hard-break':
+        case 'hard_break':
             return [P.LineBreak];
-        case 'italic':
+        case 'emphasis':
             return [P.Emph(kids(ctx, n))];
         case 'strong':
             return [P.Strong(kids(ctx, n))];
-        case 'bold-italic':
-            return [P.Strong([P.Emph(kids(ctx, n))])];
         case 'underline':
             return [P.Underline(kids(ctx, n))];
         case 'strike':
             return [P.Strikeout(kids(ctx, n))];
         case 'highlight':
             return [P.Span(P.attr(undefined, ['mark']), kids(ctx, n))];
-        case 'sub':
+        case 'subscript':
             return [P.Subscript(kids(ctx, n))];
-        case 'super':
+        case 'superscript':
             return [P.Superscript(kids(ctx, n))];
         case 'code':
             return [P.Code(toAttr(n.attrs), String(n.value ?? ''))];
@@ -187,7 +185,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                     String(n.title ?? ''),
                 ]),
             ];
-        case 'crossref': {
+        case 'heading_ref': {
             const target = String(n.target ?? '');
             const found =
                 ctx.headings.get(target) ??
@@ -217,7 +215,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                     ? P.MathDisplay(String(n.content ?? ''))
                     : P.MathInline(String(n.content ?? '')),
             ];
-        case 'raw-inline':
+        case 'raw_inline':
             return [P.RawInline(String(n.format ?? ''), String(n.content ?? ''))];
         case 'mention': {
             const user = String(n.user ?? '');
@@ -239,7 +237,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             const expansion = String(n.expansion ?? '');
             return [P.Span(P.attr(undefined, ['abbr'], [['title', expansion]]), [P.Str(abbr)])];
         }
-        case 'extension': {
+        case 'inline_extension': {
             const name = String(n.name ?? '');
             const content = Array.isArray(n.content)
                 ? inlines(ctx, n.content as CNode[])
@@ -249,11 +247,11 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         }
         case 'span':
             return [P.Span(toAttr(n.attrs), kids(ctx, n))];
-        case 'critic-insert':
+        case 'insert':
             return [P.Span(P.attr(undefined, ['insertion']), kids(ctx, n))];
-        case 'critic-delete':
+        case 'delete':
             return [P.Span(P.attr(undefined, ['deletion']), kids(ctx, n))];
-        case 'critic-substitute': {
+        case 'substitution': {
             const oldText = textInlines(String(n.oldText ?? ''));
             const newText = textInlines(String(n.newText ?? ''));
             return [
@@ -292,7 +290,7 @@ function blocks(ctx: Ctx, nodes: CNode[] | undefined): P.Block[] {
 }
 
 /** Block types whose Pandoc form carries the Attr itself. */
-const ATTR_CARRYING = new Set(['heading', 'code-block', 'table', 'figure', 'div', 'admonition']);
+const ATTR_CARRYING = new Set(['heading', 'code_block', 'table', 'figure', 'div', 'admonition']);
 
 function block(ctx: Ctx, n: CNode): P.Block[] {
     const result = blockInner(ctx, n);
@@ -323,9 +321,9 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         }
         case 'heading':
             return [P.Header(Number(n.level ?? 1), toAttr(n.attrs), kids(ctx, n))];
-        case 'blockquote':
+        case 'block_quote':
             return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
-        case 'code-block': {
+        case 'code_block': {
             const lang = n.lang ? [String(n.lang)] : [];
             const a = (n.attrs ?? {}) as CAttrs;
             const kvs = Object.entries(a.keyValues ?? {});
@@ -333,13 +331,13 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
                 P.CodeBlock(P.attr(a.id, [...lang, ...(a.classes ?? [])], kvs), String(n.content ?? '')),
             ];
         }
-        case 'raw-block':
+        case 'raw_block':
             return [P.RawBlock(String(n.format ?? ''), String(n.content ?? ''))];
-        case 'thematic-break':
+        case 'thematic_break':
             return [P.HorizontalRule];
         case 'list':
             return [list(ctx, n)];
-        case 'definition-list':
+        case 'definition_list':
             return [definitionList(ctx, n)];
         case 'table':
             return [table(ctx, n, null)];
@@ -377,7 +375,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             // A sole image on its own line is a block-level node in Carve.
             return [P.Para(inline(ctx, n))];
         case 'comment':
-        case 'abbreviation-def':
+        case 'abbreviation_def':
             return [];
         default: {
             // An inline node at block level (defensive) or an unknown block.

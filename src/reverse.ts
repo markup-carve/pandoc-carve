@@ -99,27 +99,24 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
         case 'Space':
             return [text(' ')];
         case 'SoftBreak':
-            return [{ type: 'soft-break' }];
+            return [{ type: 'soft_break' }];
         case 'LineBreak':
-            return [{ type: 'hard-break' }];
+            return [{ type: 'hard_break' }];
         case 'Emph':
-            return wrapped(ctx, 'italic', c);
-        case 'Strong': {
-            // Strong[Emph[..]] is convert.ts's bold-italic encoding.
-            const xs = c as PandocNode[];
-            if (xs.length === 1 && xs[0]!.t === 'Emph') {
-                return wrapped(ctx, 'bold-italic', xs[0]!.c as PandocNode[]);
-            }
-            return wrapped(ctx, 'strong', xs);
-        }
+            return wrapped(ctx, 'emphasis', c);
+        case 'Strong':
+            // Strong[Emph[..]] needs no special case: it reverses to a strong
+            // wrapping an emphasis, which is exactly how carve represents
+            // bold-italic now that it has no node type of its own.
+            return wrapped(ctx, 'strong', c);
         case 'Underline':
             return wrapped(ctx, 'underline', c);
         case 'Strikeout':
             return wrapped(ctx, 'strike', c);
         case 'Superscript':
-            return wrapped(ctx, 'super', c);
+            return wrapped(ctx, 'superscript', c);
         case 'Subscript':
-            return wrapped(ctx, 'sub', c);
+            return wrapped(ctx, 'subscript', c);
         case 'SmallCaps':
             warn(ctx, 'SmallCaps has no Carve form - degraded to a .smallcaps span');
             return [
@@ -160,7 +157,7 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
         }
         case 'RawInline': {
             const [format, s] = c as [string, string];
-            return [{ type: 'raw-inline', format, content: s }];
+            return [{ type: 'raw_inline', format, content: s }];
         }
         case 'Link':
             return link(ctx, c);
@@ -196,7 +193,7 @@ function link(ctx: Ctx, c: never): CNode[] {
         return [{ type: 'autolink', href, text: stringify(xs) }];
     }
     if (classes.includes('crossref')) {
-        return [{ type: 'crossref', target: href.replace(/^#/, '') }];
+        return [{ type: 'heading_ref', target: href.replace(/^#/, '') }];
     }
     const node: CNode = { type: 'link', href, children: inlines(ctx, xs) };
     if (title) node.title = title;
@@ -233,15 +230,15 @@ function span(ctx: Ctx, c: never): CNode[] {
             }
             break;
         case 'insertion':
-            return wrapped(ctx, 'critic-insert', xs);
+            return wrapped(ctx, 'insert', xs);
         case 'deletion':
-            return wrapped(ctx, 'critic-delete', xs);
+            return wrapped(ctx, 'delete', xs);
         case 'substitution': {
             const parts = xs.filter((x) => x.t === 'Span') as PandocNode[];
             if (parts.length === 2) {
                 const [oldC, newC] = parts.map((p) => (p.c as [Attr, PandocNode[]])[1]);
                 return [
-                    { type: 'critic-substitute', oldText: stringify(oldC!), newText: stringify(newC!) },
+                    { type: 'substitution', oldText: stringify(oldC!), newText: stringify(newC!) },
                 ];
             }
             break;
@@ -250,7 +247,7 @@ function span(ctx: Ctx, c: never): CNode[] {
             return [{ type: 'critic-comment', text: stringify(xs) }];
     }
     if (cls?.startsWith('ext-')) {
-        return [{ type: 'extension', name: cls.slice(4), content: inlines(ctx, xs) }];
+        return [{ type: 'inline_extension', name: cls.slice(4), content: inlines(ctx, xs) }];
     }
     const node: CNode = { type: 'span', children: inlines(ctx, xs) };
     const attrs = fromAttr(a);
@@ -291,7 +288,7 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             const lines = c as PandocNode[][];
             const children: CNode[] = [];
             lines.forEach((line, i) => {
-                if (i > 0) children.push({ type: 'hard-break' });
+                if (i > 0) children.push({ type: 'hard_break' });
                 children.push(...inlines(ctx, line));
             });
             return [{ type: 'paragraph', children: mergeText(children) }];
@@ -304,11 +301,11 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             return [node];
         }
         case 'BlockQuote':
-            return [{ type: 'blockquote', children: blocks(ctx, c) }];
+            return [{ type: 'block_quote', children: blocks(ctx, c) }];
         case 'CodeBlock': {
             const [a, content] = c as [Attr, string];
             const [id, classes, kvs] = a;
-            const node: CNode = { type: 'code-block', content };
+            const node: CNode = { type: 'code_block', content };
             if (classes[0]) node.lang = classes[0];
             const kv = Object.fromEntries(kvs);
             if (kv['title']) node.header = kv['title'];
@@ -318,10 +315,10 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
         }
         case 'RawBlock': {
             const [format, content] = c as [string, string];
-            return [{ type: 'raw-block', format, content }];
+            return [{ type: 'raw_block', format, content }];
         }
         case 'HorizontalRule':
-            return [{ type: 'thematic-break' }];
+            return [{ type: 'thematic_break' }];
         case 'BulletList':
             return [bulletList(ctx, c)];
         case 'OrderedList':
@@ -347,7 +344,7 @@ function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: bo
     const converted = items.map((item) => {
         if (item.some((b) => b.t === 'Para')) tight = false;
         const children = blocks(ctx, item);
-        const node: CNode = { type: 'list-item', children };
+        const node: CNode = { type: 'list_item', children };
         stripTaskMarker(node);
         return node;
     });
@@ -419,7 +416,7 @@ function definitionList(ctx: Ctx, c: never): CNode {
             definitions: defs.map((d) => blocks(ctx, d)),
         };
     });
-    return { type: 'definition-list', items };
+    return { type: 'definition_list', items };
 }
 
 // --- Tables ---
@@ -474,17 +471,17 @@ function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
         let rawIdx = 0;
         for (let col = 0; col < nCols; col++) {
             if (pending[r]![col]) {
-                cells.push({ type: 'table-cell', header: isHeader, children: [], span: 'rowspan' });
+                cells.push({ type: 'table_cell', header: isHeader, children: [], span: 'rowspan' });
                 continue;
             }
             const raw = rawCells[rawIdx++] as [Attr, PandocNode, number, number, PandocNode[]] | undefined;
             if (!raw) {
-                cells.push({ type: 'table-cell', header: isHeader, children: [] });
+                cells.push({ type: 'table_cell', header: isHeader, children: [] });
                 continue;
             }
             const [, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
             const cell: CNode = {
-                type: 'table-cell',
+                type: 'table_cell',
                 header: isHeader,
                 children: cellInlines(ctx, cellBlocks),
             };
@@ -492,7 +489,7 @@ function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
             if (align) cell.align = align;
             cells.push(cell);
             for (let j = 1; j < colSpan && col + j < nCols; j++) {
-                cells.push({ type: 'table-cell', header: isHeader, children: [], span: 'colspan' });
+                cells.push({ type: 'table_cell', header: isHeader, children: [], span: 'colspan' });
             }
             // A 2D block gets a rowspan continuation at EVERY covered column
             // of the lower rows - that is how Carve's grid expresses it.
@@ -503,7 +500,7 @@ function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
             }
             col += colSpan - 1;
         }
-        rows.push({ type: 'table-row', cells });
+        rows.push({ type: 'table_row', cells });
     }
 
     const node: CNode = { type: 'table', rows };
@@ -518,7 +515,7 @@ function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {
     const out: CNode[] = [];
     cellBlocks.forEach((b, i) => {
         if (b.t === 'Plain' || b.t === 'Para') {
-            if (i > 0) out.push({ type: 'soft-break' });
+            if (i > 0) out.push({ type: 'soft_break' });
             out.push(...inlines(ctx, b.c as PandocNode[]));
         } else {
             warn(ctx, `table: block-level cell content "${b.t}" flattened to text`);
@@ -681,7 +678,7 @@ export function pandocToCarve(doc: PandocDoc): ReverseResult {
     const ctx: Ctx = { warnings: [], footnoteDefs: {}, noteCounter: 0, abbrevDefs: new Map() };
     const children = blocks(ctx, doc.blocks);
     for (const [abbr, expansion] of [...ctx.abbrevDefs].reverse()) {
-        children.unshift({ type: 'abbreviation-def', abbr, expansion });
+        children.unshift({ type: 'abbreviation_def', abbr, expansion });
     }
     const ast: CNode = { type: 'document', children };
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
