@@ -81,9 +81,20 @@ function plainText(nodes: CNode[]): string {
     let out = '';
     for (const n of nodes) {
         if (typeof n.value === 'string') out += n.value;
+        // An inline literal renders as visible prose (PART 9 SS27), so its
+        // verbatim content IS text and must reach heading slugs - carve-js
+        // folds it into its own heading ids for the same reason. Other
+        // `content`-carrying nodes stay excluded on purpose: a comment renders
+        // nothing at all, and math/raw are not plain prose.
+        else if (n.type === 'literal_inline' && typeof n.content === 'string') out += n.content;
         else if (Array.isArray(n.children)) out += plainText(n.children as CNode[]);
     }
     return out;
+}
+
+/** True when an attribute block carries anything worth preserving. */
+function hasAttrs(a: CAttrs | undefined): boolean {
+    return Boolean(a && (a.id || a.classes?.length || Object.keys(a.keyValues ?? {}).length));
 }
 
 function hasLabel(n: CNode): n is CNode & { label: string } {
@@ -166,6 +177,19 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             return [P.Superscript(kids(ctx, n))];
         case 'code':
             return [P.Code(toAttr(n.attrs), String(n.value ?? ''))];
+        case 'literal_inline': {
+            // PART 9 SS27: verbatim capture rendered as ORDINARY PROSE. The
+            // `<code>` wrapper is deliberately dropped, so Pandoc `Code` would
+            // invert the construct's entire purpose (it implies monospace/code
+            // styling - the exact thing the literal exists to avoid). Emit
+            // plain text, and wrap in a Span only when attributes need
+            // somewhere to live - mirroring carve-js, which emits a `<span>`
+            // only when the attribute block is present and bare text otherwise.
+            const text = textInlines(String(n.content ?? ''));
+            return hasAttrs(n.attrs as CAttrs | undefined)
+                ? [P.Span(toAttr(n.attrs), text)]
+                : text;
+        }
         case 'link':
             return [
                 P.Link(toAttr(n.attrs), kids(ctx, n), [
@@ -297,11 +321,7 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
     // A block-attribute line can attach attrs to ANY block. Pandoc's Para,
     // BlockQuote, lists etc. have no Attr slot - preserve via a Div wrapper.
     const a = n.attrs as CAttrs | undefined;
-    if (
-        !ATTR_CARRYING.has(n.type) &&
-        a &&
-        (a.id || a.classes?.length || Object.keys(a.keyValues ?? {}).length)
-    ) {
+    if (!ATTR_CARRYING.has(n.type) && hasAttrs(a)) {
         // In roundtrip mode the carve-block marker lets the reverse direction
         // restore the attrs onto the inner block instead of keeping a wrapper.
         const [id, classes, kvs] = toAttr(a);

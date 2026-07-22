@@ -51,6 +51,45 @@ test('code span and code block with language and title', () => {
   assert.deepEqual(cb.c[0][2], [['title', 'greet.py']]);
 });
 
+test('inline literal renders as prose, never as Code', () => {
+  // PART 9 SS27: the <code> wrapper is dropped, so it must NOT become Pandoc
+  // Code (monospace) - that would invert the construct's whole purpose.
+  const xs = firstInlines('!`/kaet/`');
+  assert.deepEqual(xs, [{ t: 'Str', c: '/kaet/' }]);
+  assert.ok(!xs.some((x) => x.t === 'Code'));
+
+  // ... unlike its code-span sibling, which stays Code.
+  assert.equal(firstInlines('`/kaet/`')[0].t, 'Code');
+});
+
+test('inline literal carries attributes on a Span', () => {
+  // carve-js emits a <span> only when the attribute block is present, and
+  // bare text otherwise - the Pandoc mapping mirrors that split.
+  const [span] = firstInlines('!`x`{.ipa}');
+  assert.equal(span.t, 'Span');
+  assert.deepEqual(span.c[0], ['', ['ipa'], []]);
+  assert.deepEqual(span.c[1], [{ t: 'Str', c: 'x' }]);
+});
+
+test('inline literal content stays verbatim and emits no warning', () => {
+  const { doc, warnings } = carveToPandoc('!`a<b>` and !`*not bold*`');
+  const xs = doc.blocks[0].c;
+  // no inline construct is parsed inside, and nothing degrades
+  assert.ok(!xs.some((x) => x.t === 'Strong'));
+  assert.equal(xs[0].c, 'a<b>');
+  assert.deepEqual(warnings, []);
+});
+
+test('inline literal contributes its text to heading slugs for crossrefs', () => {
+  // It renders as visible prose, so it must slug like a code span does -
+  // otherwise a crossref into that heading could never resolve.
+  const [, para] = blocks('# !`Cat`\n\nSee </#cat>\n');
+  const link = para.c.find((x) => x.t === 'Link');
+  assert.ok(link, 'crossref did not resolve into the literal-only heading');
+  assert.equal(link.c[2][0], '#cat');
+  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Cat' }]);
+});
+
 test('links, autolinks, images', () => {
   const [a] = firstInlines('[t](https://e.com "Ti")');
   assert.equal(a.t, 'Link');

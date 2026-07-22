@@ -47,6 +47,9 @@ the line directly above it:
 super{^script^} and sub{,script,}. Inline `code span`, and raw inline passthrough
 `<abbr>HTML</abbr>`{=html} emitted verbatim.
 
+An inline literal is verbatim but renders as prose, not code: the word cat is
+!`/kaet/` in IPA, and an attributed one is !`/kaet/`{.ipa}.
+
 Editorial markup: {+ added text +}, {- deleted text -},
 {~ old phrase ~> new phrase ~}, and an {# editorial note #}.
 
