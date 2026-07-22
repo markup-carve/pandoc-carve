@@ -29,3 +29,18 @@
   source (serialized by carve's `renderCarve`), and the CLI imports anything
   pandoc reads: `pandoc-carve report.docx -f docx -o report.crv`. Round-trips
   (carve -> pandoc AST -> carve) are gated on HTML equivalence in the tests.
+- Inline literal support (`` !`...` ``, the `literal_inline` node): mapped to
+  ordinary prose inlines, or to a `Span` when it carries attributes. It is
+  deliberately not mapped to `Code`, which would imply monospace - the exact
+  styling the construct exists to avoid. Without this the node hit the
+  fall-through and vanished entirely, because `plainText()` reads only
+  `value`/`children` and a literal carries `content`; that also silently broke
+  crossrefs to any heading containing one, so `plainText()` now folds the
+  literal's content in. Runs of spaces inside a literal are preserved rather
+  than collapsed to a single `Space`, since the content is verbatim - ordinary
+  prose still collapses as before.
+- TEMPORARY: `@markup-carve/carve` is pinned to an exact carve-js commit
+  (`3f79966`) rather than a published range. The published 0.1.1 still ships the
+  old kebab-case node vocabulary, while this package has already migrated to the
+  snake_case spec vocabulary - the mismatch left `main` failing 49 of 136 tests.
+  Restore a semver range once carve-js 0.1.2 is published.

@@ -15,11 +15,8 @@ in LaTeX, Typst, DOCX, and the rest.]
   - A nested item
 - Third item
 
-#block[
-#set enum(numbering: "1.", start: 1)
 + Ordered one
 + Ordered two
-]
 
 == A table
 #figure(
