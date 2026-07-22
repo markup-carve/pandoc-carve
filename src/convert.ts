@@ -140,6 +140,20 @@ function textInlines(value: string): P.Inline[] {
     return out;
 }
 
+// Like textInlines, but preserves the exact number of spaces by emitting one
+// Space per space character instead of one per run. Prose collapsing is correct
+// for ordinary text, but an inline literal captures its content VERBATIM, so
+// `` !`a  b` `` must not reach a writer as "a b".
+function verbatimInlines(value: string): P.Inline[] {
+    const out: P.Inline[] = [];
+    for (const part of value.split(/( )/)) {
+        if (part === '') continue;
+        if (part === ' ') out.push(P.Space);
+        else out.push(P.Str(part));
+    }
+    return out;
+}
+
 // --- Inlines ---
 
 function inlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] {
@@ -185,7 +199,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // plain text, and wrap in a Span only when attributes need
             // somewhere to live - mirroring carve-js, which emits a `<span>`
             // only when the attribute block is present and bare text otherwise.
-            const text = textInlines(String(n.content ?? ''));
+            // verbatimInlines, not textInlines: the content is captured verbatim,
+            // so runs of spaces must survive rather than collapse to one Space.
+            const text = verbatimInlines(String(n.content ?? ''));
             return hasAttrs(n.attrs as CAttrs | undefined)
                 ? [P.Span(toAttr(n.attrs), text)]
                 : text;

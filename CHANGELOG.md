@@ -36,7 +36,9 @@
   fall-through and vanished entirely, because `plainText()` reads only
   `value`/`children` and a literal carries `content`; that also silently broke
   crossrefs to any heading containing one, so `plainText()` now folds the
-  literal's content in.
+  literal's content in. Runs of spaces inside a literal are preserved rather
+  than collapsed to a single `Space`, since the content is verbatim - ordinary
+  prose still collapses as before.
 - TEMPORARY: `@markup-carve/carve` is pinned to an exact carve-js commit
   (`3f79966`) rather than a published range. The published 0.1.1 still ships the
   old kebab-case node vocabulary, while this package has already migrated to the

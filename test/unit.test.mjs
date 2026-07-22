@@ -80,6 +80,16 @@ test('inline literal content stays verbatim and emits no warning', () => {
   assert.deepEqual(warnings, []);
 });
 
+test('inline literal preserves runs of spaces verbatim', () => {
+  // Prose collapses a run of spaces to a single Space, but a literal captures
+  // its content VERBATIM - collapsing would lose what the author wrote.
+  const xs = carveToPandoc('!`a  b`').doc.blocks[0].c;
+  assert.deepEqual(xs.map((x) => x.t), ['Str', 'Space', 'Space', 'Str']);
+  // ... while ordinary prose still collapses, so the change stays scoped.
+  const prose = carveToPandoc('a  b').doc.blocks[0].c;
+  assert.deepEqual(prose.map((x) => x.t), ['Str', 'Space', 'Str']);
+});
+
 test('inline literal contributes its text to heading slugs for crossrefs', () => {
   // It renders as visible prose, so it must slug like a code span does -
   // otherwise a crossref into that heading could never resolve.
