@@ -11,7 +11,12 @@ test('reverse: default export carries no roundtrip marker', () => {
 
 test('reverse: emphasis family round-trips to source syntax', () => {
   const out = roundtrip('/em/ *b* /*bi*/ _u_ ~s~ =h= {^sup^} {,sub,}');
-  for (const needle of ['/em/', '*b*', '/*bi*/', '_u_', '~s~', '=h=', '{^sup^}', '{,sub,}']) {
+  // Bold-italic is expected as `*/bi/*`, not the authored `/*bi*/`. Carve parses
+  // both spellings to the same strong-wrapping-emphasis AST, so the authored
+  // nesting order is not recoverable, and carve's own formatter canonicalizes to
+  // `*/.../*` too (carveToCarve('/*bi*/') === '*/bi/*'). Carve's round-trip
+  // contract is HTML equivalence, not source byte-identity, and that holds here.
+  for (const needle of ['/em/', '*b*', '*/bi/*', '_u_', '~s~', '=h=', '{^sup^}', '{,sub,}']) {
     assert.ok(out.includes(needle), `${needle} in: ${out}`);
   }
 });

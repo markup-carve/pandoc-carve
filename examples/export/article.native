@@ -155,7 +155,7 @@
     , [ Plain [ Str "Third" , Space , Str "item" ] ]
     ]
 , OrderedList
-    ( 1 , Decimal , DefaultDelim )
+    ( 1 , Decimal , Period )
     [ [ Plain [ Str "Ordered" , Space , Str "one" ] ]
     , [ Plain [ Str "Ordered" , Space , Str "two" ] ]
     ]
