@@ -69,6 +69,7 @@ export const CodeBlock = (a: Attr, s: string): Block => node('CodeBlock', [a, s]
 export const RawBlock = (format: string, s: string): Block => node('RawBlock', [format, s]);
 export const HorizontalRule: Block = node('HorizontalRule');
 export const Div = (a: Attr, blocks: Block[]): Block => node('Div', [a, blocks]);
+export const LineBlock = (lines: Inline[][]): Block => node('LineBlock', lines);
 export const BulletList = (items: Block[][]): Block => node('BulletList', items);
 
 export type ListNumberStyle =

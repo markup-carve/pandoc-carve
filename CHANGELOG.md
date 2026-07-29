@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- Arms for three AST node types that previously fell through to the unknown-node
+  fallback (carve#355):
+
+  - `smart_punctuation` now emits the **resolved glyph** rather than the
+    author's source run. Pandoc applies its own smart punctuation when reading
+    markdown, not when consuming a JSON AST, so emitting `--` put a literal
+    double hyphen into the LaTeX or DOCX. Carve already made the decision.
+  - `escaped_text` (carve#350) emits the character the author escaped. It stays
+    literal downstream, which is what the escape asked for.
+  - `line_block` (carve#359) maps to pandoc's native `LineBlock`, so the line
+    structure survives instead of collapsing into a paragraph.
+
+### Fixed
+
+- **No more warning per substitution.** Each of the three hit the `default:`
+  arm, which warns, so a document with ordinary prose punctuation produced a
+  warning for every quote, dash and ellipsis in it.
+
+
 - Initial implementation: `carveToPandoc()` / `carveToPandocJson()` mapping the
   full Carve AST (43 node types) to Pandoc's JSON AST (api version 1.23.1),
   with explicit degradation warnings for lossy constructs.
