@@ -129,6 +129,37 @@ function labelKv(ctx: Ctx, n: CNode): [string, string][] {
 }
 
 /** Split text into Str/Space the way pandoc readers do. */
+// Glyphs for the smart-typography kinds that do not carry one on the node.
+// A quote's glyph is locale-dependent and is chosen during parsing, so the node
+// records it; the rest are fixed and resolvable from the kind.
+//
+// Duplicated from carve-js, which exports SMART_PUNCTUATION_GLYPHS from ast.ts
+// but not from the package root - see carve#355. Drop this table once the
+// export lands.
+const SMART_PUNCTUATION_GLYPHS: Record<string, string> = {
+    ellipsis: '\u2026',
+    em_dash: '\u2014',
+    en_dash: '\u2013',
+    left_right_arrow: '\u2194',
+    rightwards_arrow: '\u2192',
+    leftwards_arrow: '\u2190',
+    rightwards_double_arrow: '\u21D2',
+    less_than_or_equal: '\u2264',
+    greater_than_or_equal: '\u2265',
+    not_equal: '\u2260',
+    plus_minus: '\u00B1',
+    copyright: '\u00A9',
+    registered: '\u00AE',
+    trademark: '\u2122',
+};
+
+function smartPunctuationText(n: CNode): string {
+    const glyph = n.glyph as string | undefined;
+    if (glyph) return glyph;
+    const kind = String(n.kind ?? '');
+    return SMART_PUNCTUATION_GLYPHS[kind] ?? String(n.value ?? '');
+}
+
 function textInlines(value: string): P.Inline[] {
     const out: P.Inline[] = [];
     const parts = value.split(/( +)/);
@@ -306,6 +337,19 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             return [P.Span(P.attr(undefined, ['comment-annotation']), textInlines(String(n.text ?? '')))];
         case 'comment':
             return [];
+        case 'smart_punctuation':
+            // The resolved glyph, not the author's source run. Pandoc applies
+            // its own smart punctuation when READING markdown, not when
+            // consuming a JSON AST, so handing it `--` yields a literal double
+            // hyphen downstream. Carve already made the decision; keeping it is
+            // what carries the typography into LaTeX, DOCX and the rest.
+            return [P.Str(smartPunctuationText(n))];
+        case 'escaped_text':
+            // The character the author escaped. The backslash is authoring
+            // syntax and does not survive into pandoc's AST; the character does,
+            // and stays literal because pandoc will not re-smarten AST input -
+            // which is exactly what the escape asked for.
+            return [P.Str(String(n.value ?? ''))];
         default:
             warn(ctx, `inline: unknown node type "${n.type}" degraded to its text content`);
             return textInlines(plainText([n]));
@@ -413,6 +457,25 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         case 'comment':
         case 'abbreviation_def':
             return [];
+        case 'line_block': {
+            // Pandoc has the node natively, so the line structure survives
+            // instead of collapsing into a paragraph. Each child paragraph is
+            // one stanza whose hard breaks separate the lines.
+            const lines: P.Inline[][] = [];
+            for (const child of (n.children ?? []) as CNode[]) {
+                let current: P.Inline[] = [];
+                for (const part of (child.children ?? []) as CNode[]) {
+                    if (part.type === 'hard_break' || part.type === 'soft_break') {
+                        lines.push(current);
+                        current = [];
+                        continue;
+                    }
+                    current.push(...inline(ctx, part));
+                }
+                lines.push(current);
+            }
+            return [P.LineBlock(lines)];
+        }
         default: {
             // An inline node at block level (defensive) or an unknown block.
             warn(ctx, `block: unknown node type "${n.type}" degraded to a paragraph of its text`);
