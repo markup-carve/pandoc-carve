@@ -171,6 +171,15 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
         }
         case 'Note': {
             const noteBlocks = c as PandocNode[];
+            // DELIBERATELY the pre-split name. carve-js renamed these to
+            // `inline_footnote` and `footnote_ref` (markup-carve/carve#405),
+            // but this side PRODUCES a tree for an engine to render, and the
+            // pinned `^0.1.2` does not know the new names - emitting them now
+            // would break footnotes against the engine actually installed.
+            //
+            // Unlike the consumer side, a producer cannot satisfy both: the
+            // type string is a single value. So this flips when the pin is
+            // raised past the release carrying the split, tracked in issue #7.
             if (noteBlocks.length === 1 && (noteBlocks[0]!.t === 'Para' || noteBlocks[0]!.t === 'Plain')) {
                 return [{ type: 'footnote', inline: inlines(ctx, noteBlocks[0]!.c as PandocNode[]) }];
             }
