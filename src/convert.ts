@@ -268,6 +268,14 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             warn(ctx, `crossref: unresolved target "${target}" - emitting target text`);
             return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), [P.Str(target)], [`#${target}`, ''])];
         }
+        // carve-js split `footnote` into `footnote_ref` (`[^a]`) and
+        // `inline_footnote` (`^[…]`) (markup-carve/carve#405). All three are
+        // accepted: this package pins a published `^0.1.2` that still emits the
+        // old name, so either release order works. The branch below already
+        // tells the two forms apart by `.inline`, which is what the split
+        // encodes in the type - so nothing else here changes.
+        case 'footnote_ref':
+        case 'inline_footnote':
         case 'footnote': {
             if (Array.isArray(n.inline)) {
                 return [P.Note([P.Para(inlines(ctx, n.inline as CNode[]))])];
