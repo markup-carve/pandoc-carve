@@ -54,6 +54,29 @@ interface Ctx {
     headings: Map<string, CNode[]>;
     /** true while emitting blocks of a tight list item */
     tight: boolean;
+    /**
+     * True while a crossref's target heading is being inlined.
+     *
+     * A crossref resolves ONE LEVEL: the link text is the target heading's
+     * content with any crossref inside it dropped. `# A </#a>` - a heading
+     * referencing its own id - is the corpus case, and without this the
+     * resolution re-enters itself until the stack runs out.
+     */
+    inCrossref: boolean;
+    /**
+     * How many captions of each kind have been numbered so far.
+     *
+     * `^ Figure #: text` asks for a literal number in the caption; the engine
+     * keeps an independent sequence per LABEL, not per element kind, so
+     * `Figure #`, `Listing #`, `Figure #` on three figures numbers them
+     * Figure 1, Listing 1, Figure 2. The parse tree
+     * carries only the `caption_number` PLACEHOLDER - the value is assigned at
+     * render time - so a consumer that wants the number has to keep the count
+     * itself.
+     */
+    captionCounts: Map<string, number>;
+    /** The caption LABEL currently being converted, for `caption_number`. */
+    captionKind: string | undefined;
     roundtrip: boolean;
     symbols: Record<string, string>;
     listTable: boolean;
@@ -185,6 +208,52 @@ function verbatimInlines(value: string): P.Inline[] {
     return out;
 }
 
+
+/**
+ * The label a caption numbers under - the word before its `#`.
+ *
+ * The engine keeps one sequence PER LABEL, not per element kind: `Figure #`,
+ * `Listing #`, `Figure #` on three figures numbers them Figure 1, Listing 1,
+ * Figure 2. Keying on figure-versus-table would have made that Listing 2.
+ */
+function captionLabel(nodes: CNode[] | undefined): string | undefined {
+    if (!Array.isArray(nodes)) return undefined;
+    const at = nodes.findIndex((x) => x?.type === 'caption_number');
+    if (at <= 0) return undefined;
+    // ALL the text before the placeholder, markup included.
+    //
+    // docs-extensions.md: "the label is the text before it". Three narrower
+    // readings were wrong, each caught in review:
+    //   - the element kind      `Listing #` after `Figure #` numbered 2, not 1
+    //   - the last word         `Supplementary Figure` merged into `Figure`
+    //   - only `text` nodes     `*Figure*` fell to a generic counter, where
+    //                           the engine shares the `Figure` sequence and
+    //                           numbers it 2
+    // So the label is the flattened inline TEXT, which is what the resolver
+    // compares.
+    const label = nodes.slice(0, at).map(inlineText).join('').trim();
+    return label || undefined;
+}
+
+/**
+ * The text content of an inline node, markup flattened away.
+ *
+ * Carve's inline nodes do not agree on where their text lives: most use
+ * `value`, a literal inline uses `content`, a symbol carries its resolved
+ * glyph. Reading only `value` sent `!`Figure`` to a generic counter, where the
+ * engine shares the `Figure` sequence - the fourth narrowing this function
+ * needed, all four found in review.
+ */
+function inlineText(n: CNode | undefined): string {
+    if (!n || typeof n !== 'object') return '';
+    for (const key of ['value', 'content', 'glyph', 'text'] as const) {
+        const v = (n as Record<string, unknown>)[key];
+        if (typeof v === 'string') return v;
+    }
+    const kids = (n.children as CNode[] | undefined) ?? [];
+    return kids.map(inlineText).join('');
+}
+
 // --- Inlines ---
 
 function inlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] {
@@ -284,14 +353,38 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                     String(n.title ?? ''),
                 ]),
             ];
+        case 'caption_number': {
+            // The `#` in `^ Figure #: text`. It has no value in the tree - the
+            // renderer assigns one - so it was degrading to empty and the
+            // caption reached pandoc as `Figure : text`, silently unnumbered
+            // in every writer.
+            const kind = ctx.captionKind ?? 'caption';
+            const next = (ctx.captionCounts.get(kind) ?? 0) + 1;
+            ctx.captionCounts.set(kind, next);
+            return [P.Str(String(next))];
+        }
         case 'heading_ref': {
+            // Nested inside a crossref's own resolution: the engine emits
+            // nothing for it, so `# A </#a>` yields the link text `A ` rather
+            // than recurring. Matches corpus 118.
+            if (ctx.inCrossref) return [];
             const target = String(n.target ?? '');
             const found =
                 ctx.headings.get(target) ??
                 ctx.headings.get(target.toLowerCase()) ??
                 findCaseInsensitive(ctx.headings, target);
             if (found) {
-                return [P.Link(P.attr(undefined, ['crossref']), inlines(ctx, found), [`#${target}`, ''])];
+                ctx.inCrossref = true;
+                try {
+                    return [
+                        P.Link(P.attr(undefined, ['crossref']), inlines(ctx, found), [
+                            `#${target}`,
+                            '',
+                        ]),
+                    ];
+                } finally {
+                    ctx.inCrossref = false;
+                }
             }
             warn(ctx, `crossref: unresolved target "${target}" - emitting target text`);
             return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), [P.Str(target)], [`#${target}`, ''])];
@@ -620,7 +713,9 @@ const ALIGN: Record<string, P.Alignment> = {
  */
 function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
     if (!caption && Array.isArray(n.caption)) {
+        ctx.captionKind = captionLabel(n.caption as CNode[]);
         caption = inlines(ctx, n.caption as CNode[]);
+        ctx.captionKind = undefined;
     }
     const rows = ((n.rows as CNode[] | undefined) ?? []).map(
         (r) => (r.cells as CCell[] | undefined) ?? [],
@@ -815,7 +910,9 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
 
 function figure(ctx: Ctx, n: CNode): P.Block[] {
     const target = n.target as CNode | undefined;
+    ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
     const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
+    ctx.captionKind = undefined;
     if (!target) return [];
     if (target.type === 'table') {
         // Pandoc tables carry a native caption; no Figure wrapper needed.
@@ -890,6 +987,9 @@ export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult
         footnoteDefs: (ast.footnoteDefs as Record<string, CNode[]> | undefined) ?? {},
         headings: new Map(),
         tight: false,
+        inCrossref: false,
+        captionCounts: new Map(),
+        captionKind: undefined,
         roundtrip: options.roundtrip ?? false,
         symbols: options.symbols ?? {},
         listTable: options.listTable ?? false,
