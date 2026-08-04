@@ -35,7 +35,11 @@ test('smart punctuation carries the resolved glyph, not the source run', () => {
       ]),
     ]),
   )
-  assert.equal(strs(result), '— … “')
+  // One Str, not three: `strs` joins node values with a space, so the spacing
+  // here is the helper's and not the document's. Adjacent Str nodes are merged
+  // on the way out (pandoc's own readers emit one Str per word), and what this
+  // test is about is that each glyph survives RESOLVED - `—` and not `---`.
+  assert.equal(strs(result), '—…“')
   assert.deepEqual(result.warnings, [])
 })
 

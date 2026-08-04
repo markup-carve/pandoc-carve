@@ -253,7 +253,12 @@ function span(ctx: Ctx, c: never): CNode[] {
             break;
         }
         case 'comment-annotation':
-            return [{ type: 'critic-comment', text: stringify(xs) }];
+            // `critic_comment` is the name carve-js settled on. Emitting the old
+            // hyphenated one made the ENGINE throw - `renderCarve: unknown
+            // inline critic-comment` - because this node is handed straight to
+            // its writer. Reading accepts both spellings; writing has to pick
+            // the current one.
+            return [{ type: 'critic_comment', text: stringify(xs) }];
     }
     if (cls?.startsWith('ext-')) {
         return [{ type: 'inline_extension', name: cls.slice(4), content: inlines(ctx, xs) }];
