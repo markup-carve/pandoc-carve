@@ -9,7 +9,36 @@
  * carve -> pandoc -> carve round-trips clean.
  */
 
+import { parse as parseCarve } from '@markup-carve/carve';
 import type { PandocDoc, PandocNode, Attr } from './pandoc.js';
+
+/**
+ * The node type THIS engine uses for an editorial comment.
+ *
+ * carve-js renamed `critic-comment` to `critic_comment`, and the nodes this
+ * module builds go straight to that engine's own writer - which accepts only
+ * its current spelling and throws on the other. A constant cannot satisfy both,
+ * and both are in the wild: the published release wants the hyphen, main wants
+ * the underscore.
+ *
+ * So it is PROBED rather than assumed, the same way carve-lsp probes the column
+ * unit. Parse one editorial comment and read back what the engine called it.
+ */
+let criticCommentType: string | undefined;
+function criticCommentNodeType(): string {
+    if (criticCommentType) return criticCommentType;
+    criticCommentType = 'critic_comment';
+    try {
+        const probe = parseCarve('{# c #}\n') as { children?: unknown[] };
+        const para = (probe.children ?? [])[0] as { children?: Array<{ type?: string }> };
+        const found = (para?.children ?? []).find((n) => String(n?.type ?? '').includes('critic'));
+        if (found?.type) criticCommentType = found.type;
+    } catch {
+        // Keep the current spelling: an engine too old to parse the probe is
+        // older than either name this cares about.
+    }
+    return criticCommentType;
+}
 
 interface CNode {
     type: string;
@@ -253,12 +282,7 @@ function span(ctx: Ctx, c: never): CNode[] {
             break;
         }
         case 'comment-annotation':
-            // `critic_comment` is the name carve-js settled on. Emitting the old
-            // hyphenated one made the ENGINE throw - `renderCarve: unknown
-            // inline critic-comment` - because this node is handed straight to
-            // its writer. Reading accepts both spellings; writing has to pick
-            // the current one.
-            return [{ type: 'critic_comment', text: stringify(xs) }];
+            return [{ type: criticCommentNodeType(), text: stringify(xs) }];
     }
     if (cls?.startsWith('ext-')) {
         return [{ type: 'inline_extension', name: cls.slice(4), content: inlines(ctx, xs) }];
