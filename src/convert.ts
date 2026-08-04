@@ -191,6 +191,34 @@ function inlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] {
     if (!nodes) return [];
     const out: P.Inline[] = [];
     for (const n of nodes) out.push(...inline(ctx, n));
+    return joinAdjacentStr(out);
+}
+
+/**
+ * Merge neighbouring `Str` nodes into one.
+ *
+ * Pandoc's own readers emit one `Str` per WORD, with `Space` between; two
+ * `Str` nodes touching is legal but not a shape pandoc produces, and a
+ * consumer doing word-level work sees three words where there is one.
+ *
+ * Carve's tree splits a word wherever a construct sits inside it, and that got
+ * more common when carve-js stopped substituting smart-punctuation characters
+ * and started publishing them as nodes: `Carve's` is now `text`,
+ * `smart_punctuation`, `text`, so a direct mapping yields Str("Carve"),
+ * Str("’"), Str("s"). The rendered text is identical - writers concatenate -
+ * but the AST is not the one pandoc would have built, and it is the AST this
+ * package exists to hand over.
+ */
+function joinAdjacentStr(xs: P.Inline[]): P.Inline[] {
+    const out: P.Inline[] = [];
+    for (const x of xs) {
+        const prev = out[out.length - 1];
+        if (x.t === 'Str' && prev?.t === 'Str') {
+            out[out.length - 1] = P.Str(String(prev.c) + String(x.c));
+            continue;
+        }
+        out.push(x);
+    }
     return out;
 }
 
@@ -341,6 +369,12 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 ]),
             ];
         }
+        // carve-js renamed this from `critic-comment` when it settled the
+        // vocabulary on snake_case. BOTH spellings are accepted so this package
+        // works against either engine and the two can be released in any order -
+        // an unmatched type falls through to `default` and degrades to plain
+        // text, which loses the span silently rather than erroring.
+        case 'critic_comment':
         case 'critic-comment':
             return [P.Span(P.attr(undefined, ['comment-annotation']), textInlines(String(n.text ?? '')))];
         case 'comment':
