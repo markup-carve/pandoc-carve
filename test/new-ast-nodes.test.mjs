@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convert } from '../dist/convert.js'
+import { carveToPandoc } from '../dist/index.js'
 
 // These nodes are built by hand rather than parsed, because the published
 // carve-js this package depends on predates them. That is the point: the arms
@@ -85,4 +86,44 @@ test('none of the three warns', () => {
     ]),
   )
   assert.deepEqual(result.warnings, [])
+})
+
+test('a cyclic crossref resolves one level instead of overflowing the stack', () => {
+  // corpus 118. `# A </#a>` is a heading whose crossref targets its own id, so
+  // resolving the link text re-enters the same heading. The engine emits the
+  // target's text with the nested crossref DROPPED - `<a href="#A">A </a>` -
+  // and this used to recur until the stack ran out, on both engines.
+  const result = carveToPandoc('# A </#a>\n')
+  assert.deepEqual(result.warnings, [])
+  assert.equal(strs(result), 'A A')
+})
+
+test('a caption number is substituted, counted per kind', () => {
+  // `^ Figure #: text` asks for a literal number. The tree carries only the
+  // placeholder - the value is assigned at render time - so it degraded to
+  // empty and captions reached pandoc as `Figure : text`. Figures and tables
+  // keep independent sequences, which is what the engine does.
+  // Per LABEL, not per element kind - `Figure`, `Listing`, `Figure` on three
+  // FIGURES numbers them 1, 1, 2. Keying on figure-versus-table would have
+  // given the Listing a 2, which is what review caught.
+  // The label is ALL the text before the `#`, markup flattened. Three narrower
+  // readings were wrong and each was caught in review: the element kind gave
+  // the Listing a 2, the last word merged `Supplementary Figure` into
+  // `Figure`, and reading only `text` nodes sent `*Figure*` to a generic
+  // counter where the engine shares the `Figure` sequence.
+  const result = carveToPandoc(
+    '![a](1.png)\n^ Figure #: one\n\n![b](2.png)\n^ Listing #: two\n\n' +
+      '![c](3.png)\n^ *Figure* #: three\n\n![d](4.png)\n^ Supplementary Figure #: four\n\n' +
+      '|=H|\n|x|\n^ Table #: t\n',
+  )
+  const text = strs(result)
+  for (const want of [
+    'Figure 1:',
+    'Listing 1:',
+    'Figure 2:',
+    'Supplementary Figure 1:',
+    'Table 1:',
+  ]) {
+    assert.ok(text.includes(want), `${want} missing from: ${text}`)
+  }
 })
