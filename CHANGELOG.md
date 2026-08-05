@@ -4,6 +4,19 @@
 
 ### Added
 
+- **The bridge converts the serialized AST the Carve spec defines (PART 12), not
+  carve-js's runtime tree.** Every node type and field name the converter reads
+  is now spec surface, pinned by `resources/ast-schema.json`, so a document
+  parsed by carve-rs, carve-php or carve-go converts exactly like one parsed by
+  carve-js. `carveToPandoc` keeps its signature and its output.
+- `carveAstToPandoc(ast)` converts an already-serialized Carve AST - an object
+  or JSON text - and `carveToCarveAst(source)` produces that exchange format
+  from source. On the CLI, `-f carve-json` reads a tree any engine wrote:
+
+  ```bash
+  carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
+  ```
+
 - Arms for three AST node types that previously fell through to the unknown-node
   fallback (carve#355):
 
