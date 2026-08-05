@@ -183,7 +183,27 @@ function smartPunctuationText(n: CNode): string {
     return SMART_PUNCTUATION_GLYPHS[kind] ?? String(n.value ?? '');
 }
 
-function textInlines(value: string): P.Inline[] {
+/**
+ * The engines' SENTINEL for a no-break space the parser resolved - from an
+ * escaped space, or from a line block's preserved indentation - is U+E000, a
+ * PRIVATE-USE codepoint (markup-carve/carve#721). It is spec surface a consumer has to
+ * map: passing it through put a private-use character into Pandoc JSON, so
+ * every writer downstream - docx, LaTeX, HTML - rendered a tofu box where a
+ * no-break space belonged, and nothing warned.
+ *
+ * U+00A0 is the right target: Pandoc has no separate representation for a
+ * resolved space, and a literal no-break space is what the source means. A
+ * U+00A0 the author typed is published by the engines as itself and needs no
+ * mapping.
+ */
+const RESOLVED_NBSP = /\uE000/g;
+
+function resolvedSpaces(value: string): string {
+    return value.replace(RESOLVED_NBSP, '\u00A0');
+}
+
+function textInlines(raw: string): P.Inline[] {
+    const value = resolvedSpaces(raw);
     const out: P.Inline[] = [];
     const parts = value.split(/( +)/);
     for (const part of parts) {
@@ -198,7 +218,8 @@ function textInlines(value: string): P.Inline[] {
 // Space per space character instead of one per run. Prose collapsing is correct
 // for ordinary text, but an inline literal captures its content VERBATIM, so
 // `` !`a  b` `` must not reach a writer as "a b".
-function verbatimInlines(value: string): P.Inline[] {
+function verbatimInlines(raw: string): P.Inline[] {
+    const value = resolvedSpaces(raw);
     const out: P.Inline[] = [];
     for (const part of value.split(/( )/)) {
         if (part === '') continue;
@@ -528,6 +549,44 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
     return result;
 }
 
+/**
+ * True for the div form of a line block: the `line-block` class and nothing else
+ * to preserve. A div that ALSO carries an id, other classes or key/values is a
+ * div the author attributed, and Pandoc's LineBlock has no attribute slot to put
+ * them in - so those stay a Div rather than lose the attributes.
+ */
+function isLineBlockDiv(n: CNode, classes: string[]): boolean {
+    if (!classes.includes('line-block')) return false;
+    const [id, , kvs] = toAttr(n.attrs);
+    return classes.length === 1 && id === '' && kvs.length === 0;
+}
+
+/**
+ * A line block's stanzas are its child paragraphs; within a stanza the lines are
+ * separated by hard breaks. Pandoc's LineBlock is a flat list of lines, and a
+ * blank line between stanzas is an EMPTY line - the same shape pandoc's own
+ * markdown reader produces for a `|` line with nothing after it.
+ */
+function lineBlock(ctx: Ctx, n: CNode): P.Block {
+    const lines: P.Inline[][] = [];
+    const stanzas = (n.children as CNode[] | undefined) ?? [];
+    stanzas.forEach((stanza, i) => {
+        if (i > 0) lines.push([]);
+        const kids = (stanza.children as CNode[] | undefined) ?? [stanza];
+        let current: CNode[] = [];
+        for (const kid of kids) {
+            if (kid.type === 'hard_break' || kid.type === 'soft_break') {
+                lines.push(inlines(ctx, current));
+                current = [];
+                continue;
+            }
+            current.push(kid);
+        }
+        lines.push(inlines(ctx, current));
+    });
+    return P.LineBlock(lines);
+}
+
 function blockInner(ctx: Ctx, n: CNode): P.Block[] {
     switch (n.type) {
         case 'paragraph': {
@@ -577,8 +636,22 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
                 ),
             ];
         }
+        // A LINE BLOCK (`::: |`, PART 9 SS23) is verse: each newline is a line of
+        // its own and the leading whitespace is preserved. Pandoc has `LineBlock`
+        // for exactly that.
+        //
+        // BOTH spellings are handled, because the arm for the node type alone was
+        // unreachable: the PINNED published engine models `::: |` as a div
+        // carrying the `line-block` class, and only carve-js main emits a
+        // dedicated `line_block` node. So every line block a user could actually
+        // produce fell through to the Div branch and reached the writers as a
+        // classed paragraph, while the code that would have handled it sat
+        // waiting for a pin bump.
+        case 'line_block':
+            return [lineBlock(ctx, n)];
         case 'div': {
             const [id, classes, kvs] = toAttr(n.attrs);
+            if (isLineBlockDiv(n, classes)) return [lineBlock(ctx, n)];
             return [
                 P.Div([id, classes, [...kvs, ...labelKv(ctx, n)]], [
                     ...labelCaption(ctx, n),
@@ -592,25 +665,6 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         case 'comment':
         case 'abbreviation_def':
             return [];
-        case 'line_block': {
-            // Pandoc has the node natively, so the line structure survives
-            // instead of collapsing into a paragraph. Each child paragraph is
-            // one stanza whose hard breaks separate the lines.
-            const lines: P.Inline[][] = [];
-            for (const child of (n.children ?? []) as CNode[]) {
-                let current: P.Inline[] = [];
-                for (const part of (child.children ?? []) as CNode[]) {
-                    if (part.type === 'hard_break' || part.type === 'soft_break') {
-                        lines.push(current);
-                        current = [];
-                        continue;
-                    }
-                    current.push(...inline(ctx, part));
-                }
-                lines.push(current);
-            }
-            return [P.LineBlock(lines)];
-        }
         default: {
             // An inline node at block level (defensive) or an unknown block.
             warn(ctx, `block: unknown node type "${n.type}" degraded to a paragraph of its text`);

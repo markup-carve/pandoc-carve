@@ -444,3 +444,48 @@ test('title precedes the [label] caption when a div carries both', () => {
   assert.deepEqual(div.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Heads' }, { t: 'Space' }, { t: 'Str', c: 'up' }] }]);
   assert.deepEqual(div.c[1][1].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'side' }] }]);
 });
+
+// A line block is VERSE (PART 9 SS23) and Pandoc has `LineBlock` for it. The
+// builder existed here and nothing called it, so every line block reached the
+// writers as a classed Div and lost the semantics.
+test('a line block becomes a LineBlock, one entry per line', () => {
+  const [lb] = blocks('::: |\nRoses are red,\nViolets are blue.\n:::');
+  assert.equal(lb.t, 'LineBlock');
+  assert.equal(lb.c.length, 2);
+  assert.deepEqual(lb.c[1], [
+    { t: 'Str', c: 'Violets' },
+    { t: 'Space' },
+    { t: 'Str', c: 'are' },
+    { t: 'Space' },
+    { t: 'Str', c: 'blue.' },
+  ]);
+});
+
+test('a stanza break is an empty line', () => {
+  const [lb] = blocks('::: |\nStanza one,\nstill one.\n\nStanza two.\n:::');
+  assert.deepEqual(lb.c.map((line) => line.length === 0), [false, false, true, false]);
+});
+
+test('the div spelling of a line block is recognized too', () => {
+  const [lb] = blocks('{.line-block}\n:::\none\ntwo\n:::');
+  assert.equal(lb.t, 'LineBlock');
+});
+
+// Pandoc's LineBlock has no attribute slot, so an attributed div stays a Div
+// rather than lose the id the author wrote.
+test('a line-block div carrying an id stays a Div', () => {
+  const [div] = blocks('{#x .line-block}\n:::\none\n:::');
+  assert.equal(div.t, 'Div');
+  assert.equal(div.c[0][0], 'x');
+});
+
+// U+E000 is the engines' sentinel for a no-break space the parser RESOLVED. It
+// is private-use: passing it through put a tofu box in every writer downstream.
+test('a resolved no-break space reaches pandoc as a real one', () => {
+  assert.deepEqual(firstInlines('a\\ b'), [{ t: 'Str', c: 'a\u00A0b' }]);
+});
+
+test("a line block's preserved indentation reaches pandoc as no-break spaces", () => {
+  const [lb] = blocks('::: |\n  indented\n:::');
+  assert.deepEqual(lb.c[0], [{ t: 'Str', c: '\u00A0\u00A0indented' }]);
+});
