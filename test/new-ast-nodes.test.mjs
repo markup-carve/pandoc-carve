@@ -127,3 +127,53 @@ test('a caption number is substituted, counted per kind', () => {
     assert.ok(text.includes(want), `${want} missing from: ${text}`)
   }
 })
+
+test('a crossref to a numbered figure resolves to "Figure 1", not the raw id', () => {
+  // pandoc-carve#11. `ctx.headings` (pass 1's crossref target map) used to be
+  // built from heading ids only, so `heading_ref` never found a captioned
+  // figure/table's own `{#id}` and fell back to the "unresolved target"
+  // warning with the raw id as link text - even though #10 already made the
+  // caption's own number render correctly right next to it.
+  const result = carveToPandoc('{#fig-sun}\n![s](s.png)\n^ Figure #: sun\n\nSee </#fig-sun>.\n')
+  assert.deepEqual(result.warnings, [])
+  const para = result.doc.blocks[1]
+  const link = para.c.find((i) => i.t === 'Link')
+  assert.deepEqual(link.c[2], ['#fig-sun', ''])
+  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Figure' }, { t: 'Space' }, { t: 'Str', c: '1' }])
+})
+
+test('a crossref to a numbered figure resolves even when it precedes the figure', () => {
+  // Pass 1 walks the whole document before pass 2 resolves any crossref, so a
+  // BACKWARD reference (the usual case) and a FORWARD one behave identically.
+  const result = carveToPandoc('See </#fig-sun>.\n\n{#fig-sun}\n![s](s.png)\n^ Figure #: sun\n')
+  assert.deepEqual(result.warnings, [])
+  assert.ok(strs(result).includes('See Figure 1 .'))
+})
+
+test('a crossref to a numbered table caption resolves to "Table 1"', () => {
+  // A table's `{#id}` and `^ Table #: ...` land directly on the `table` node
+  // (no `figure` wrapper - a table carries its own native caption), so the
+  // pass-1 walk has to recognize `table` as a captioned-target kind too, not
+  // only `figure`.
+  const result = carveToPandoc('{#tbl-x}\n|=H|\n|x|\n^ Table #: t\n\nSee </#tbl-x>.\n')
+  assert.deepEqual(result.warnings, [])
+  const para = result.doc.blocks[1]
+  const link = para.c.find((i) => i.t === 'Link')
+  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Table' }, { t: 'Space' }, { t: 'Str', c: '1' }])
+})
+
+test('caption numbering for crossref targets stays in sync when some figures carry no id', () => {
+  // The per-label counter that assigns "Figure 1"/"Figure 2" has to advance
+  // for EVERY numbered caption in document order, including ones with no
+  // `{#id}` at all (unreferenceable, but still consuming a number) - otherwise
+  // a later id'd figure's resolved number would drift from what the caption
+  // itself actually renders.
+  const result = carveToPandoc(
+    '![a](1.png)\n^ Figure #: one\n\n' +
+      '{#fig-b}\n![b](2.png)\n^ Listing #: two\n\n' +
+      '{#fig-c}\n![c](3.png)\n^ Figure #: three\n\n' +
+      'See </#fig-b> and </#fig-c>.\n',
+  )
+  assert.deepEqual(result.warnings, [])
+  assert.ok(strs(result).includes('See Listing 1 and Figure 2 .'))
+})
