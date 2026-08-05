@@ -13,6 +13,11 @@ jobs:
         node: [20, 22]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The spec corpus is a submodule, and test/spec-corpus.test.mjs FAILS
+          # rather than skips without it - a skipped corpus reads like a converted
+          # one in a CI log.
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
