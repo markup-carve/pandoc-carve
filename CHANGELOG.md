@@ -18,6 +18,22 @@
 
 ### Fixed
 
+- **Line blocks actually reach `LineBlock` now.** The arm for the `line_block`
+  node type has been here since the smart-punctuation change, and no document
+  could reach it: the PINNED published engine models `::: |` as a div carrying
+  the `line-block` class, and only carve-js main emits the node type. Every line
+  block a user could write fell through to the Div branch and reached the writers
+  as a classed paragraph. Both spellings are handled now, and a STANZA break is
+  an empty line entry rather than two stanzas run together.
+- **A `LineBlock` on the way IN is a line block, not a flattened paragraph.** The
+  reverse direction warned "LineBlock has no Carve form" - it has one, PART 9
+  SS23 - and joined the verse with hard breaks. A test pinned that warning.
+- **The resolved no-break space stops leaking.** The engines publish U+E000, a
+  PRIVATE-USE codepoint, for a no-break space the parser resolved from an escaped
+  space or from a line block's preserved indentation (markup-carve/carve#721).
+  It was passed straight through, so every writer downstream - docx, LaTeX, HTML -
+  rendered a tofu box where a no-break space belonged, with no warning. It now
+  maps to U+00A0.
 - **No more warning per substitution.** Each of the three hit the `default:`
   arm, which warns, so a document with ordinary prose punctuation produced a
   warning for every quote, dash and ellipsis in it.

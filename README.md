@@ -114,6 +114,9 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
 | `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
 | Frontmatter `title:`/`author:`/`date:`/`tags:` | Meta |
+| `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
+| Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter |
+| A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
 
 The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs
@@ -148,9 +151,6 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 
 ## Limitations
 
-- Ordered-list delimiter style (`1.` vs `1)`) is not distinguished by the Carve
-  AST (and `renderCarve` always writes `1.`); pandoc's default delimiter is
-  used. Fixable only upstream (an AST `delim` field + fmt support).
 - Attribute order inside `{...}` is normalized to `#id .class key=val` on
   round-trip - pandoc's Attr has fixed slots, so the author's original order
   is not representable. Semantics are unchanged.

@@ -322,14 +322,33 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
         case 'Plain':
             return [{ type: 'paragraph', children: inlines(ctx, c) }];
         case 'LineBlock': {
-            warn(ctx, 'LineBlock has no Carve form - joined with hard breaks');
+            // Carve HAS a form for this - the `::: |` line block (PART 9 SS23) -
+            // and the warning here used to say it did not, while flattening the
+            // verse into one paragraph of hard breaks. An EMPTY line is a stanza
+            // break, which is a blank line between the paragraphs of the block.
             const lines = c as PandocNode[][];
-            const children: CNode[] = [];
-            lines.forEach((line, i) => {
-                if (i > 0) children.push({ type: 'hard_break' });
-                children.push(...inlines(ctx, line));
-            });
-            return [{ type: 'paragraph', children: mergeText(children) }];
+            const stanzas: CNode[][] = [[]];
+            for (const line of lines) {
+                if (line.length === 0) {
+                    stanzas.push([]);
+                    continue;
+                }
+                const stanza = stanzas[stanzas.length - 1] as CNode[];
+                if (stanza.length > 0) stanza.push({ type: 'hard_break' });
+                stanza.push(...inlines(ctx, line));
+            }
+            const children = stanzas
+                .filter((stanza) => stanza.length > 0)
+                .map((stanza) => ({ type: 'paragraph', children: mergeText(stanza) }));
+            // The DIV form, not the `line_block` node: this package pins a
+            // published engine whose writer knows `{.line-block}` and throws on
+            // `line_block` ("renderCarve: unknown block"). Both parse to the same
+            // rendering, and the node form can replace this once the pin moves.
+            return [{
+                type: 'div',
+                attrs: { classes: ['line-block'], order: ['.class'] },
+                children,
+            }];
         }
         case 'Header': {
             const [level, a, xs] = c as [number, Attr, PandocNode[]];

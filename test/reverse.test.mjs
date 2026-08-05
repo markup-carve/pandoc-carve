@@ -109,7 +109,6 @@ test('reverse: foreign pandoc nodes degrade with warnings, never throw', () => {
     meta: {},
     blocks: [
       { t: 'Para', c: [{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }] },
-      { t: 'LineBlock', c: [[{ t: 'Str', c: 'line1' }], [{ t: 'Str', c: 'line2' }]] },
       {
         t: 'Para',
         c: [
@@ -127,13 +126,34 @@ test('reverse: foreign pandoc nodes degrade with warnings, never throw', () => {
   };
   const { carve, warnings } = pandocToCarve(doc);
   assert.ok(carve.includes('caps'));
-  assert.ok(carve.includes('line1'));
   assert.ok(carve.includes('“quoted”'));
   // Citation source text is kept as literal (escaped) text.
   assert.ok(carve.includes('key1'), `citation text kept in: ${carve}`);
   assert.ok(warnings.some((w) => w.includes('SmallCaps')));
-  assert.ok(warnings.some((w) => w.includes('LineBlock')));
   assert.ok(warnings.some((w) => w.includes('Cite')));
+});
+
+// A LineBlock is not foreign: Carve's `::: |` line block is the same construct,
+// and the warning that said otherwise was pinned here for a while.
+test('reverse: a LineBlock becomes a line block, stanzas and all', () => {
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'LineBlock',
+        c: [[{ t: 'Str', c: 'line1' }], [{ t: 'Str', c: 'line2' }], [], [{ t: 'Str', c: 'stanza2' }]],
+      },
+    ],
+  };
+  const { carve, warnings } = pandocToCarve(doc);
+  assert.match(carve, /\{\.line-block\}/);
+  assert.match(carve, /line1/);
+  assert.match(carve, /stanza2/);
+  // The stanza break is a BLANK LINE between the block's paragraphs, not a third
+  // hard break in the first one.
+  assert.match(carve, /line2\n\nstanza2/);
+  assert.deepStrictEqual(warnings, []);
 });
 
 test('reverse: multi-block Note becomes a reference footnote with generated id', () => {
