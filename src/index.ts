@@ -1,4 +1,5 @@
-import { parse, renderCarve } from '@markup-carve/carve';
+import * as carve from '@markup-carve/carve';
+import { normalizeCarveAst, parseCarveAst, toCarveAst, type CarveAstDocument } from './ast-json.js';
 import { convert, type ConvertOptions, type ConvertResult } from './convert.js';
 import { pandocToCarve as reverse } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
@@ -6,6 +7,28 @@ import type { PandocDoc } from './pandoc.js';
 export { PANDOC_API_VERSION, type PandocDoc } from './pandoc.js';
 export type { ConvertOptions, ConvertResult } from './convert.js';
 export type { ReverseResult } from './reverse.js';
+export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
+
+/**
+ * The engine's own serializer, when the installed engine has one.
+ *
+ * PART 12 section 1: an implementation whose internals differ maps on the way
+ * out. Where the engine does that itself its mapping is authoritative and is
+ * used; the published `^0.1.2` pinned here exports no `toAstJson`, and
+ * `toCarveAst` applies the section 7 mapping instead. Feature-detected through
+ * a NAMESPACE import on purpose - a named import of an export the installed
+ * version does not have fails at link time, before any check could run.
+ */
+const engineSerializer = (carve as unknown as { toAstJson?: (doc: unknown) => unknown }).toAstJson;
+
+/**
+ * Parse Carve source to the serialized AST of PART 12 - the shape
+ * `resources/ast-schema.json` pins, and the shape every engine's `--to-json`
+ * writes.
+ */
+export function carveToCarveAst(source: string): CarveAstDocument {
+    return toCarveAst(carve.parse(source), engineSerializer);
+}
 
 /**
  * Convert Carve source to a Pandoc document (api-version 1.23.1).
@@ -14,8 +37,22 @@ export type { ReverseResult } from './reverse.js';
  * that have no faithful Pandoc equivalent.
  */
 export function carveToPandoc(source: string, options?: ConvertOptions): ConvertResult {
-    const ast = parse(source) as unknown as Parameters<typeof convert>[0];
-    return convert(ast, options);
+    return convert(carveToCarveAst(source), options);
+}
+
+/**
+ * Convert an already-serialized Carve AST - PART 12, from ANY engine, however
+ * it arrived: a `carve --to-json` file, a pipe, an editor's own tree.
+ *
+ * Takes the document as an object or as JSON text. It runs the same conversion
+ * {@link carveToPandoc} does, because the exchange format is what the converter
+ * reads in both cases - no implementation's internals are involved.
+ */
+export function carveAstToPandoc(
+    ast: CarveAstDocument | string,
+    options?: ConvertOptions,
+): ConvertResult {
+    return convert(normalizeCarveAst(parseCarveAst(ast)), options);
 }
 
 /**
@@ -35,5 +72,8 @@ export function carveToPandocJson(source: string, options?: ConvertOptions): str
 export function pandocToCarve(doc: PandocDoc | string): { carve: string; warnings: string[] } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
     const { ast, warnings } = reverse(parsed);
-    return { carve: renderCarve(ast as unknown as Parameters<typeof renderCarve>[0]), warnings };
+    return {
+        carve: carve.renderCarve(ast as unknown as Parameters<typeof carve.renderCarve>[0]),
+        warnings,
+    };
 }

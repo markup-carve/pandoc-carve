@@ -1,12 +1,16 @@
 /**
  * Carve AST -> Pandoc JSON AST.
  *
- * Walks the AST produced by `@markup-carve/carve`'s `parse()` and emits a
- * Pandoc document (api-version 1.23.1). Anything that cannot be mapped
- * faithfully degrades to a classed Span/Div and reports a warning - nothing
- * degrades silently.
+ * Walks the SERIALIZED AST that PART 12 of the Carve spec defines - the shape
+ * `spec/resources/ast-schema.json` pins, as written by any engine's
+ * `--to-json` - and emits a Pandoc document (api-version 1.23.1). It is not the
+ * runtime tree of any particular implementation: `src/ast-json.ts` maps that on
+ * the way in, so every node type and field name switched on below is spec
+ * surface. Anything that cannot be mapped faithfully degrades to a classed
+ * Span/Div and reports a warning - nothing degrades silently.
  */
 
+import type { CarveAstDocument } from './ast-json.js';
 import * as P from './pandoc.js';
 
 // The Carve AST is plain data; we type the parts we read.
@@ -417,15 +421,13 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             warn(ctx, `crossref: unresolved target "${target}" - emitting target text`);
             return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), [P.Str(target)], [`#${target}`, ''])];
         }
-        // carve-js split `footnote` into `footnote_ref` (`[^a]`) and
-        // `inline_footnote` (`^[…]`) (markup-carve/carve#405). All three are
-        // accepted: this package pins a published `^0.1.2` that still emits the
-        // old name, so either release order works. The branch below already
-        // tells the two forms apart by `.inline`, which is what the split
-        // encodes in the type - so nothing else here changes.
+        // The wire has two nodes here, split so that a profile can deny one
+        // without the other (markup-carve/carve#405): `footnote_ref` (`[^a]`)
+        // and `inline_footnote` (`^[…]`). The pre-split spelling a pinned
+        // engine still emits is folded onto these two in `src/ast-json.ts`, so
+        // this switch never has to know it existed.
         case 'footnote_ref':
-        case 'inline_footnote':
-        case 'footnote': {
+        case 'inline_footnote': {
             if (Array.isArray(n.inline)) {
                 return [P.Note([P.Para(inlines(ctx, n.inline as CNode[]))])];
             }
@@ -490,13 +492,10 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 ]),
             ];
         }
-        // carve-js renamed this from `critic-comment` when it settled the
-        // vocabulary on snake_case. BOTH spellings are accepted so this package
-        // works against either engine and the two can be released in any order -
-        // an unmatched type falls through to `default` and degrades to plain
-        // text, which loses the span silently rather than erroring.
+        // `critic_comment` is the schema's spelling and the only one the wire
+        // carries; the hyphenated name a pinned engine still emits internally
+        // is folded onto it in `src/ast-json.ts`.
         case 'critic_comment':
-        case 'critic-comment':
             return [P.Span(P.attr(undefined, ['comment-annotation']), textInlines(String(n.text ?? '')))];
         case 'comment':
             return [];
@@ -733,19 +732,45 @@ function prefixTaskMarker(itemBlocks: P.Block[], checked: boolean): P.Block[] {
     return [P.Plain(marker), ...itemBlocks];
 }
 
+/**
+ * A definition list, from the FLAT wire sequence (PART 12): `definition_term`
+ * and `definition_description` nodes in document order, exactly as `<dt>` and
+ * `<dd>` appear in the rendered list.
+ *
+ * Pandoc's `DefinitionList` is grouped, so the grouping is recovered by the
+ * rule the renderers already use and the engines agree on: a run of
+ * descriptions belongs to the run of terms before it.
+ */
 function definitionList(ctx: Ctx, n: CNode): P.Block {
-    const items = (n.items as { terms?: CNode[][]; definitions?: CNode[][][] }[] | undefined) ?? [];
-    const converted: [P.Inline[], P.Block[][]][] = items.map((item) => {
-        const termLists = (item.terms ?? []).map((t) => inlines(ctx, t as unknown as CNode[]));
+    const entries = (n.items as CNode[] | undefined) ?? [];
+    const converted: [P.Inline[], P.Block[][]][] = [];
+    let terms: P.Inline[][] = [];
+    let defs: P.Block[][] = [];
+
+    const flush = (): void => {
+        if (!terms.length && !defs.length) return;
         // Pandoc has one term per item; multiple Carve terms join with LineBreak.
-        const term = termLists.length
-            ? termLists.reduce((acc, t) => (acc.length ? [...acc, P.LineBreak, ...t] : t), [] as P.Inline[])
+        const term = terms.length
+            ? terms.reduce((acc, t) => (acc.length ? [...acc, P.LineBreak, ...t] : t), [] as P.Inline[])
             : [];
-        const defs = (item.definitions ?? []).map((d) =>
-            untight(ctx, () => blocks(ctx, d as unknown as CNode[])),
-        );
-        return [term, defs];
-    });
+        converted.push([term, defs]);
+        terms = [];
+        defs = [];
+    };
+
+    for (const entry of entries) {
+        if (entry?.type === 'definition_term') {
+            // A term after a description starts the next entry.
+            if (defs.length) flush();
+            terms.push(inlines(ctx, entry.children as CNode[] | undefined));
+        } else if (entry?.type === 'definition_description') {
+            defs.push(untight(ctx, () => blocks(ctx, entry.children as CNode[] | undefined)));
+        } else {
+            warn(ctx, `definition list: unknown entry type "${String(entry?.type)}" - skipped`);
+        }
+    }
+    flush();
+
     return P.DefinitionList(converted);
 }
 
@@ -1042,10 +1067,29 @@ function metaValue(key: string, raw: string): P.MetaValue {
 
 // --- Entry point ---
 
-export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult {
+export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): ConvertResult {
+    // PART 12 section 7: frontmatter and footnote DEFINITIONS are block nodes
+    // in `children`, not fields on the root. They are lifted out here rather
+    // than converted in place - frontmatter becomes pandoc `meta`, and a
+    // definition is emitted at each reference, inside the Note.
+    const children = (ast.children as CNode[] | undefined) ?? [];
+    const footnoteDefs: Record<string, CNode[]> = {};
+    let frontmatter: CNode | undefined;
+    const body: CNode[] = [];
+    for (const child of children) {
+        if (child?.type === 'frontmatter' && frontmatter === undefined) {
+            frontmatter = child;
+        } else if (child?.type === 'footnote' && typeof child.label === 'string') {
+            // First definition wins, matching the engine's own resolution.
+            footnoteDefs[child.label] ??= (child.children as CNode[] | undefined) ?? [];
+        } else {
+            body.push(child);
+        }
+    }
+
     const ctx: Ctx = {
         warnings: [],
-        footnoteDefs: (ast.footnoteDefs as Record<string, CNode[]> | undefined) ?? {},
+        footnoteDefs,
         crossrefTargets: new Map(),
         tight: false,
         inCrossref: false,
@@ -1060,16 +1104,15 @@ export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult
     // slugs) and numbered figure/table caption ids - before any block is
     // converted, so `heading_ref` resolves regardless of where a crossref
     // sits relative to its target.
-    collectCrossrefTargets(ctx, (ast.children as CNode[] | undefined) ?? [], new Map());
+    collectCrossrefTargets(ctx, body, new Map());
 
-    const meta = parseMeta(ctx, ast.frontmatter);
-    const body = blocks(ctx, (ast.children as CNode[] | undefined) ?? []);
+    const meta = parseMeta(ctx, frontmatter);
 
     return {
         doc: {
             'pandoc-api-version': [...P.PANDOC_API_VERSION],
             meta,
-            blocks: body,
+            blocks: blocks(ctx, body),
         },
         warnings: ctx.warnings,
     };

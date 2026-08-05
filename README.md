@@ -56,6 +56,9 @@ pandoc-carve README.md -f markdown -o README.crv
 
 # Import from a pre-made pandoc JSON AST (no pandoc needed)
 pandoc -f rst -t json doc.rst | pandoc-carve - -f json
+
+# From a SERIALIZED Carve AST (spec PART 12) - from any engine, not just carve-js
+carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
 ```
 
 Anything Carve cannot map faithfully is reported on stderr as a
@@ -71,6 +74,21 @@ const { doc, warnings } = carveToPandoc('Hello /world/!');
 // warnings = ['degraded: ...'] for lossy constructs
 
 const json = carveToPandocJson('Hello /world/!'); // stringified doc
+```
+
+What the converter reads is the **serialized AST of the Carve spec's PART 12**
+(the shape `resources/ast-schema.json` pins), not any implementation's runtime
+tree - so a document another engine already parsed converts the same way,
+whether it arrives as an object or as JSON text:
+
+```js
+import { carveAstToPandoc, carveToCarveAst } from '@markup-carve/pandoc-carve';
+
+// A tree from carve-rs, carve-php, carve-go ... or `carve doc.crv --to-json`
+const { doc, warnings } = carveAstToPandoc(serializedAstJson);
+
+// The same exchange format, produced from source here
+const ast = carveToCarveAst('Hello /world/!');
 ```
 
 The reverse direction takes a Pandoc document (object or JSON string) and
@@ -157,6 +175,9 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 - Import fidelity is bounded by `renderCarve` (carve fmt): the bridge hands it
   a byte-exact AST, but known fmt issues (e.g. trailing whitespace inside code
   blocks, carve-js issue 340) surface in the serialized output.
+- The pinned engine bounds what the source path can produce: `^0.1.2` predates
+  the exchange serializer, so `src/ast-json.ts` performs the PART 12 section 7
+  mapping here. A pin that exports `toAstJson` takes over automatically.
 - Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
   degraded block forms (code blocks / divs), same as Carve's static mode.
   `list-table` is the exception: opt in with `listTable: true` / `--list-table`

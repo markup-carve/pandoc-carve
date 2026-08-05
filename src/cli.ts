@@ -10,13 +10,15 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { carveToPandoc } from './index.js';
+import { carveAstToPandoc, carveToPandoc } from './index.js';
 
 function usage(exitCode: number): never {
     const text = `Usage: pandoc-carve <input | -> [options] [-- pandoc-args...]
 
 Export (Carve -> anything pandoc writes):
   -t, --to FORMAT    output format (default: json; any pandoc writer, or pdf)
+  -f carve-json      input is a SERIALIZED Carve AST (spec PART 12) rather than
+                     Carve source, as written by any engine's "carve --to-json"
 
 Import (anything pandoc reads -> Carve):
   -f, --from FORMAT  input format (any pandoc reader, or json); output is Carve
@@ -97,7 +99,10 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
 
-    if (args.from && args.from !== 'carve') {
+    // `carve` and `carve-json` are the two EXPORT inputs - Carve source, and the
+    // serialized AST any engine writes with --to-json. Every other `-f` names a
+    // pandoc reader, which is the import direction.
+    if (args.from && args.from !== 'carve' && args.from !== 'carve-json') {
         return importToCarve(args);
     }
 
@@ -107,11 +112,15 @@ async function main(): Promise<void> {
     const symbols = args.symbolsFile
         ? (JSON.parse(readFileSync(args.symbolsFile, 'utf8')) as Record<string, string>)
         : undefined;
-    const { doc, warnings } = carveToPandoc(source, {
+    const options = {
         roundtrip: args.roundtrip,
         listTable: args.listTable,
         symbols,
-    });
+    };
+    const { doc, warnings } =
+        args.from === 'carve-json'
+            ? carveAstToPandoc(source, options)
+            : carveToPandoc(source, options);
     for (const w of warnings) {
         process.stderr.write(`pandoc-carve: degraded: ${w}\n`);
     }
