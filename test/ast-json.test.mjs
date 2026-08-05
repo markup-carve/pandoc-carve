@@ -252,6 +252,53 @@ test('the source path and the serialized path agree', () => {
   assert.deepEqual(viaWire, direct);
 });
 
+test('a definition list holding both shapes keeps every entry', () => {
+  // The decision to flatten is made per LIST, so one runtime entry sends the
+  // whole `items` array through the mapping - and an entry that was already a
+  // wire node must survive that trip. Dropping it would delete authored
+  // content with nothing to show for it.
+  const mixed = {
+    type: 'document',
+    children: [
+      {
+        type: 'definition_list',
+        items: [
+          { type: 'definition_term', children: [{ type: 'text', value: 'wire' }] },
+          {
+            type: 'definition_description',
+            children: [{ type: 'paragraph', children: [{ type: 'text', value: 'already' }] }],
+          },
+          {
+            terms: [[{ type: 'text', value: 'runtime' }]],
+            definitions: [[{ type: 'paragraph', children: [{ type: 'text', value: 'mapped' }] }]],
+          },
+        ],
+      },
+    ],
+  };
+  const [list] = nodesOfType(toCarveAst(mixed).children, 'definition_list');
+  assert.deepEqual(
+    list.items.map((n) => n.type),
+    ['definition_term', 'definition_description', 'definition_term', 'definition_description'],
+  );
+  const json = JSON.stringify(carveAstToPandoc(toCarveAst(mixed)).doc);
+  for (const word of ['wire', 'already', 'runtime', 'mapped']) {
+    assert.ok(json.includes(word), `"${word}" survived the mapping`);
+  }
+});
+
+test('a malformed definition entry is skipped, not emitted empty', () => {
+  const malformed = {
+    type: 'document',
+    children: [
+      { type: 'definition_list', items: [{ terms: ['not an array of nodes'], definitions: [] }] },
+    ],
+  };
+  const [list] = nodesOfType(toCarveAst(malformed).children, 'definition_list');
+  assert.deepEqual(list.items, []);
+  assert.doesNotThrow(() => carveAstToPandoc(toCarveAst(malformed)));
+});
+
 test('parseCarveAst returns the document it was given', () => {
   assert.equal(parseCarveAst(WIRE), WIRE);
 });

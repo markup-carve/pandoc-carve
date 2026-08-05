@@ -120,7 +120,7 @@ function normalize<T>(node: T): T {
         case 'definition_list': {
             const items = current['items'];
             if (Array.isArray(items) && items.some((item) => isObject(item) && item['type'] === undefined)) {
-                set('items', definitionEntriesToWire(items as RuntimeDefinitionItem[]));
+                set('items', definitionEntriesToWire(items));
             } else if (Array.isArray(items)) {
                 const mapped = normalize(items);
                 if (mapped !== items) set('items', mapped);
@@ -170,14 +170,28 @@ function normalize<T>(node: T): T {
  *
  * The grouping is recovered on the way in by the rule the renderers use: a run
  * of descriptions belongs to the run of terms before it.
+ *
+ * An entry that is ALREADY a wire node passes through. That is not a
+ * hypothetical: the decision to convert is made per LIST, so one runtime entry
+ * in a list is enough to send every entry through here, and dropping the ones
+ * that were already converted would delete authored content silently. Same
+ * reasoning for a `terms` value that is not an array - a malformed entry is
+ * skipped rather than emitted as a term with no content.
  */
-function definitionEntriesToWire(items: RuntimeDefinitionItem[]): CarveAstNode[] {
+function definitionEntriesToWire(items: unknown[]): CarveAstNode[] {
     const out: CarveAstNode[] = [];
     for (const item of items) {
-        for (const term of item.terms ?? []) {
+        if (isObject(item) && typeof item['type'] === 'string') {
+            out.push(normalize(item) as CarveAstNode);
+            continue;
+        }
+        const entry = (item ?? {}) as RuntimeDefinitionItem;
+        for (const term of entry.terms ?? []) {
+            if (!Array.isArray(term)) continue;
             out.push({ type: 'definition_term', children: normalize(term) as unknown[] });
         }
-        for (const definition of item.definitions ?? []) {
+        for (const definition of entry.definitions ?? []) {
+            if (!Array.isArray(definition)) continue;
             out.push({ type: 'definition_description', children: normalize(definition) as unknown[] });
         }
     }
@@ -251,6 +265,15 @@ export function normalizeCarveAst(doc: CarveAstDocument): CarveAstDocument {
  * Treated as DATA, not as a trusted tree: anything that is not a document root
  * is refused here with a message naming what was found, rather than converting
  * to an empty pandoc document that looks like a successful run.
+ *
+ * The ROOT is all that is checked. Validating the whole tree against the schema
+ * would make a JSON Schema validator a runtime dependency of a converter that
+ * does not need one, and would refuse documents this package converts perfectly
+ * well - a node type newer than the schema this release shipped against, say.
+ * Below the root the existing contract applies instead: an unrecognized node
+ * degrades to its text and says so in `warnings`, and nothing is dropped
+ * silently. Callers that want conformance checked can validate against
+ * `resources/ast-schema.json` themselves; the test suite does exactly that.
  */
 export function parseCarveAst(input: CarveAstDocument | string): CarveAstDocument {
     const value: unknown = typeof input === 'string' ? JSON.parse(input) : input;
