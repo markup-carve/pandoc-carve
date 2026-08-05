@@ -37,6 +37,14 @@
 - **No more warning per substitution.** Each of the three hit the `default:`
   arm, which warns, so a document with ordinary prose punctuation produced a
   warning for every quote, dash and ellipsis in it.
+- **A crossref to a numbered figure or table resolves to "Figure 1", not the
+  raw id.** The pass-1 crossref target map was built from heading ids only, so
+  `</#fig-sun>` to a captioned figure or table always missed and fell back to
+  the "unresolved target" warning with the raw id as link text - even though
+  the caption's own number already rendered correctly next to it. The target
+  map now also carries every numbered figure/table caption's computed
+  "Label N" text, keyed by its own `{#id}`, resolved regardless of whether the
+  crossref precedes or follows its target in the source.
 
 
 - Initial implementation: `carveToPandoc()` / `carveToPandocJson()` mapping the

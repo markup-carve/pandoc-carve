@@ -50,8 +50,15 @@ export interface ConvertOptions {
 interface Ctx {
     warnings: string[];
     footnoteDefs: Record<string, CNode[]>;
-    /** heading id (explicit or slugged) -> heading inline children */
-    headings: Map<string, CNode[]>;
+    /**
+     * Crossref target id -> the inline content a `</#id>` resolves to.
+     *
+     * Populated in pass 1 (`collectCrossrefTargets`, run before any block is
+     * converted), from two kinds of target: a heading's own children (id
+     * explicit or slugged), and a numbered figure/table caption's computed
+     * "Label N" text (id from its own `{#id}`).
+     */
+    crossrefTargets: Map<string, CNode[]>;
     /** true while emitting blocks of a tight list item */
     tight: boolean;
     /**
@@ -391,9 +398,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             if (ctx.inCrossref) return [];
             const target = String(n.target ?? '');
             const found =
-                ctx.headings.get(target) ??
-                ctx.headings.get(target.toLowerCase()) ??
-                findCaseInsensitive(ctx.headings, target);
+                ctx.crossrefTargets.get(target) ??
+                ctx.crossrefTargets.get(target.toLowerCase()) ??
+                findCaseInsensitive(ctx.crossrefTargets, target);
             if (found) {
                 ctx.inCrossref = true;
                 try {
@@ -1039,7 +1046,7 @@ export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult
     const ctx: Ctx = {
         warnings: [],
         footnoteDefs: (ast.footnoteDefs as Record<string, CNode[]> | undefined) ?? {},
-        headings: new Map(),
+        crossrefTargets: new Map(),
         tight: false,
         inCrossref: false,
         captionCounts: new Map(),
@@ -1049,8 +1056,11 @@ export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult
         listTable: options.listTable ?? false,
     };
 
-    // Pass 1: collect heading ids (explicit, plus computed slugs) for crossrefs.
-    collectHeadings(ctx, (ast.children as CNode[] | undefined) ?? []);
+    // Pass 1: collect crossref targets - heading ids (explicit, plus computed
+    // slugs) and numbered figure/table caption ids - before any block is
+    // converted, so `heading_ref` resolves regardless of where a crossref
+    // sits relative to its target.
+    collectCrossrefTargets(ctx, (ast.children as CNode[] | undefined) ?? [], new Map());
 
     const meta = parseMeta(ctx, ast.frontmatter);
     const body = blocks(ctx, (ast.children as CNode[] | undefined) ?? []);
@@ -1065,18 +1075,60 @@ export function convert(ast: CNode, options: ConvertOptions = {}): ConvertResult
     };
 }
 
-function collectHeadings(ctx: Ctx, nodes: CNode[]): void {
+/**
+ * Pass 1: walk the whole document before any block is converted, registering
+ * every target a `heading_ref` (`</#id>`) can resolve to.
+ *
+ * Two kinds of target:
+ *  - a heading's own id (explicit, or slugged from its text) -> its inline
+ *    children, rendered verbatim as the crossref's link text.
+ *  - a numbered figure/table caption's id (the `{#id}` attached to the
+ *    figure or table itself) -> the computed "Label N" text, e.g.
+ *    "Figure 1" - docs-extensions.md: "`</#id>` to the element resolves to
+ *    label + number".
+ *
+ * The caption number is assigned per LABEL in document order (`captionLabel`
+ * plus a running count) - exactly like `ctx.captionCounts` in pass 2 (see the
+ * `caption_number` case in `inline()`). Pass 1 runs before pass 2 and cannot
+ * read its counts, so it keeps its OWN counter here (`captionCounts`,
+ * threaded through the recursion), walking captioned nodes in the same order
+ * pass 2 will. The two counters land on identical numbers only because both
+ * walk the same document the same way - a captioned element with no `{#id}`
+ * still has to bump the counter (it consumes a number in pass 2 even though
+ * nothing can ever crossref it), or a LATER captioned element's number here
+ * would drift out of sync with what pass 2 actually renders.
+ *
+ * A `figure`/`table` node's own `caption` field is read directly - the same
+ * field `figure()`/`table()` read in pass 2 - which also handles a table
+ * nested under a figure with no caption of its own: the recursion below
+ * reaches that inner `table` node too, and its own `caption`/`attrs.id` are
+ * picked up there instead, mirroring `table()`'s fallback. Table cells are
+ * not recursed into, matching the pre-existing limitation for headings
+ * nested inside a table.
+ */
+function collectCrossrefTargets(ctx: Ctx, nodes: CNode[], captionCounts: Map<string, number>): void {
     for (const n of nodes) {
         if (n.type === 'heading') {
             const children = (n.children as CNode[] | undefined) ?? [];
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
-            if (id && !ctx.headings.has(id)) ctx.headings.set(id, children);
+            if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
+        } else if (n.type === 'figure' || n.type === 'table') {
+            const caption = n.caption as CNode[] | undefined;
+            if (Array.isArray(caption) && caption.some((x) => x?.type === 'caption_number')) {
+                const label = captionLabel(caption) ?? 'caption';
+                const next = (captionCounts.get(label) ?? 0) + 1;
+                captionCounts.set(label, next);
+                const a = (n.attrs ?? {}) as CAttrs;
+                if (a.id && !ctx.crossrefTargets.has(a.id)) {
+                    ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${label} ${next}` }]);
+                }
+            }
         }
         for (const key of ['children', 'items', 'target'] as const) {
             const v = n[key];
-            if (Array.isArray(v)) collectHeadings(ctx, v as CNode[]);
-            else if (v && typeof v === 'object') collectHeadings(ctx, [v as CNode]);
+            if (Array.isArray(v)) collectCrossrefTargets(ctx, v as CNode[], captionCounts);
+            else if (v && typeof v === 'object') collectCrossrefTargets(ctx, [v as CNode], captionCounts);
         }
     }
 }
