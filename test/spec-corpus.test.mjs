@@ -16,16 +16,24 @@
  *   2. an "unknown node type" warning, which is how a consumer that switches on
  *      node-type strings finds out the engine grew a node - silently, otherwise.
  *
- * WHAT THIS DOES NOT COVER, said out loud because the numbers look total: the
- * converter reads the engine's RUNTIME tree (parse()), and the pinned ^0.1.2
- * engine exports no toAstJson at all, so there is no wire form to check against
- * the spec's ast-schema.json. Over these 610 documents the runtime tree carries
- * 47 distinct type names; the schema declares 58 and names one of the 47
- * differently (critic-comment against critic_comment). Some of that difference is
- * legitimate - PART 12 §1 lets an implementation's internals differ from what it
- * serializes - and some of it is the pin being old. Either way "0 unknown node
- * types" is a statement about what THIS pin produces, not about the vocabulary,
- * and raising the pin (#7) is what widens it.
+ * Since #16 there is a third, and it is the one that checks the VOCABULARY
+ * rather than this pin's habits:
+ *
+ *   3. every document's serialized AST validates against
+ *      spec/resources/ast-schema.json - the file PART 12 pins the exchange
+ *      format with.
+ *
+ * That check was impossible while the converter read the engine's runtime tree,
+ * because "every node type is handled" cannot be asserted against a contract the
+ * converter does not consume. It consumes it now: src/ast-json.ts maps the
+ * runtime tree onto the wire shape on the way in (and hands over to the engine's
+ * own toAstJson once a pin exports one), so what the schema validates below is
+ * exactly what convert() reads.
+ *
+ * WHAT THIS STILL DOES NOT COVER: the pin. A construct the published ^0.1.2
+ * cannot parse produces no node here, so no corpus document exercises the arms
+ * for node types a later engine adds - conformance of what IS produced is not
+ * coverage of the whole vocabulary. Raising the pin (#7) is what widens it.
  *
  * A MISSING SUBMODULE FAILS. It does not skip: a skipped corpus reads exactly
  * like a converted one in a CI log, which is the failure mode this file exists to
@@ -38,7 +46,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { carveToPandoc } from '../dist/index.js';
+import Ajv2020 from 'ajv/dist/2020.js';
+import { carveToCarveAst, carveToPandoc } from '../dist/index.js';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpusDir = join(repo, 'spec', 'tests', 'corpus');
@@ -79,6 +88,39 @@ test('every corpus document converts without throwing', () => {
     }
   }
   assert.deepEqual(threw, [], 'document(s) that threw:\n  ' + threw.join('\n  '));
+});
+
+test("every corpus document's serialized AST conforms to the spec AST schema", () => {
+  const schemaPath = join(repo, 'spec', 'resources', 'ast-schema.json');
+  assert.ok(existsSync(schemaPath), schemaPath + ' is missing - the submodule is incomplete');
+  const validate = new Ajv2020({ strict: false }).compile(
+    JSON.parse(readFileSync(schemaPath, 'utf8')),
+  );
+
+  const invalid = [];
+  for (const { name, source } of corpus) {
+    let ast;
+    try {
+      ast = carveToCarveAst(source);
+    } catch (error) {
+      invalid.push(name + ': serialization threw: ' + String(error.message).split('\n')[0]);
+      continue;
+    }
+    if (validate(ast)) continue;
+    const error = validate.errors[0];
+    invalid.push(
+      name + ': ' + (error.instancePath || '/') + ' ' + error.message + ' ' +
+        JSON.stringify(error.params),
+    );
+  }
+
+  assert.deepEqual(
+    invalid,
+    [],
+    'document(s) whose serialized AST does not match spec/resources/ast-schema.json. ' +
+      'The converter reads that shape, so a document listed here converts from something ' +
+      'the spec does not define:\n  ' + invalid.join('\n  '),
+  );
 });
 
 test('no corpus document degrades an unrecognized node type', () => {
