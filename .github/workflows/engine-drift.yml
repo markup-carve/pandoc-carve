@@ -1,0 +1,95 @@
+name: Engine drift
+
+# This repo does not implement Carve - it calls an engine that is already
+# corpus-gated in its own repository. So what can rot here is not conformance,
+# it is the DEPENDENCY: nobody notices when the engine stops moving, and CI
+# stays green because hand-written expectations are satisfied by a stale
+# parser exactly as well as by a current one (carve#735).
+#
+# TWO DISTANCES, because they fail differently and only one is visible from
+# package.json:
+#
+#   1. what the range resolves to, against the registry's LATEST. A `^0.1.2`
+#      range will not pick up a `0.2.0`, so the release that matters most -
+#      the one carrying breaking changes - is exactly the one a range-relative
+#      check sleeps through.
+#
+#   2. the registry's latest, against carve-js `main`. This is the one that
+#      actually failed: a June engine sat in six repos while every range was
+#      satisfied and every check was green (carve#499). No range check can see
+#      it, because nothing about the range is wrong - the PUBLISHED engine had
+#      stopped tracking the source.
+#
+# It WARNS on both rather than failing. Upstream moving is not a defect in
+# this repo, and a job that goes red for something outside it teaches people
+# to ignore the job. It DOES fail when the range resolves to nothing, which
+# means the dependency is unreachable and an install here is broken.
+
+on:
+  schedule:
+    # 05:00 UTC daily, alongside the other drift runs in the org.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  engine-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compare the range against the registry
+        id: registry
+        run: |
+          set -euo pipefail
+          pkg='@markup-carve/carve'
+          range="$(node -p "const p=require('./package.json');const d=p.dependencies||{},v=p.devDependencies||{};d['${pkg}']||v['${pkg}']||''")"
+          if [ -z "${range}" ]; then
+            echo "::error::${pkg} is not a dependency of this repo - this workflow is watching nothing"
+            exit 1
+          fi
+          resolved="$(npm view "${pkg}@${range}" version 2>/dev/null | tail -1 | tr -d "'\" ")"
+          latest="$(npm view "${pkg}" version 2>/dev/null | tr -d "'\" ")"
+          if [ -z "${resolved}" ]; then
+            echo "::error::${pkg}@${range} resolves to nothing on the registry - an install here is broken"
+            exit 1
+          fi
+          echo "range           ${range}"
+          echo "resolves to     ${resolved}"
+          echo "registry latest ${latest}"
+          if [ "${resolved}" != "${latest}" ]; then
+            echo "::warning::${pkg} ${latest} is published, but the range ${range} takes ${resolved} - a major-bumped release does not arrive on its own"
+          fi
+          echo "latest=${latest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out the engine
+        uses: actions/checkout@v4
+        with:
+          repository: markup-carve/carve-js
+          path: carve-js
+          fetch-depth: 0
+
+      - name: Compare the published engine against carve-js main
+        run: |
+          set -euo pipefail
+          latest='${{ steps.registry.outputs.latest }}'
+          tag=""
+          for candidate in "${latest}" "v${latest}"; do
+            if git -C carve-js rev-parse "${candidate}" >/dev/null 2>&1; then
+              tag="${candidate}"
+              break
+            fi
+          done
+          if [ -z "${tag}" ]; then
+            echo "::warning::carve-js has no tag for the published ${latest}, so the published engine cannot be located in the source"
+            exit 0
+          fi
+          behind="$(git -C carve-js rev-list --count "${tag}..origin/main")"
+          echo "published ${latest} is carve-js ${tag} ($(git -C carve-js log -1 --format=%s "${tag}"))"
+          echo "carve-js main is ${behind} commit(s) ahead of it"
+          if [ "${behind}" -gt 0 ]; then
+            echo "::warning::the PUBLISHED engine ${latest} is ${behind} commit(s) behind carve-js main - every repo installing from the registry is that far behind the language, however current its range is"
+          fi
