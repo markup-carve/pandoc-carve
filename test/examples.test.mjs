@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   examplesDir,
@@ -45,6 +45,32 @@ function assertGolden(file, content) {
  */
 const PANDOC_FREE_TARGETS = EXPORT_TARGETS.filter((t) => !t.needsPandoc).length;
 const PANDOC_GATED_TARGETS = EXPORT_TARGETS.filter((t) => t.needsPandoc).length;
+
+/*
+ * Both counts above are derived from EXPORT_TARGETS, which is the list they are
+ * meant to police - variant 1 on markup-carve/carve#755, a guard reading its own
+ * input. Found by mutation, not by review: deleting the `rst` entry moved the
+ * expected count down in lockstep with the actual one, examples/export/*.rst
+ * stopped being compared, and all three tests stayed green.
+ *
+ * So the deciding comparison is against the files on disk, which EXPORT_TARGETS
+ * cannot edit. A golden nobody claims is a writer that quietly stopped running.
+ */
+test('every committed export golden is claimed by a target', () => {
+  const onDisk = readdirSync(join(examplesDir, 'export'))
+    .filter((f) => !f.endsWith('.crv'))
+    .sort();
+  const claimed = EXPORT_EXAMPLES.flatMap((name) =>
+    EXPORT_TARGETS.map((t) => `${name}.${t.ext}`),
+  ).sort();
+  assert.deepEqual(
+    onDisk,
+    claimed,
+    'examples/export holds a golden no EXPORT_TARGETS entry produces, or names one ' +
+      'that is not committed. The first is a writer that stopped being checked while ' +
+      'its output stayed on disk looking current.',
+  );
+});
 
 for (const name of EXPORT_EXAMPLES) {
   test(`examples: export ${name} matches its pandoc-free golden`, () => {
