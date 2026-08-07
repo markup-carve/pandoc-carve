@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { carveToHtml } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { shortfall } from './helpers.mjs';
 
 /**
  * The round-trip gate: carve -> pandoc AST -> carve must render the SAME HTML
@@ -69,6 +70,22 @@ for (const src of snippets) {
 // The full fixture corpus: round-trip must not throw and must stay
 // HTML-equivalent (modulo constructs listed as known-lossy below).
 const fixtures = readdirSync(fixturesDir).filter((f) => f.endsWith('.md') || f.endsWith('.crv'));
+
+// The inline snippets above cannot go missing - they are literals in this file.
+// These can: emptied, the loop below registers nothing and this file still
+// exits 0 with its 36 snippet tests, which is the state that reads like a full
+// corpus run (markup-carve/carve#755, variant 2).
+test('the fixture corpus is non-empty, so a broken glob cannot pass as a clean run', () => {
+  const thin = shortfall({
+    label: 'FIXTURES',
+    actual: fixtures.length,
+    atLeast: 4,
+    of: 'file(s) in test/fixtures',
+    hint: 'the snippets above exercise constructs one at a time; these are the ' +
+      'only whole documents this gate sees.',
+  });
+  assert.equal(thin, null, thin ?? '');
+});
 
 for (const fixture of fixtures) {
   test(`equivalence corpus: ${fixture} round-trips without throwing`, () => {
