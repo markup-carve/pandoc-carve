@@ -51,12 +51,28 @@ jobs:
             echo "::error::${pkg} is not a dependency of this repo - this workflow is watching nothing"
             exit 1
           fi
-          resolved="$(npm view "${pkg}@${range}" version 2>/dev/null | tail -1 | tr -d "'\" ")"
-          latest="$(npm view "${pkg}" version 2>/dev/null | tr -d "'\" ")"
+          # `npm view <pkg>@<range> version` prints ONE bare version when the
+          # range matches a single release, and `<pkg>@<v> '<v>'` lines when it
+          # matches several. Taking the last WHITESPACE-SEPARATED FIELD reads
+          # both; `tail -1` alone concatenates the spec onto the version the
+          # moment a second matching release exists, yielding
+          # `@markup-carve/carve@0.1.20.1.2` rather than a version.
+          resolved="$(npm view "${pkg}@${range}" version 2>/dev/null | tail -1 | tr -d "'\"" | awk '{print $NF}')"
+          latest="$(npm view "${pkg}" version 2>/dev/null | tr -d "'\"" | awk '{print $NF}')"
           if [ -z "${resolved}" ]; then
             echo "::error::${pkg}@${range} resolves to nothing on the registry - an install here is broken"
             exit 1
           fi
+          # Both reads are checked for the SHAPE of a version before anything is
+          # compared. Without this the workflow's failure mode is silence: a
+          # mis-read compares unequal to everything, so the drift warning fires
+          # with a nonsense string in it and reads as a result (carve#755).
+          for pair in "resolved=${resolved}" "latest=${latest}"; do
+            case "${pair#*=}" in
+              [0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "::error::${pair%%=*} read back as \"${pair#*=}\" from the registry, which is not a version - every comparison below it would be meaningless"; exit 1 ;;
+            esac
+          done
           echo "range           ${range}"
           echo "resolves to     ${resolved}"
           echo "registry latest ${latest}"
