@@ -25,6 +25,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { findPandoc, pandocIsRequired, shortfall } from './helpers.mjs';
 
 test('pandoc is present wherever it is required to be', () => {
@@ -47,6 +50,40 @@ test('pandoc is present wherever it is required to be', () => {
       'skip and the export goldens compare one file of seven, and the run is still ' +
       'green. .github/workflows/ci.yml installs it; if that step changed, this is ' +
       'what says so.',
+  );
+});
+
+test('no test source carries a literal control byte where an escape belongs', () => {
+  // markup-carve/carve#755 records this from the carve-php sweep: a control
+  // character written as a literal byte in a fixture stops discriminating the
+  // moment anything reformats the file, and the test goes on passing over the
+  // wrong input. It had already half-happened here - test/corpus.test.mjs
+  // carried a literal NUL and a literal BOM inside its adversarial snippets,
+  // which made git classify the whole file as binary, so every diff on it was
+  // unreviewable. Both are written as escapes now - byte-identical
+  // once evaluated and visible in a diff.
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const offenders = [];
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.mjs'))) {
+    const bytes = readFileSync(join(dir, file));
+    for (const [index, byte] of bytes.entries()) {
+      // Tab, LF and CR are how a source file is laid out. Everything else below
+      // 0x20, plus a BOM anywhere, is data that should be spelled as an escape.
+      if (byte < 0x09 || (byte > 0x0d && byte < 0x20)) {
+        offenders.push(`${file}: byte 0x${byte.toString(16).padStart(2, '0')} at offset ${index}`);
+        break;
+      }
+    }
+    // Spelled by code point rather than written out, or this line would be an
+    // offender itself - which is how it first failed.
+    const bom = Buffer.from(String.fromCharCode(0xfeff), 'utf8')
+    if (bytes.includes(bom)) offenders.push(`${file}: a literal BOM`);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'write these as \\uXXXX escapes: a literal byte survives no reformat, and the ' +
+      'test keeps passing over whatever is left',
   );
 });
 
