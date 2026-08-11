@@ -1,19 +1,18 @@
 {#import-from-html}
 # Import from HTML
 
-A snippet of the kind you get when you *paste from a web page*\.
+A snippet of the kind you get when you *paste from a web page*.
 Running it through `pandoc -f html` and `pandocToCarve`
-produces `webpage.crv` beside this file\.
+produces `webpage.crv` beside this file.
 
 {#a-list-and-a-link}
 ## A list and a link
 
-- First point, with /emphasis/\.
-- Second point\.
+- First point, with /emphasis/.
+- Second point.
 
-> A quote, with a [link](https://example.com)\.
+> A quote, with a [link](https://example.com).
 
-| Name | Role |
-|---|---|
+|=Name|=Role|
 | Ada | Author |
 | Grace | Editor |

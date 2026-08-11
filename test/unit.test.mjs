@@ -155,6 +155,15 @@ test('missing footnote definition degrades with warning', () => {
   assert.ok(r.doc.blocks[0].c.some((i) => i.t === 'Superscript'));
 });
 
+test('link reference definitions resolve their links and emit no block or warning', () => {
+  const result = carveToPandoc('[label][ref]\n\n[ref]: https://example.com "Title"');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.doc.blocks.length, 1, 'the definition itself renders nothing');
+  const link = result.doc.blocks[0].c.find((inline) => inline.t === 'Link');
+  assert.ok(link, 'the reference became a link');
+  assert.deepEqual(link.c[2], ['https://example.com', 'Title']);
+});
+
 test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
   const [ol] = blocks('3. c\n4. d');
   assert.equal(ol.t, 'OrderedList');
