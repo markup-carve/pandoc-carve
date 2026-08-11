@@ -1,13 +1,13 @@
 {#import-from-restructuredtext}
 # Import from reStructuredText
 
-A small reStructuredText source\. `pandoc -t json` plus `pandocToCarve`
-produces `notes.crv` beside this file\.
+A small reStructuredText source. `pandoc -t json` plus `pandocToCarve`
+produces `notes.crv` beside this file.
 
 {#emphasis-and-strong}
 ## Emphasis and strong
 
-/Emphasis/ and *strong* map to Carve\'s `/.../` and `*...*`\.
+/Emphasis/ and *strong* map to Carve\'s `/.../` and `*...*`.
 
 - A bullet
 - Another bullet
@@ -15,4 +15,4 @@ produces `notes.crv` beside this file\.
 1. Ordered one
 2. Ordered two
 
-A closing paragraph with a link to [Carve](https://github.com/markup-carve/carve)\.
+A closing paragraph with a link to [Carve](https://github.com/markup-carve/carve).

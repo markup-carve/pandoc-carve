@@ -670,6 +670,11 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return [P.Para(inline(ctx, n))];
         case 'comment':
         case 'abbreviation_def':
+        case 'link_reference_definition':
+            // Definitions are document metadata, not output blocks. PART 12
+            // section 3a puts the resolved destination and title directly on
+            // each link/image node, so dropping the definition here loses no
+            // information from the Pandoc document.
             return [];
         default: {
             // An inline node at block level (defensive) or an unknown block.

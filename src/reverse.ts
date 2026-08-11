@@ -200,21 +200,21 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
         }
         case 'Note': {
             const noteBlocks = c as PandocNode[];
-            // DELIBERATELY the pre-split name. carve-js renamed these to
+            // The post-split names. carve-js renamed these to
             // `inline_footnote` and `footnote_ref` (markup-carve/carve#405),
-            // but this side PRODUCES a tree for an engine to render, and the
-            // pinned `^0.1.2` does not know the new names - emitting them now
-            // would break footnotes against the engine actually installed.
+            // and 0.1.3 is the release that carries the split, so the engine
+            // this produces for now knows them.
             //
-            // Unlike the consumer side, a producer cannot satisfy both: the
-            // type string is a single value. So this flips when the pin is
-            // raised past the release carrying the split, tracked in issue #7.
+            // A producer cannot satisfy both spellings the way a consumer can
+            // accept both, because the type string is a single value. That is
+            // why this waited for the lockfile to move rather than emitting
+            // the new names defensively.
             if (noteBlocks.length === 1 && (noteBlocks[0]!.t === 'Para' || noteBlocks[0]!.t === 'Plain')) {
-                return [{ type: 'footnote', inline: inlines(ctx, noteBlocks[0]!.c as PandocNode[]) }];
+                return [{ type: 'inline_footnote', inline: inlines(ctx, noteBlocks[0]!.c as PandocNode[]) }];
             }
             const id = `fn${++ctx.noteCounter}`;
             ctx.footnoteDefs[id] = blocks(ctx, noteBlocks);
-            return [{ type: 'footnote', id }];
+            return [{ type: 'footnote_ref', id }];
         }
         case 'Span':
             return span(ctx, c);
