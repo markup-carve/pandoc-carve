@@ -96,9 +96,13 @@ returns Carve source, serialized by carve's own `renderCarve` (the `carve fmt`
 serializer), so output formatting carries fmt's guarantees:
 
 ```js
-import { pandocToCarve } from '@markup-carve/pandoc-carve';
+import { pandocToCarve, pandocToCarveAst } from '@markup-carve/pandoc-carve';
 
 const { carve, warnings } = pandocToCarve(pandocJsonString);
+
+// Preserve structured fields that Carve 0.1 source cannot spell, including
+// Pandoc's optional short figure/table caption.
+const { ast, warnings: astWarnings } = pandocToCarveAst(pandocJsonString);
 ```
 
 Round-trips are tested as a hard gate: `carve -> pandoc AST -> carve` must

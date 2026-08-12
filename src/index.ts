@@ -77,3 +77,16 @@ export function pandocToCarve(doc: PandocDoc | string): { carve: string; warning
         warnings,
     };
 }
+
+/**
+ * Convert Pandoc to the canonical Carve exchange AST without forcing it through
+ * Carve 0.1 source. This preserves structural fields, notably Pandoc's optional
+ * short caption, for which the source language intentionally has no spelling.
+ */
+export function pandocToCarveAst(
+    doc: PandocDoc | string,
+): { ast: CarveAstDocument; warnings: string[] } {
+    const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
+    const { ast, warnings } = reverse(parsed);
+    return { ast: toCarveAst(ast, engineSerializer), warnings };
+}

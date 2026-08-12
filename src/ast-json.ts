@@ -67,6 +67,7 @@ const CHILD_FIELDS = [
     'inline',
     'content',
     'caption',
+    'shortCaption',
     'title',
     'target',
 ] as const;

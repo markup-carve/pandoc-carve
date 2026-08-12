@@ -92,8 +92,12 @@ export const OrderedList = (
 export const DefinitionList = (items: [Inline[], Block[][]][]): Block =>
     node('DefinitionList', items);
 
-export const Figure = (a: Attr, caption: Inline[] | null, blocks: Block[]): Block =>
-    node('Figure', [a, [null, caption ? [Plain(caption)] : []], blocks]);
+export const Figure = (
+    a: Attr,
+    caption: Inline[] | null,
+    blocks: Block[],
+    shortCaption: Inline[] | null = null,
+): Block => node('Figure', [a, [shortCaption, caption ? [Plain(caption)] : []], blocks]);
 
 // --- Table ---
 
@@ -129,11 +133,12 @@ export function Table(
     colAligns: Alignment[],
     headRows: PCell[][],
     bodyRows: PCell[][],
+    shortCaption: Inline[] | null = null,
 ): Block {
     const colspecs = colAligns.map((al) => [node(al), node('ColWidthDefault')]);
     return node('Table', [
         a,
-        [null, caption ? [Plain(caption)] : []],
+        [shortCaption, caption ? [Plain(caption)] : []],
         colspecs,
         [emptyAttr, headRows.map(renderRow)],
         [[emptyAttr, 0, [], bodyRows.map(renderRow)]],
