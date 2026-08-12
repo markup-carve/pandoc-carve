@@ -802,11 +802,19 @@ const ALIGN: Record<string, P.Alignment> = {
  * omits covered positions. We walk the grid, resolve each continuation to its
  * origin transitively, bump the origin's span, and emit only origin cells.
  */
-function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
+function table(
+    ctx: Ctx,
+    n: CNode,
+    caption: P.Inline[] | null,
+    shortCaption: P.Inline[] | null = null,
+): P.Block {
     if (!caption && Array.isArray(n.caption)) {
         ctx.captionKind = captionLabel(n.caption as CNode[]);
         caption = inlines(ctx, n.caption as CNode[]);
         ctx.captionKind = undefined;
+    }
+    if (!shortCaption && Array.isArray(n.shortCaption)) {
+        shortCaption = inlines(ctx, n.shortCaption as CNode[]);
     }
     const rows = ((n.rows as CNode[] | undefined) ?? []).map(
         (r) => (r.cells as CCell[] | undefined) ?? [],
@@ -886,6 +894,7 @@ function table(ctx: Ctx, n: CNode, caption: P.Inline[] | null): P.Block {
         colAligns,
         toRows(0, headCount),
         toRows(headCount, rows.length),
+        shortCaption,
     );
 }
 
@@ -1003,18 +1012,21 @@ function figure(ctx: Ctx, n: CNode): P.Block[] {
     const target = n.target as CNode | undefined;
     ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
     const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
+    const shortCaption = Array.isArray(n.shortCaption)
+        ? inlines(ctx, n.shortCaption as CNode[])
+        : null;
     ctx.captionKind = undefined;
     if (!target) return [];
     if (target.type === 'table') {
         // Pandoc tables carry a native caption; no Figure wrapper needed.
-        return [table(ctx, target, caption)];
+        return [table(ctx, target, caption, shortCaption)];
     }
     if (target.type === 'image') {
         const img = inline(ctx, target);
-        return [P.Figure(toAttr(n.attrs), caption, [P.Plain(img)])];
+        return [P.Figure(toAttr(n.attrs), caption, [P.Plain(img)], shortCaption)];
     }
     // blockquote (attribution captions) and anything else
-    return [P.Figure(toAttr(n.attrs), caption, untight(ctx, () => block(ctx, target)))];
+    return [P.Figure(toAttr(n.attrs), caption, untight(ctx, () => block(ctx, target)), shortCaption)];
 }
 
 // --- Metadata (frontmatter) ---

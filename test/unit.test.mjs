@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc } from '../dist/index.js';
+import { carveToPandoc, carveAstToPandoc } from '../dist/index.js';
 
 const blocks = (src) => carveToPandoc(src).doc.blocks;
 const firstInlines = (src) => blocks(src)[0].c;
@@ -242,6 +242,39 @@ test('table: alignment colspecs, head/body split, caption', () => {
   // one head row, one body row
   assert.equal(t.c[3][1].length, 1);
   assert.equal(t.c[4][0][3].length, 1);
+});
+
+test('structural short captions map to Pandoc without changing the full caption', () => {
+  const doc = {
+    type: 'document',
+    srcByteLength: 0,
+    children: [{
+      type: 'figure',
+      target: { type: 'image', src: '/i.png', alt: 'alt' },
+      caption: [{ type: 'text', value: 'Full caption' }],
+      shortCaption: [{ type: 'text', value: 'Navigation label' }],
+    }],
+  };
+  const [figure] = carveAstToPandoc(doc).doc.blocks;
+  assert.equal(figure.t, 'Figure');
+  assert.equal(figure.c[1][0][0].c, 'Navigation');
+  assert.equal(figure.c[1][1][0].c[0].c, 'Full');
+
+  const tableDoc = {
+    type: 'document',
+    srcByteLength: 0,
+    children: [{
+      type: 'table',
+      align: ['default'],
+      rows: [],
+      caption: [{ type: 'text', value: 'Full table caption' }],
+      shortCaption: [{ type: 'text', value: 'Table list label' }],
+    }],
+  };
+  const [table] = carveAstToPandoc(tableDoc).doc.blocks;
+  assert.equal(table.t, 'Table');
+  assert.equal(table.c[1][0][0].c, 'Table');
+  assert.equal(table.c[1][1][0].c[0].c, 'Full');
 });
 
 test('table span inversion: colspan and rowspan land on origin cell', () => {

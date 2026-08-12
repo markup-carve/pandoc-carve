@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const roundtrip = (src) => pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc).carve;
 
@@ -80,6 +80,25 @@ test('reverse: table with alignment, spans and caption', () => {
 
   const rowspan = roundtrip('|= A |= B |\n| x | y |\n| ^ | z |');
   assert.ok(rowspan.includes('^'), `rowspan marker in: ${rowspan}`);
+});
+
+test('reverse: Pandoc short captions survive structurally', () => {
+  const pandoc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [{
+      t: 'Figure',
+      c: [
+        ['', [], []],
+        [[{ t: 'Str', c: 'Navigation' }], [{ t: 'Plain', c: [{ t: 'Str', c: 'Full' }] }]],
+        [{ t: 'Plain', c: [{ t: 'Image', c: [['', [], []], [{ t: 'Str', c: 'alt' }], ['/i.png', '']] }] }],
+      ],
+    }],
+  };
+  const result = pandocToCarveAst(pandoc);
+  assert.equal(result.ast.children[0].shortCaption[0].value, 'Navigation');
+  assert.equal(result.ast.children[0].caption[0].value, 'Full');
+  assert.ok(result.warnings.some((warning) => warning.includes('Carve 0.1 source has no spelling')));
 });
 
 test('reverse: ordered list styles and start survive', () => {

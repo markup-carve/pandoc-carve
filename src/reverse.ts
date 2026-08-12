@@ -493,7 +493,12 @@ interface RawPandocRow {
  * and omits covered positions; Carve lists every position and marks covered
  * ones as continuation cells (`span: "colspan" | "rowspan"`).
  */
-function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
+function table(
+    ctx: Ctx,
+    c: never,
+    captionOverride: CNode[] | null,
+    shortCaptionOverride: CNode[] | null = null,
+): CNode {
     const [a, capt, colspecs, thead, tbodies, tfoot] = c as [
         Attr,
         [unknown, PandocNode[]],
@@ -565,6 +570,9 @@ function table(ctx: Ctx, c: never, captionOverride: CNode[] | null): CNode {
     if (attrs) node.attrs = attrs;
     const captionInlines = captionOverride ?? captionFromBlocks(ctx, capt[1]);
     if (captionInlines?.length) node.caption = captionInlines;
+    const shortCaption = shortCaptionOverride
+        ?? captionFromInlines(ctx, capt[0] as PandocNode[] | null);
+    if (shortCaption?.length) node.shortCaption = shortCaption;
     return node;
 }
 
@@ -598,11 +606,16 @@ function captionFromBlocks(ctx: Ctx, capBlocks: PandocNode[] | undefined): CNode
     return null;
 }
 
+function captionFromInlines(ctx: Ctx, caption: PandocNode[] | null | undefined): CNode[] | null {
+    return caption?.length ? inlines(ctx, caption) : null;
+}
+
 // --- Figures and divs ---
 
 function figure(ctx: Ctx, c: never): CNode[] {
     const [a, capt, body] = c as [Attr, [unknown, PandocNode[]], PandocNode[]];
     const caption = captionFromBlocks(ctx, capt[1]);
+    const shortCaption = captionFromInlines(ctx, capt[0] as PandocNode[] | null);
     const single = body.length === 1 ? body[0]! : undefined;
 
     if (single?.t === 'Plain' || single?.t === 'Para') {
@@ -611,6 +624,7 @@ function figure(ctx: Ctx, c: never): CNode[] {
             const [img] = inline(ctx, xs[0]!);
             const node: CNode = { type: 'figure', target: img };
             if (caption) node.caption = caption;
+            if (shortCaption) node.shortCaption = shortCaption;
             const attrs = fromAttr(a);
             if (attrs) node.attrs = attrs;
             return [node];
@@ -620,12 +634,13 @@ function figure(ctx: Ctx, c: never): CNode[] {
         const [bq] = block(ctx, single);
         const node: CNode = { type: 'figure', target: bq };
         if (caption) node.caption = caption;
+        if (shortCaption) node.shortCaption = shortCaption;
         const attrs = fromAttr(a);
         if (attrs) node.attrs = attrs;
         return [node];
     }
     if (single?.t === 'Table') {
-        return [table(ctx, single.c as never, caption)];
+        return [table(ctx, single.c as never, caption, shortCaption)];
     }
     warn(ctx, 'figure: general figure content unwrapped (caption kept as a trailing paragraph)');
     const out = blocks(ctx, body);
@@ -734,6 +749,9 @@ function metaValueToYaml(value: PandocNode): string | null {
 export function pandocToCarve(doc: PandocDoc): ReverseResult {
     const ctx: Ctx = { warnings: [], footnoteDefs: {}, noteCounter: 0, abbrevDefs: new Map() };
     const children = blocks(ctx, doc.blocks);
+    if (containsShortCaption(children)) {
+        warn(ctx, 'short caption: preserved in the Carve AST; Carve 0.1 source has no spelling for it');
+    }
     for (const [abbr, expansion] of [...ctx.abbrevDefs].reverse()) {
         children.unshift({ type: 'abbreviation_def', abbr, expansion });
     }
@@ -742,4 +760,12 @@ export function pandocToCarve(doc: PandocDoc): ReverseResult {
     const yaml = metaToYaml(ctx, doc.meta ?? {});
     if (yaml) ast.frontmatter = { format: 'yaml', content: yaml };
     return { ast, warnings: ctx.warnings };
+}
+
+function containsShortCaption(value: unknown): boolean {
+    if (Array.isArray(value)) return value.some(containsShortCaption);
+    if (!value || typeof value !== 'object') return false;
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.shortCaption) && record.shortCaption.length > 0) return true;
+    return Object.values(record).some(containsShortCaption);
 }
