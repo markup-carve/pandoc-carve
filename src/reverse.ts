@@ -11,6 +11,7 @@
 
 import { parse as parseCarve } from '@markup-carve/carve';
 import type { PandocDoc, PandocNode, Attr } from './pandoc.js';
+import type { RowGroupBody, RowGroups } from './row-groups.js';
 
 /**
  * The node type THIS engine uses for an editorial comment.
@@ -501,6 +502,22 @@ interface RawPandocRow {
 }
 
 /**
+ * Whether a partition says anything the flat `rows` cannot.
+ *
+ * A single body with no intermediate header, no row-head columns, no attrs and
+ * no foot IS what every consumer derives from the rows themselves, so emitting
+ * it would add a field that carries no information. Absent means exactly that
+ * structure (PART 12 §15).
+ */
+function carriesMoreThanFlatRows(groups: RowGroups): boolean {
+    if (groups.footRows > 0) return true;
+    if (groups.bodies.length > 1) return true;
+    return groups.bodies.some(
+        (b) => b.headRows > 0 || (b.rowHeadColumns ?? 0) > 0 || b.attrs !== undefined,
+    );
+}
+
+/**
  * Rebuild Carve's grid model: pandoc puts rowSpan/colSpan on the origin Cell
  * and omits covered positions; Carve lists every position and marks covered
  * ones as continuation cells (`span: "colspan" | "rowspan"`).
@@ -524,22 +541,38 @@ function table(
     const nCols = colspecs.length;
 
     const headRaw = thead[1] as [Attr, unknown[][]][];
-    const bodyRaw: [Attr, unknown[][]][] = [];
-    for (const body of tbodies) {
-        bodyRaw.push(...(body[2] as [Attr, unknown[][]][]));
-        bodyRaw.push(...(body[3] as [Attr, unknown[][]][]));
-    }
-    bodyRaw.push(...(tfoot[1] as [Attr, unknown[][]][]));
+    const footRaw = tfoot[1] as [Attr, unknown[][]][];
 
-    const allRaw = [...headRaw, ...bodyRaw];
-    const headCount = headRaw.length;
+    // The flat `rows` Carve carries, plus the counts that say where pandoc's
+    // sections were. A body's intermediate header rows are header rows too,
+    // which is why §15 states the head count instead of deriving it from the
+    // leading run.
+    const allRaw: [Attr, unknown[][]][] = [...headRaw];
+    const isHeaderRow: boolean[] = headRaw.map(() => true);
+    const groupBodies: RowGroupBody[] = [];
+    for (const body of tbodies) {
+        const bodyHead = body[2] as [Attr, unknown[][]][];
+        const bodyRows = body[3] as [Attr, unknown[][]][];
+        allRaw.push(...bodyHead, ...bodyRows);
+        isHeaderRow.push(...bodyHead.map(() => true), ...bodyRows.map(() => false));
+        const group: RowGroupBody = { headRows: bodyHead.length, bodyRows: bodyRows.length };
+        const rowHeadColumns = body[1];
+        if (typeof rowHeadColumns === 'number' && rowHeadColumns > 0) {
+            group.rowHeadColumns = rowHeadColumns;
+        }
+        const bodyAttrs = fromAttr(body[0]);
+        if (bodyAttrs) group.attrs = bodyAttrs;
+        groupBodies.push(group);
+    }
+    allRaw.push(...footRaw);
+    isHeaderRow.push(...footRaw.map(() => false));
 
     // Occupancy grid: pending[r][c] = continuation marker owed at that position.
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
 
     for (let r = 0; r < allRaw.length; r++) {
-        const isHeader = r < headCount;
+        const isHeader = isHeaderRow[r] === true;
         const cells: CNode[] = [];
         const rawCells = allRaw[r]![1];
         let rawIdx = 0;
@@ -578,6 +611,12 @@ function table(
     }
 
     const node: CNode = { type: 'table', rows };
+    // The counts come from the same arrays `rows` was built from, one row
+    // pushed per raw row, so §15's sum holds by construction here. It is
+    // checked where it can actually fail instead: on a partition that arrived
+    // from outside (see readRowGroups).
+    const groups: RowGroups = { headRows: headRaw.length, bodies: groupBodies, footRows: footRaw.length };
+    if (carriesMoreThanFlatRows(groups)) node.rowGroups = groups;
     const attrs = fromAttr(a);
     if (attrs) node.attrs = attrs;
     const captionInlines = captionOverride ?? captionFromBlocks(ctx, capt[1]);

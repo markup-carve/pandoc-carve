@@ -12,6 +12,7 @@
 
 import type { CarveAstDocument } from './ast-json.js';
 import * as P from './pandoc.js';
+import { readRowGroups } from './row-groups.js';
 
 // The Carve AST is plain data; we type the parts we read.
 interface CNode {
@@ -855,10 +856,43 @@ function table(
         (r) => (r.cells as CCell[] | undefined) ?? [],
     );
 
+    // PART 12 §15: an explicit partition of `rows` into head, body groups and
+    // foot. Absent means the implicit structure below, which is what every
+    // renderer derives anyway.
+    const read = readRowGroups(n.rowGroups, rows.length);
+    if (read.error) {
+        warn(ctx, `table: ${read.error} - converted with the implicit head/body split instead`);
+    }
+    const groups = read.groups;
+
     // Split leading all-header rows into the table head.
     let headCount = 0;
     while (headCount < rows.length && rows[headCount]!.length > 0 && rows[headCount]!.every((c) => c.header)) {
         headCount++;
+    }
+    if (groups) headCount = groups.headRows;
+
+    // Which pandoc row list each row belongs to. A cell may not span across
+    // two of them: head, a body group's intermediate header, that group's
+    // rows and the foot are separate `[Row]` lists in pandoc's model.
+    const sectionOf: number[] = Array<number>(rows.length).fill(0);
+    {
+        let at = 0;
+        let section = 0;
+        const take = (howMany: number) => {
+            for (let i = 0; i < howMany && at < rows.length; i++) sectionOf[at++] = section;
+            section++;
+        };
+        take(headCount);
+        if (groups) {
+            for (const body of groups.bodies) {
+                take(body.headRows);
+                take(body.bodyRows);
+            }
+            take(groups.footRows);
+        } else {
+            take(rows.length - headCount);
+        }
     }
 
     // Column alignments come from the first row's cells.
@@ -891,9 +925,7 @@ function table(
             } else if (cc.span === 'rowspan') {
                 const org = r > 0 ? origin[r - 1]![c] : undefined;
                 if (org) {
-                    const originInHead = org.row < headCount;
-                    const contInBody = r >= headCount;
-                    if (originInHead && contInBody) {
+                    if (sectionOf[org.row] !== sectionOf[r]) {
                         warn(ctx, `table: rowspan crossing the header/body boundary at row ${r + 1}, col ${c + 1} - clipped to an empty body cell (pandoc cannot represent it)`);
                     } else {
                         // max(): a 2D block has one rowspan continuation per
@@ -923,12 +955,35 @@ function table(
         return out;
     };
 
+    let bodies: P.TableBody[];
+    let footRows: P.PCell[][] = [];
+    if (groups) {
+        let at = headCount;
+        bodies = groups.bodies.map((body) => {
+            const headTo = at + body.headRows;
+            const bodyTo = headTo + body.bodyRows;
+            const converted: P.TableBody = {
+                attr: toAttr(body.attrs),
+                headRows: toRows(at, headTo),
+                bodyRows: toRows(headTo, bodyTo),
+            };
+            if (body.rowHeadColumns) converted.rowHeadColumns = body.rowHeadColumns;
+            at = bodyTo;
+            return converted;
+        });
+        footRows = toRows(at, at + groups.footRows);
+    } else {
+        // The implicit structure: everything after the head is one body.
+        bodies = [{ bodyRows: toRows(headCount, rows.length) }];
+    }
+
     return P.Table(
         toAttr(n.attrs),
         caption,
         colAligns,
         toRows(0, headCount),
-        toRows(headCount, rows.length),
+        bodies,
+        footRows,
         shortCaption,
     );
 }
@@ -1037,7 +1092,7 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
         caption,
         Array<P.Alignment>(nCols).fill('AlignDefault'),
         toRows(0, head),
-        toRows(head, grid.length),
+        [{ bodyRows: toRows(head, grid.length) }],
     );
 }
 

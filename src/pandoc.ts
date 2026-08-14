@@ -127,12 +127,37 @@ function renderRow(cells: PCell[]): unknown {
     return [emptyAttr, cells.map(renderCell)];
 }
 
+/**
+ * One pandoc `TableBody`: `Attr`, `RowHeadColumns`, its own intermediate
+ * header rows, and its body rows.
+ *
+ * A table has a LIST of these. Collapsing them to one loses where a body
+ * begins, which is the only place pandoc records an intermediate header or a
+ * row-head column count.
+ */
+export interface TableBody {
+    attr?: Attr;
+    rowHeadColumns?: number;
+    headRows?: PCell[][];
+    bodyRows: PCell[][];
+}
+
+function renderBody(b: TableBody): unknown {
+    return [
+        b.attr ?? emptyAttr,
+        b.rowHeadColumns ?? 0,
+        (b.headRows ?? []).map(renderRow),
+        b.bodyRows.map(renderRow),
+    ];
+}
+
 export function Table(
     a: Attr,
     caption: Inline[] | null,
     colAligns: Alignment[],
     headRows: PCell[][],
-    bodyRows: PCell[][],
+    bodies: TableBody[],
+    footRows: PCell[][] = [],
     shortCaption: Inline[] | null = null,
 ): Block {
     const colspecs = colAligns.map((al) => [node(al), node('ColWidthDefault')]);
@@ -141,8 +166,8 @@ export function Table(
         [shortCaption, caption ? [Plain(caption)] : []],
         colspecs,
         [emptyAttr, headRows.map(renderRow)],
-        [[emptyAttr, 0, [], bodyRows.map(renderRow)]],
-        [emptyAttr, []],
+        bodies.map(renderBody),
+        [emptyAttr, footRows.map(renderRow)],
     ]);
 }
 
