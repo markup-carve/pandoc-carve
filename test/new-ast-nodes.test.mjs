@@ -177,3 +177,95 @@ test('caption numbering for crossref targets stays in sync when some figures car
   assert.deepEqual(result.warnings, [])
   assert.ok(strs(result).includes('See Listing 1 and Figure 2 .'))
 })
+
+test('a §4a quote attribution rides inside the BlockQuote as an attribution Span', () => {
+  // The shape an engine past carve#1159 serializes: `attribution` on the
+  // block_quote itself, no figure wrapper. Hand-built because the pinned
+  // engine still parses the source into the old quote-figure shape - and the
+  // arm has to be here before the dependency bump, not after.
+  const result = convert(
+    doc([
+      {
+        type: 'block_quote',
+        children: [para([{ type: 'text', value: 'To be' }])],
+        attribution: [{ type: 'text', value: 'Hamlet' }],
+      },
+    ]),
+  )
+  assert.deepEqual(result.warnings, [])
+  const [quote] = result.doc.blocks
+  assert.equal(quote.t, 'BlockQuote')
+  const last = quote.c[quote.c.length - 1]
+  assert.deepEqual(last, {
+    t: 'Para',
+    c: [{ t: 'Span', c: [['', ['attribution'], []], [{ t: 'Str', c: 'Hamlet' }]] }],
+  })
+})
+
+test('both attribution shapes lower to the identical Pandoc document', () => {
+  // Old shape: what a `^0.1.2`-line engine hands over for `> To be` + `^ Hamlet`.
+  const old = convert(
+    doc([
+      {
+        type: 'figure',
+        target: { type: 'block_quote', children: [para([{ type: 'text', value: 'To be' }])] },
+        caption: [{ type: 'text', value: 'Hamlet' }],
+      },
+    ]),
+  )
+  const neu = convert(
+    doc([
+      {
+        type: 'block_quote',
+        children: [para([{ type: 'text', value: 'To be' }])],
+        attribution: [{ type: 'text', value: 'Hamlet' }],
+      },
+    ]),
+  )
+  assert.deepEqual(old.doc.blocks, neu.doc.blocks)
+  assert.deepEqual(old.warnings, [])
+})
+
+test('a quote-figure short caption is dropped with a warning', () => {
+  // The §4a model has no navigation-caption slot on a quote; silent loss is
+  // the one thing a bridge must not do with it.
+  const result = convert(
+    doc([
+      {
+        type: 'figure',
+        target: { type: 'block_quote', children: [para([{ type: 'text', value: 'q' }])] },
+        caption: [{ type: 'text', value: 'Author' }],
+        shortCaption: [{ type: 'text', value: 'short' }],
+      },
+    ]),
+  )
+  assert.equal(result.warnings.length, 1)
+  assert.ok(result.warnings[0].includes('short caption'), result.warnings[0])
+})
+
+test('a quote-figure upgrade merges figure and quote attrs instead of overwriting', () => {
+  // The two nodes collapse into one §4a quote; attrs on BOTH must survive.
+  const result = convert(
+    doc([
+      {
+        type: 'figure',
+        target: {
+          type: 'block_quote',
+          children: [para([{ type: 'text', value: 'q' }])],
+          attrs: { id: 'inner', classes: ['kept'], keyValues: { a: '1', b: '2' } },
+        },
+        caption: [{ type: 'text', value: 'Author' }],
+        attrs: { id: 'outer', classes: ['fancy'], keyValues: { b: '3' } },
+      },
+    ]),
+  )
+  assert.deepEqual(result.warnings, [])
+  // BlockQuote has no Attr slot, so the merged attrs ride on the Div wrapper.
+  const [div] = result.doc.blocks
+  assert.equal(div.t, 'Div')
+  const [id, classes, kvs] = div.c[0]
+  assert.equal(id, 'outer')
+  assert.deepEqual(classes, ['kept', 'fancy'])
+  assert.deepEqual(Object.fromEntries(kvs), { a: '1', b: '3' })
+  assert.equal(div.c[1][0].t, 'BlockQuote')
+})

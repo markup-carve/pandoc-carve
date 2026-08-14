@@ -204,3 +204,83 @@ test('reverse: multi-block Note becomes a reference footnote with generated id',
   assert.ok(carve.includes('first'));
   assert.ok(carve.includes('second'));
 });
+
+test('a quote attribution round-trips to identical Carve source', () => {
+  // Forward emits the attribution Span inside the BlockQuote; reverse detects
+  // it and rebuilds the §4a quote - then serializes through whatever shape
+  // the installed engine's renderCarve actually writes (probed, not sniffed).
+  const src = '> To be, or not to be.\n^ Hamlet\n';
+  const { carve, warnings } = pandocToCarve(carveToPandoc(src).doc);
+  assert.deepEqual(warnings, []);
+  assert.equal(carve, src);
+});
+
+test('the exchange AST keeps the §4a attribution shape', () => {
+  const { ast, warnings } = pandocToCarveAst(carveToPandoc('> q\n^ Hamlet\n').doc);
+  assert.deepEqual(warnings, []);
+  const [quote] = ast.children;
+  assert.equal(quote.type, 'block_quote');
+  assert.deepEqual(quote.attribution, [{ type: 'text', value: 'Hamlet' }]);
+  assert.ok(!JSON.stringify(ast).includes('"figure"'), 'no quote-figure wrapper');
+});
+
+test('a foreign Figure-wrapped BlockQuote upgrades to a quote with attribution', () => {
+  // This bridge's own pre-§4a output, and any pandoc filter that produced the
+  // same shape. The new schema refuses figure{target: block_quote}, so the
+  // reverse direction must not fabricate it.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Figure',
+        c: [
+          ['', [], []],
+          [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'Author' }] }]],
+          [{ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'wise' }] }] }],
+        ],
+      },
+    ],
+  };
+  const { carve, warnings } = pandocToCarve(doc);
+  assert.deepEqual(warnings, []);
+  assert.equal(carve, '> wise\n^ Author\n');
+});
+
+test('a Span carrying more than the attribution class is content, not attribution', () => {
+  const quoteWith = (span) => ({
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [{ t: 'BlockQuote', c: [{ t: 'Para', c: [span] }] }],
+  });
+  // id present -> stays a paragraph inside the quote
+  const kept = pandocToCarve(
+    quoteWith({ t: 'Span', c: [['x1', ['attribution'], []], [{ t: 'Str', c: 'A' }]] }),
+  );
+  assert.ok(!kept.carve.includes('^ '), kept.carve);
+  // bare class -> attribution
+  const taken = pandocToCarve(
+    quoteWith({ t: 'Span', c: [['', ['attribution'], []], [{ t: 'Str', c: 'A' }]] }),
+  );
+  assert.equal(taken.carve, '>\n^ A\n');
+});
+
+test('a Figure-wrapped quote with a short caption warns instead of losing it silently', () => {
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Figure',
+        c: [
+          ['', [], []],
+          [[{ t: 'Str', c: 'nav' }], [{ t: 'Plain', c: [{ t: 'Str', c: 'Author' }] }]],
+          [{ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'wise' }] }] }],
+        ],
+      },
+    ],
+  };
+  const { warnings } = pandocToCarve(doc);
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].includes('short caption'), warnings[0]);
+});
