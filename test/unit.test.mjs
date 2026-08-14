@@ -349,9 +349,30 @@ test('figure from captioned image; blockquote attribution', () => {
   assert.equal(fig.t, 'Figure');
   assert.equal(fig.c[2][0].c[0].t, 'Image');
 
-  const [qfig] = blocks('> wise words\n^ Author');
-  assert.equal(qfig.t, 'Figure');
-  assert.equal(qfig.c[2][0].t, 'BlockQuote');
+  // PART 9 §4a: a captioned quote is a quote carrying an attribution, not a
+  // figure - the attribution rides INSIDE the BlockQuote as a trailing Span,
+  // so every pandoc writer keeps it attached (a Figure wrapper lost it
+  // wholesale in the plain and rst writers).
+  const [quote] = blocks('> wise words\n^ Author');
+  assert.equal(quote.t, 'BlockQuote');
+  const attribution = quote.c[quote.c.length - 1];
+  assert.equal(attribution.t, 'Para');
+  assert.equal(attribution.c[0].t, 'Span');
+  assert.deepEqual(attribution.c[0].c[0], ['', ['attribution'], []]);
+  assert.equal(attribution.c[0].c[1][0].c, 'Author');
+});
+
+test('a quote attribution consumes no figure number and keeps `#` literal', () => {
+  // §4a: the placeholder has nothing to resolve against on a quote. The quote
+  // must also not bump the Figure sequence, or the real figure after it would
+  // be numbered 2.
+  const out = blocks('> q\n^ Figure #: Src\n\n![alt](i.png)\n^ Figure #: real\n');
+  const spanText = JSON.stringify(out[0]);
+  assert.ok(spanText.includes('"attribution"'), 'quote carries the attribution span');
+  assert.ok(spanText.includes('#'), 'placeholder stays a literal #: ' + spanText);
+  const figText = JSON.stringify(out[1]);
+  assert.equal(out[1].t, 'Figure');
+  assert.ok(figText.includes('"1:"'), 'the image is Figure 1, not 2: ' + figText);
 });
 
 test('admonition becomes classed Div with title paragraph', () => {

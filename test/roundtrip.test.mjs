@@ -114,3 +114,27 @@ test('a user carve-label attribute is not mistaken for the internal label marker
   assert.ok(carve.includes('carve-label=mine'), 'user attribute preserved');
   assert.ok(!carve.includes('[mine]'), 'attribute not turned into a grouping label');
 });
+
+test('a quote attribution stays attached in every pandoc writer', { skip: !pandoc && 'pandoc not found' }, () => {
+  // §4a's 10c principle carried through the bridge: the attribution rides
+  // INSIDE the BlockQuote, so no writer can detach or drop it. The old
+  // Figure-wrapped lowering lost the attribution WHOLESALE in the plain and
+  // rst writers, and latex numbered the quote as a figure float.
+  const { doc, warnings } = carveToPandoc('> To be, or not to be.\n^ Hamlet\n');
+  assert.deepEqual(warnings, []);
+
+  const plain = pandocRender(pandoc, doc, 'plain');
+  assert.ok(plain.includes('Hamlet'), 'plain keeps the attribution: ' + plain);
+
+  const rst = pandocRender(pandoc, doc, 'rst');
+  assert.ok(rst.includes('Hamlet'), 'rst keeps the attribution: ' + rst);
+
+  const latex = pandocRender(pandoc, doc, 'latex');
+  assert.ok(latex.includes('Hamlet'), 'latex keeps the attribution');
+  assert.ok(!latex.includes('\\begin{figure}'), 'latex does not float the quote');
+  const quoteEnv = latex.indexOf('\\end{quote}');
+  assert.ok(latex.indexOf('Hamlet') < quoteEnv, 'latex attribution inside the quote env');
+
+  const md = pandocRender(pandoc, doc, 'markdown');
+  assert.ok(md.includes('> [Hamlet]{.attribution}'), 'markdown spells the span inside the quote: ' + md);
+});

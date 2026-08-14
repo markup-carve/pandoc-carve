@@ -357,8 +357,20 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             if (attrs) node.attrs = attrs;
             return [node];
         }
-        case 'BlockQuote':
-            return [{ type: 'block_quote', children: blocks(ctx, c) }];
+        case 'BlockQuote': {
+            const body = c as PandocNode[];
+            const attribution = attributionFromBlocks(ctx, body);
+            if (attribution) {
+                return [
+                    {
+                        type: 'block_quote',
+                        children: blocks(ctx, body.slice(0, -1)),
+                        attribution,
+                    },
+                ];
+            }
+            return [{ type: 'block_quote', children: blocks(ctx, body) }];
+        }
         case 'CodeBlock': {
             const [a, content] = c as [Attr, string];
             const [id, classes, kvs] = a;
@@ -610,6 +622,25 @@ function captionFromInlines(ctx: Ctx, caption: PandocNode[] | null | undefined):
     return caption?.length ? inlines(ctx, caption) : null;
 }
 
+/**
+ * A quote's attribution, when the last block is a `Para`/`Plain` holding
+ * exactly one Span whose whole Attr is the single class `attribution` - the
+ * shape convert.ts emits for PART 9 §4a. A Span that ALSO carries an id, more
+ * classes or key/values is someone's content and stays where it is; a foreign
+ * document using the bare idiom reads back as the attribution it claims to be.
+ */
+function attributionFromBlocks(ctx: Ctx, body: PandocNode[]): CNode[] | null {
+    const last = body[body.length - 1];
+    if (!last || (last.t !== 'Para' && last.t !== 'Plain')) return null;
+    const xs = last.c as PandocNode[];
+    if (xs.length !== 1 || xs[0]!.t !== 'Span') return null;
+    const [[id, classes, kvs], inner] = xs[0]!.c as [Attr, PandocNode[]];
+    if (id !== '' || kvs.length !== 0 || classes.length !== 1 || classes[0] !== 'attribution') {
+        return null;
+    }
+    return inlines(ctx, inner);
+}
+
 // --- Figures and divs ---
 
 function figure(ctx: Ctx, c: never): CNode[] {
@@ -631,13 +662,28 @@ function figure(ctx: Ctx, c: never): CNode[] {
         }
     }
     if (single?.t === 'BlockQuote') {
-        const [bq] = block(ctx, single);
-        const node: CNode = { type: 'figure', target: bq };
-        if (caption) node.caption = caption;
-        if (shortCaption) node.shortCaption = shortCaption;
+        // PART 9 §4a: a captioned quote is a quote carrying an attribution,
+        // not a figure. This branch also upgrades this bridge's own pre-§4a
+        // output, which wrapped the quote in a Figure.
+        const [bq] = block(ctx, single) as [CNode];
+        if (caption) {
+            if (Array.isArray(bq.attribution)) {
+                // Both an inner attribution Span and an outer Figure caption:
+                // the caption is the outer author's statement, the inner one
+                // stays visible as an ordinary trailing paragraph.
+                (bq.children as CNode[]).push({
+                    type: 'paragraph',
+                    children: bq.attribution as CNode[],
+                });
+            }
+            bq.attribution = caption;
+        }
+        if (shortCaption) {
+            warn(ctx, 'quote attribution: short caption dropped (a quote has no navigation-caption slot)');
+        }
         const attrs = fromAttr(a);
-        if (attrs) node.attrs = attrs;
-        return [node];
+        if (attrs) bq.attrs = attrs;
+        return [bq];
     }
     if (single?.t === 'Table') {
         return [table(ctx, single.c as never, caption, shortCaption)];

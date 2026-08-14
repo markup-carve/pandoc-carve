@@ -31,6 +31,26 @@
 
 ### Fixed
 
+- **A quote attribution rides inside the `BlockQuote` and survives every pandoc
+  writer.** The spec made a caption on a quote an attribution rather than a
+  figure caption (PART 9 section 4a, markup-carve/carve#1159), and the bridge's
+  old `Figure`-wrapped lowering lost the attribution wholesale in pandoc's
+  plain and rst writers and numbered the quote as a float in latex. The quote
+  now lowers to a `BlockQuote` whose last block is a `Para` holding one
+  `attribution`-classed `Span`, which every writer keeps attached, and which
+  the reverse direction recognizes and folds back - `> quote` + `^ author`
+  round-trips to identical source, including through pandoc's own markdown.
+  Both input shapes convert identically: the `attribution` field an engine past
+  markup-carve/carve#1159 serializes, and the quote-figure shape the pinned
+  `^0.1.2` engine line still parses. On the way back, the serializer is probed
+  once - a pre-4a engine whose `renderCarve` would drop the field silently gets
+  the shape it can write, while `pandocToCarveAst` always keeps the spec shape.
+  A quote consumes no figure number anymore, so the numbering of every later
+  figure and its cross-references no longer drifts by one per attributed quote,
+  and a `#` placeholder in an attribution stays literal. An incoming
+  `Figure`-wrapped `BlockQuote` (this bridge's own earlier output) upgrades to
+  the attribution model; its short caption, which a quote cannot carry, is
+  dropped with a degradation warning instead of silently.
 - **Line blocks actually reach `LineBlock` now.** The arm for the `line_block`
   node type has been here since the smart-punctuation change, and no document
   could reach it: the PINNED published engine models `::: |` as a div carrying
