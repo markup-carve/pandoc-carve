@@ -128,6 +128,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
 | Headings + `{#id .class}` attributes | Header with Attr |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
+| `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
 | Footnotes (reference and inline `^[..]`) | Note |
 | Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
 | Images/quotes with `^ caption` lines | Figure |
@@ -173,6 +174,15 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 
 ## Limitations
 
+- A `table.rowGroups` partition whose counts do not add up to the table's row
+  count is refused with a warning and the table converts with the implicit
+  head/body split instead. PART 12 section 15 requires the sum as a MUST, and
+  JSON Schema cannot express a cross-field sum, so a document that validates
+  against `resources/ast-schema.json` can still be incoherent - the bridge
+  checks it itself rather than trusting a green validator.
+- Reverse conversion keeps flattening for display targets: `pandocToCarve`
+  serializes through Carve 0.1 source, which has no spelling for row groups or
+  a short caption, so those fields survive only on the `pandocToCarveAst` path.
 - Attribute order inside `{...}` is normalized to `#id .class key=val` on
   round-trip - pandoc's Attr has fixed slots, so the author's original order
   is not representable. Semantics are unchanged.

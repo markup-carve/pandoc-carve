@@ -4,6 +4,22 @@
 
 ### Added
 
+- **A table's head, body groups, foot and row-head columns survive in both
+  directions.** The bridge used to emit one body, no foot and zero row-head
+  columns whatever the table said. It now reads the optional `table.rowGroups`
+  counts of PART 12 section 15 (markup-carve/carve#1186) and lays them out as
+  pandoc's `TableHead`, a list of `TableBody` - each with its own
+  `RowHeadColumns` and intermediate header rows - and `TableFoot`; the reverse
+  direction reads those back as counts, and imports a body's intermediate
+  header row as header cells. A partition is emitted only when it says
+  something the flat rows cannot.
+
+  The counts must account for every row exactly once. That is a cross-field sum
+  no JSON Schema can express, so a partition that disagrees with `rows`
+  validates upstream: the bridge checks it here, and a table whose counts do
+  not add up converts with the implicit head/body split plus a warning naming
+  both numbers.
+
 - **The bridge converts the serialized AST the Carve spec defines (PART 12), not
   carve-js's runtime tree.** Every node type and field name the converter reads
   is now spec surface, pinned by `resources/ast-schema.json`, so a document
