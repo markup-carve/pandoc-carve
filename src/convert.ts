@@ -981,12 +981,18 @@ function table(
         const row = rows[r]!;
         for (let c = 0; c < row.length; c++) {
             const cc = row[c]!;
-            if (cc.span && hasAttrs(cc.attrs)) {
-                // Pandoc omits covered positions entirely, so there is no node
-                // to hang them on. The grammar cannot produce this (a cell with
-                // attributes is never a bare span cell); a wire AST can.
-                warn(ctx, `table: attributes on the continuation cell at row ${r + 1}, col ${c + 1} are dropped - pandoc omits covered positions`);
-            }
+            // Pandoc omits covered positions entirely, so a continuation that
+            // RESOLVES leaves nowhere to hang its attributes. The grammar
+            // cannot produce that shape (a cell carrying attributes is never a
+            // bare span cell); a wire AST can. An ORPHAN continuation is a
+            // different story - it falls through and becomes a real cell below,
+            // which keeps them, so the warning belongs on the resolving paths
+            // only.
+            const droppedAttrs = (): void => {
+                if (hasAttrs(cc.attrs)) {
+                    warn(ctx, `table: attributes on the continuation cell at row ${r + 1}, col ${c + 1} are dropped - pandoc omits covered positions`);
+                }
+            };
             if (cc.span === 'colspan') {
                 const org = origin[r]![c - 1];
                 if (org) {
@@ -994,6 +1000,7 @@ function table(
                     // a lower row must not widen the origin again.
                     if (r === org.row) org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
                     origin[r]![c] = org;
+                    droppedAttrs();
                     continue;
                 }
                 warn(ctx, `table: colspan continuation at row ${r + 1}, col ${c + 1} has no origin - emitting empty cell`);
@@ -1007,6 +1014,7 @@ function table(
                         // covered column - count rows, not continuations.
                         org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
                         origin[r]![c] = org;
+                        droppedAttrs();
                         continue;
                     }
                 } else {

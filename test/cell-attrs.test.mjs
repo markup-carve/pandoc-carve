@@ -114,6 +114,44 @@ test('cell attrs: attributes on a continuation cell are reported, not dropped qu
   );
 });
 
+test('cell attrs: an ORPHAN continuation keeps its attributes and is not reported', () => {
+  // A continuation with no origin does not resolve: it falls through and
+  // becomes a real cell, which carries the attributes. Warning there would
+  // report a loss that did not happen.
+  const ast = {
+    type: 'document',
+    children: [
+      {
+        type: 'table',
+        rows: [
+          {
+            type: 'table_row',
+            cells: [
+              {
+                type: 'table_cell',
+                header: false,
+                children: [],
+                span: 'colspan',
+                attrs: { classes: ['orphan'], order: ['.class'] },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const { doc, warnings } = carveAstToPandoc(ast);
+  assert.deepEqual(bodyOf(doc)[0][1][0][0], ['', ['orphan'], []], 'kept on the fallback cell');
+  assert.ok(
+    warnings.some((w) => w.includes('has no origin')),
+    'the orphan itself is still reported',
+  );
+  assert.ok(
+    !warnings.some((w) => w.includes('are dropped')),
+    `nothing was dropped: ${warnings.join(' | ')}`,
+  );
+});
+
 test('cell attrs: rowGroups and cell attrs compose', () => {
   // The row-group partition rebuilds the row lists; the attrs must ride along
   // rather than being lost at the split.
