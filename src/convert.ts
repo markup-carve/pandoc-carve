@@ -276,7 +276,6 @@ function verbatimInlines(raw: string): P.Inline[] {
     return out;
 }
 
-
 /**
  * The label a caption numbers under - the word before its `#`.
  *
@@ -284,35 +283,6 @@ function verbatimInlines(raw: string): P.Inline[] {
  * `Listing #`, `Figure #` on three figures numbers them Figure 1, Listing 1,
  * Figure 2. Keying on figure-versus-table would have made that Listing 2.
  */
-/** Outer (figure) attrs win per field; the inner quote keeps the rest. */
-function mergeAttrs(inner: CAttrs | undefined, outer: CAttrs | undefined): CAttrs {
-    const out: CAttrs = {};
-    const id = outer?.id ?? inner?.id;
-    if (id) out.id = id;
-    const classes = [...(inner?.classes ?? []), ...(outer?.classes ?? [])].filter(
-        (c, i, all) => all.indexOf(c) === i,
-    );
-    if (classes.length) out.classes = classes;
-    const keyValues = { ...(inner?.keyValues ?? {}), ...(outer?.keyValues ?? {}) };
-    if (Object.keys(keyValues).length) out.keyValues = keyValues;
-    return out;
-}
-
-/**
- * A quote's attribution as Pandoc inlines (PART 9 §4a). A `#` placeholder has
- * nothing to resolve against on a quote and stays a literal `#`, so the
- * `caption_number` node is flattened to text BEFORE the numbering counter in
- * `inline()` can see it - an engine pinned at `^0.1.2` still parses the
- * construct as a numbered figure and hands the placeholder through.
- */
-function attributionInlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] | null {
-    if (!Array.isArray(nodes)) return null;
-    return inlines(
-        ctx,
-        nodes.map((x) => (x?.type === 'caption_number' ? { type: 'text', value: '#' } : x)),
-    );
-}
-
 function captionLabel(nodes: CNode[] | undefined): string | undefined {
     if (!Array.isArray(nodes)) return undefined;
     const at = nodes.findIndex((x) => x?.type === 'caption_number');
@@ -747,14 +717,8 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         }
         case 'heading':
             return [P.Header(Number(n.level ?? 1), toAttr(n.attrs), kids(ctx, n))];
-        case 'block_quote': {
-            const content = untight(ctx, () => blocks(ctx, n.children as CNode[]));
-            const attribution = attributionInlines(ctx, n.attribution as CNode[] | undefined);
-            if (attribution) {
-                content.push(P.Para([P.Span(P.attr('', ['attribution']), attribution)]));
-            }
-            return [P.BlockQuote(content)];
-        }
+        case 'block_quote':
+            return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
             const lang = n.lang ? [String(n.lang)] : [];
             const a = (n.attrs ?? {}) as CAttrs;
@@ -1254,33 +1218,31 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
 
 // --- Figures ---
 
-function figure(ctx: Ctx, n: CNode, asPanel = false): P.Block[] {
+/**
+ * A captioned host, which is pandoc's `Figure` - the generic captioned wrapper
+ * on both sides (PART 9 §4b).
+ *
+ * A QUOTE IS NOT A SPECIAL HOST. carve#1161 briefly made a caption on a quote
+ * an `attribution` rendered inside the `<blockquote>`, and this function
+ * rerouted a quote target into that shape; the clause is withdrawn
+ * (carve#1213), and PART 9 §4b now cites the HTML Standard in the other
+ * direction - attribution "must be placed outside the `blockquote` element",
+ * with a `<figure>` + `<figcaption>` given as the way to relate the two. So a
+ * captioned quote takes the same path as a captioned code listing or a
+ * captioned equation, and corpus 07-blockquote-with-attribution pins the
+ * `<figure><blockquote>…<figcaption>` bytes.
+ *
+ * WHAT THE REROUTE BOUGHT, AND WHY IT IS NOT ENOUGH. Pandoc's plain and rst
+ * writers drop a `Figure` caption wholesale, and the latex writer floats it -
+ * measured on pandoc 3.5, and the reason §4a was implemented here. But they do
+ * that to EVERY figure: a captioned code block loses its caption in both
+ * writers today. That is a degradation of those two writers, one level below
+ * the AST this bridge produces, and paying for it with a node shape the spec
+ * denies would put the attribution in the one place the HTML Standard names as
+ * wrong.
+ */
+function figure(ctx: Ctx, n: CNode): P.Block[] {
     const target = n.target as CNode | undefined;
-    if (target?.type === 'block_quote' && !asPanel) {
-        // PART 9 §4a (carve#1159): a captioned quote is a quote carrying an
-        // attribution, not a figure. Engines pinned at `^0.1.2` still parse
-        // the construct into this figure shape, so it is synthesized into the
-        // quote-with-attribution node and converted as one - both input
-        // shapes lower identically, and the attrs Div-wrapper in `block()`
-        // applies as for any quote. Before the reroute, the caption reached
-        // Pandoc as a `Figure` wrapper, which the plain and rst writers drop
-        // wholesale and the latex writer numbers as a float.
-        if (Array.isArray(n.shortCaption) && n.shortCaption.length) {
-            warn(ctx, 'quote attribution: short caption dropped (a quote has no navigation-caption slot)');
-        }
-        const quote: CNode = { ...target };
-        if (Array.isArray(n.caption)) quote.attribution = n.caption;
-        const figAttrs = n.attrs as CAttrs | undefined;
-        const quoteAttrs = target.attrs as CAttrs | undefined;
-        if (hasAttrs(figAttrs) || hasAttrs(quoteAttrs)) {
-            // The two nodes collapse into one, so their attrs merge rather
-            // than the figure's replacing the quote's: the figure's id wins
-            // (it was the referenceable one), classes union, key/values merge
-            // with the figure's taking precedence.
-            quote.attrs = mergeAttrs(quoteAttrs, figAttrs);
-        }
-        return block(ctx, quote);
-    }
     ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
     const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
     const shortCaption = Array.isArray(n.shortCaption)
@@ -1327,11 +1289,12 @@ function isPanel(n: CNode): boolean {
  * 318-composite-figures-5) - so the children convert in source order and
  * nothing is re-sorted into a panel array.
  *
- * A DIRECT-CHILD CAPTIONED QUOTE IS A PANEL, not a §4a attribution: "the quote
- * is not a special host inside the group either" (corpus
+ * A DIRECT-CHILD CAPTIONED QUOTE IS A PANEL like any other captioned host -
+ * "the quote is not a special host inside the group either" (corpus
  * 318-composite-figures-10, where it renders as a panel with a figcaption).
- * The §4a reroute stays in force everywhere else, including deeper inside the
- * group's stray content.
+ * It reads that way because a captioned quote is a `figure` EVERYWHERE now,
+ * not because the group holds a reroute the rest of the document does not; the
+ * §4a attribution that once needed one is withdrawn (carve#1213).
  */
 function figureGroup(ctx: Ctx, n: CNode): P.Block[] {
     ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
@@ -1345,7 +1308,7 @@ function figureGroup(ctx: Ctx, n: CNode): P.Block[] {
             const prev = ctx.inPanel;
             ctx.inPanel = true;
             try {
-                return child.type === 'figure' ? figure(ctx, child, true) : block(ctx, child);
+                return child.type === 'figure' ? figure(ctx, child) : block(ctx, child);
             } finally {
                 ctx.inPanel = prev;
             }
@@ -1607,14 +1570,11 @@ function collectCrossrefTargets(
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
-        } else if (
-            !inPanel &&
-            ((n.type === 'figure' && (n.target as CNode | undefined)?.type !== 'block_quote') ||
-                n.type === 'table')
-        ) {
-            // A quote-figure is an attribution under §4a: it takes no number
-            // (pass 2 keeps its `#` literal), so counting it here would drift
-            // every later caption number by one.
+        } else if (!inPanel && (n.type === 'figure' || n.type === 'table')) {
+            // Every figure counts, whatever it wraps. A quote used to be
+            // excluded here, because §4a made a captioned quote an attribution
+            // that drew no number; that clause is withdrawn (carve#1213), and
+            // a quote figure numbers like the code listing beside it.
             const caption = n.caption as CNode[] | undefined;
             if (Array.isArray(caption) && caption.some((x) => x?.type === 'caption_number')) {
                 const label = captionLabel(caption) ?? 'caption';

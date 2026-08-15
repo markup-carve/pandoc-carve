@@ -137,17 +137,29 @@ test('a panel id crossrefs as the group number plus a letter', () => {
   ]);
 });
 
-test('a captioned quote is a PANEL inside the group and an attribution outside it', () => {
-  // §4c is explicit that "the quote is not a special host inside the group
-  // either", which is the one place §4a's reroute does not apply.
+test('a captioned quote is a PANEL, and reads the same way outside the group', () => {
+  // §4c: "the quote is not a special host inside the group either". Since the
+  // §4a attribution is withdrawn (carve#1213) it is not a special host OUTSIDE
+  // one either, so both readings are the same generic captioned wrapper and
+  // the group needs no exception for it.
   const [group] = blocks(['::: figure', '> Brevity.', '^ A quoted panel', ':::', '^ Figure #: G', ''].join('\n'));
   const panel = group.c[2][0];
   assert.equal(panel.t, 'Figure', 'inside the group: a nested Figure');
   assert.equal(panel.c[2][0].t, 'BlockQuote');
   assert.equal(strs(panel.c[1][1]), 'A quoted panel');
 
-  const outside = blocks(['> Brevity.', '^ An attribution', ''].join('\n'));
-  assert.equal(outside[0].t, 'BlockQuote', 'outside: §4a still routes it to the quote');
+  const [outside] = blocks(['> Brevity.', '^ An attribution', ''].join('\n'));
+  assert.equal(outside.t, 'Figure', 'outside the group: the same Figure wrapper');
+  assert.equal(outside.c[2][0].t, 'BlockQuote');
+  assert.equal(strs(outside.c[1][1]), 'An attribution');
+
+  // The control: an UNCAPTIONED quote is a plain BlockQuote in both places, so
+  // "Figure" above is the caption's doing and not this reader calling every
+  // quote a figure.
+  const [plainOutside] = blocks('> Brevity.\n');
+  assert.equal(plainOutside.t, 'BlockQuote');
+  const [plainGroup] = blocks(['::: figure', '> Brevity.', ':::', '^ Figure #: G', ''].join('\n'));
+  assert.equal(plainGroup.c[2][0].t, 'BlockQuote');
 });
 
 test('stray content is preserved in place between the panels', () => {

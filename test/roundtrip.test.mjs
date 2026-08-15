@@ -115,26 +115,31 @@ test('a user carve-label attribute is not mistaken for the internal label marker
   assert.ok(!carve.includes('[mine]'), 'attribute not turned into a grouping label');
 });
 
-test('a quote attribution stays attached in every pandoc writer', { skip: !pandoc && 'pandoc not found' }, () => {
-  // §4a's 10c principle carried through the bridge: the attribution rides
-  // INSIDE the BlockQuote, so no writer can detach or drop it. The old
-  // Figure-wrapped lowering lost the attribution WHOLESALE in the plain and
-  // rst writers, and latex numbered the quote as a figure float.
+test('a captioned quote reaches pandoc as the figure the HTML Standard asks for', { skip: !pandoc && 'pandoc not found' }, () => {
+  // PART 9 §4b withdrew the §4a attribution (carve#1213) on the HTML
+  // Standard's own argument: attribution "must be placed outside the
+  // `blockquote` element", with a `<figure>` wrapping the quote and a
+  // `<figcaption>` given as the way to relate the two. Spec corpus
+  // 07-blockquote-with-attribution pins exactly those bytes, and this asserts
+  // the bridge reaches them through pandoc rather than only in its own AST.
   const { doc, warnings } = carveToPandoc('> To be, or not to be.\n^ Hamlet\n');
   assert.deepEqual(warnings, []);
 
-  const plain = pandocRender(pandoc, doc, 'plain');
-  assert.ok(plain.includes('Hamlet'), 'plain keeps the attribution: ' + plain);
-
-  const rst = pandocRender(pandoc, doc, 'rst');
-  assert.ok(rst.includes('Hamlet'), 'rst keeps the attribution: ' + rst);
+  const html = pandocRender(pandoc, doc, 'html');
+  assert.match(html, /<figure>[\s\S]*<blockquote>[\s\S]*<figcaption>Hamlet<\/figcaption>[\s\S]*<\/figure>/);
 
   const latex = pandocRender(pandoc, doc, 'latex');
-  assert.ok(latex.includes('Hamlet'), 'latex keeps the attribution');
-  assert.ok(!latex.includes('\\begin{figure}'), 'latex does not float the quote');
-  const quoteEnv = latex.indexOf('\\end{quote}');
-  assert.ok(latex.indexOf('Hamlet') < quoteEnv, 'latex attribution inside the quote env');
+  assert.ok(latex.includes('\\caption{Hamlet}'), 'latex keeps the caption: ' + latex);
+  assert.ok(latex.includes('\\begin{quote}'), 'the quote is still a quote: ' + latex);
 
-  const md = pandocRender(pandoc, doc, 'markdown');
-  assert.ok(md.includes('> [Hamlet]{.attribution}'), 'markdown spells the span inside the quote: ' + md);
+  // THE COST, MEASURED, NOT ASSUMED. Pandoc's plain and rst writers drop a
+  // Figure caption wholesale - which is the loss §4a was implemented here to
+  // avoid. It is not a quote problem: a captioned code listing loses its
+  // caption in both writers the same way, so paying for it with a node shape
+  // the spec denies would buy nothing the rest of the document gets.
+  const plain = pandocRender(pandoc, doc, 'plain');
+  assert.ok(!plain.includes('Hamlet'), 'the plain writer drops figure captions: ' + plain);
+  const listing = carveToPandoc('``` js\nx\n```\n^ Listing: code\n').doc;
+  const listingPlain = pandocRender(pandoc, listing, 'plain');
+  assert.ok(!listingPlain.includes('Listing'), 'and it drops them for a code listing too: ' + listingPlain);
 });
