@@ -182,6 +182,13 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   JSON Schema cannot express a cross-field sum, so a document that validates
   against `resources/ast-schema.json` can still be incoherent - the bridge
   checks it itself rather than trusting a green validator.
+- A pandoc table with block content in a cell (a list, two paragraphs, a code
+  block) is imported as `::: list-table` rather than a pipe table. PART 9 §16's
+  pipe-table cell holds inlines, so there is no pipe form for it, and the
+  extension's cells are list items that hold full blocks. Structure is
+  preserved; three things the extension does not spell are reported instead -
+  per-column alignment, a foot, and a body group's intermediate header rows.
+  Convert back with `listTable: true` to get the pandoc table again.
 - Reverse conversion keeps flattening for display targets: `pandocToCarve`
   serializes through Carve 0.1 source, which has no spelling for row groups or
   a short caption, so those fields survive only on the `pandocToCarveAst` path.

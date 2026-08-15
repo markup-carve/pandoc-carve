@@ -713,8 +713,21 @@ function table(
     isHeaderRow.push(...footRaw.map(() => false));
 
     // Occupancy grid: pending[r][c] = continuation marker owed at that position.
+    // Decided BEFORE the grid walk: the pipe path flattens as it goes and warns
+    // while doing it, and that warning is wrong for a table that is about to be
+    // emitted as a list-table instead.
+    const hasBlockCells = allRaw.some((row) =>
+        row[1].some((raw) => {
+            const cellBlocks = (raw as [Attr, PandocNode, number, number, PandocNode[]])[4];
+            return Array.isArray(cellBlocks) && !isInlineShaped(cellBlocks);
+        }));
+
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
+    // The pandoc blocks that sat at each grid position, kept alongside the
+    // inline-flattened cells so the list-table fallback below can convert them
+    // as blocks without walking the occupancy grid a second time.
+    const cellBlocksAt: (PandocNode[] | undefined)[][] = allRaw.map(() => []);
 
     for (let r = 0; r < allRaw.length; r++) {
         const isHeader = isHeaderRow[r] === true;
@@ -732,10 +745,11 @@ function table(
                 continue;
             }
             const [cellAttr, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
+            cellBlocksAt[r]![col] = cellBlocks;
             const cell: CNode = {
                 type: 'table_cell',
                 header: isHeader,
-                children: cellInlines(ctx, cellBlocks),
+                children: hasBlockCells ? [] : cellInlines(ctx, cellBlocks),
             };
             const align = ALIGN_BACK[cellAlign.t] ?? (isHeader ? colAligns[col] : '');
             if (align) cell.align = align;
@@ -762,6 +776,26 @@ function table(
         rows.push(rowNode);
     }
 
+    const captionInlinesFor = (): CNode[] | null =>
+        captionOverride ?? captionFromBlocks(ctx, capt[1]);
+
+    if (hasBlockCells) {
+        const short = shortCaptionOverride ?? captionFromInlines(ctx, capt[0] as PandocNode[] | null);
+        if (short?.length) {
+            warn(ctx, 'list-table: the short caption is dropped - the extension has one quoted title and no second slot');
+        }
+        return listTable(ctx, {
+            rows,
+            cellBlocksAt,
+            headRows: headRaw.length,
+            footRows: footRaw.length,
+            bodies: groupBodies,
+            caption: captionInlinesFor(),
+            attrs: fromAttr(a),
+            colAligns,
+        });
+    }
+
     const node: CNode = { type: 'table', rows };
     // The counts come from the same arrays `rows` was built from, one row
     // pushed per raw row, so §15's sum holds by construction here. It is
@@ -771,13 +805,139 @@ function table(
     if (carriesMoreThanFlatRows(groups)) node.rowGroups = groups;
     const attrs = fromAttr(a);
     if (attrs) node.attrs = attrs;
-    const captionInlines = captionOverride ?? captionFromBlocks(ctx, capt[1]);
+    const captionInlines = captionInlinesFor();
     if (captionInlines?.length) node.caption = captionInlines;
     const shortCaption = shortCaptionOverride
         ?? captionFromInlines(ctx, capt[0] as PandocNode[] | null);
     if (shortCaption?.length) node.shortCaption = shortCaption;
     return node;
 }
+
+/**
+ * Whether a cell's blocks fit Carve's pipe-table cell, which holds INLINES.
+ *
+ * One `Plain`/`Para` fits. Two do not: the joining soft break serializes as a
+ * literal newline inside the row, which splits the table at that line. Anything
+ * else (a list, a code block, a nested table) has no inline form at all.
+ */
+function isInlineShaped(cellBlocks: PandocNode[]): boolean {
+    if (cellBlocks.length === 0) return true;
+    if (cellBlocks.length > 1) return false;
+    const only = cellBlocks[0]!.t;
+    return only === 'Plain' || only === 'Para';
+}
+
+interface ListTableInput {
+    rows: CNode[];
+    cellBlocksAt: (PandocNode[] | undefined)[][];
+    headRows: number;
+    footRows: number;
+    bodies: RowGroupBody[];
+    caption: CNode[] | null;
+    attrs: CAttrs | undefined;
+    colAligns: string[];
+}
+
+/**
+ * A pandoc table with block content in a cell, as `::: list-table`.
+ *
+ * PART 9 §16's pipe-table cell holds inlines, so a docx or LaTeX table with a
+ * list or two paragraphs in a cell has no pipe form. Flattening it was not a
+ * degradation but a loss: measured on a pandoc grid table, a `BulletList` cell
+ * emitted NOTHING (`stringifyBlocks` walks `{t, c}` nodes and a list's `c` is a
+ * list of block LISTS), and a two-paragraph cell put a literal newline inside
+ * the row, so the two-row table re-parsed as a one-row table plus a paragraph.
+ *
+ * The list-table extension (extensions.md §5) exists for exactly this shape:
+ * cells are list items, so they hold full block content. It is lossless in
+ * structure. Three things it cannot spell are reported rather than dropped
+ * quietly: per-column alignment (§5.5 leaves it out), a foot, and a body's
+ * intermediate header rows.
+ */
+function listTable(ctx: Ctx, input: ListTableInput): CNode {
+    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns } = input;
+    warn(ctx, 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)');
+
+    if (colAligns.some((a) => a)) {
+        warn(ctx, 'list-table: per-column alignment is dropped - the extension has no alignment marker (extensions.md §5.5)');
+    }
+    if (footRows > 0) {
+        warn(ctx, `list-table: the table's ${footRows} foot row(s) become ordinary body rows - the extension has head rows only`);
+    }
+    if (bodies.some((b) => b.headRows > 0)) {
+        warn(ctx, 'list-table: a body group\'s intermediate header rows become ordinary body rows - `header-rows` counts only the leading run');
+    }
+    if (bodies.length > 1) {
+        warn(ctx, `list-table: the table's ${bodies.length} body groups merge into one - the extension has no body boundary`);
+    }
+    if (bodies.some((b) => b.attrs)) {
+        warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');
+    }
+    if (new Set(bodies.filter((b) => b.rowHeadColumns).map((b) => b.rowHeadColumns)).size > 1) {
+        warn(ctx, 'list-table: the body groups disagree on their row-head column count - `header-cols` is one number for the whole table, and the first is kept');
+    }
+
+    const headerCols = bodies.find((b) => b.rowHeadColumns)?.rowHeadColumns ?? 0;
+
+    const rowItems: CNode[] = rows.map((row, r) => {
+        const cells = (row.cells as CNode[] | undefined) ?? [];
+        const cellItems: CNode[] = cells.map((cell, c) => {
+            // A covered position is a lone `^`/`<` item, the same markers the
+            // pipe grid uses (§5.1).
+            if (cell.span === 'rowspan') return listItem([paragraphOf('^')]);
+            if (cell.span === 'colspan') return listItem([paragraphOf('<')]);
+            const cellBlocks = cellBlocksAt[r]?.[c];
+            const children = cellBlocks?.length ? blocks(ctx, cellBlocks) : [];
+            return listItem(children.length ? children : [paragraphOf('')]);
+        });
+        return listItem([bulletListOf(cellItems)]);
+    });
+
+    const node: CNode = {
+        type: 'admonition',
+        kind: 'list-table',
+        children: [bulletListOf(rowItems)],
+    };
+    if (caption?.length) node.title = caption;
+
+    const keyValues: Record<string, string> = { ...(attrs?.keyValues ?? {}) };
+    const order = [...(attrs?.order ?? [])];
+    const addKey = (key: string, value: number): void => {
+        if (value <= 0) return;
+        keyValues[key] = String(value);
+        if (!order.includes('key')) order.push('key');
+    };
+    addKey('header-rows', headRows);
+    addKey('header-cols', headerCols);
+    const merged: CAttrs = {};
+    if (attrs?.id) merged.id = attrs.id;
+    if (attrs?.classes?.length) merged.classes = attrs.classes;
+    if (Object.keys(keyValues).length) merged.keyValues = keyValues;
+    if (Object.keys(merged).length) {
+        merged.order = order.length ? order : Object.keys(keyValues).length ? ['key'] : [];
+        node.attrs = merged;
+    }
+    return node;
+}
+
+const listItem = (children: CNode[]): CNode => ({ type: 'list_item', children });
+const paragraphOf = (value: string): CNode => ({
+    type: 'paragraph',
+    children: value ? [text(value)] : [],
+});
+/**
+ * A list is tight when no item holds more than one block. fmt reads the flag to
+ * decide whether to separate items with a blank line, and a cell holding two
+ * paragraphs needs that line or the second paragraph joins the first. A single
+ * nested list under an item does not - that is every row of a list-table.
+ */
+const bulletListOf = (items: CNode[]): CNode => ({
+    type: 'list',
+    ordered: false,
+    tight: items.every((item) => ((item.children as CNode[] | undefined) ?? []).length <= 1),
+    items,
+    bulletChar: '-',
+});
 
 function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {
     const out: CNode[] = [];

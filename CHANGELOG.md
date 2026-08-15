@@ -20,6 +20,25 @@
   byte for byte, so re-parsing restores `locatorLabel`/`locatorValue`; the
   bridge deliberately keeps no second copy of the section 4.2 label table.
 
+- **A pandoc table with block content in a cell imports as `::: list-table`.**
+  Real docx and LaTeX tables hold lists and paragraphs in cells; Carve's
+  pipe-table cell holds inlines, so there was no form for them. What happened
+  was worse than flattening: a `BulletList` cell emitted nothing at all while
+  the warning said "flattened to text", and a two-paragraph cell put a literal
+  newline inside the pipe row, so a two-row table re-parsed as a one-row table
+  plus a stray paragraph. Such a table is now emitted as a `::: list-table`,
+  whose cells are list items and therefore hold full block content, with the
+  caption as the quoted title, `header-rows`/`header-cols` for the head and the
+  same `^`/`<` span markers. Per-column alignment, a foot and a body group's
+  intermediate header rows have no list-table spelling and are reported, as are
+  merged body groups and their attributes.
+
+- **`header-cols` on a `::: list-table` now reaches pandoc's `RowHeadColumns`.**
+  The key is part of the extension (promoting the first N cells of every row to
+  row headers) and pandoc has the matching slot, but the reader ignored it: the
+  row-header semantics were lost and the key was left behind as an ordinary
+  table attribute.
+
 - **A cell's and a row's attribute block reach pandoc's own `Attr`.** Carve
   spells them glued to the opening pipe (`|{#id .cls k=v} text`) and after the
   closing one (`| a | b |{.cls}`); pandoc's `Cell` and `Row` each have an `Attr`
