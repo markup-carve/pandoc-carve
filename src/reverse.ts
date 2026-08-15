@@ -1106,16 +1106,7 @@ function div(ctx: Ctx, c: never): CNode[] {
 // --- Metadata ---
 
 function metaToYaml(ctx: Ctx, meta: Record<string, PandocNode>): string {
-    const lines: string[] = [];
-    for (const [key, value] of Object.entries(meta)) {
-        const rendered = metaValueToYaml(value);
-        if (rendered === null) {
-            warn(ctx, `meta: key "${key}" (${value.t}) not representable in flat frontmatter - skipped`);
-            continue;
-        }
-        lines.push(`${key}: ${rendered}`);
-    }
-    return lines.join('\n');
+    return mappingToYaml(ctx, meta, 0).join('\n');
 }
 
 function yamlScalar(s: string): string {
@@ -1123,7 +1114,50 @@ function yamlScalar(s: string): string {
     return JSON.stringify(s);
 }
 
-function metaValueToYaml(value: PandocNode): string | null {
+/**
+ * A pandoc `Meta` map as YAML, to whatever depth it has.
+ *
+ * `MetaMap` and a `MetaList` of non-scalars used to hit the `default: return
+ * null` arm and be dropped with a warning, so a `bibliography` map or the
+ * `author: [ - name:, affiliation: ]` every pandoc template reads did not
+ * survive an import at all. A list of plain scalars keeps the flow form
+ * (`tags: [a, b]`), which is what frontmatter conventionally looks like.
+ */
+function mappingToYaml(ctx: Ctx, map: Record<string, PandocNode>, depth: number): string[] {
+    const pad = '  '.repeat(depth);
+    const out: string[] = [];
+    for (const [key, value] of Object.entries(map)) {
+        const inline = scalarToYaml(value);
+        if (inline !== null) {
+            out.push(`${pad}${yamlKey(key)}: ${inline}`);
+            continue;
+        }
+        const nested = nestedToYaml(ctx, value, depth + 1, key);
+        if (nested === null) {
+            warn(ctx, `meta: key "${key}" (${value.t}) has no YAML form - skipped`);
+            continue;
+        }
+        out.push(`${pad}${yamlKey(key)}:`, ...nested);
+    }
+    return out;
+}
+
+function yamlKey(key: string): string {
+    return /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+/**
+ * The one-line form of a value, or null when it needs lines of its own.
+ *
+ * `MetaBlocks` deliberately returns null here and is reported by the caller
+ * rather than serialized. This is decision D5(b) of the conversion tracker
+ * (markup-carve/carve#1210): block content inside metadata has no honest YAML
+ * string form - flattening `abstract: |` to one scalar throws away the
+ * paragraph structure, and writing Carve source into a YAML value makes the
+ * frontmatter carry markup that nothing on the reading side parses. The warn is
+ * the honest outcome, and it is policy, not an omission.
+ */
+function scalarToYaml(value: PandocNode): string | null {
     switch (value.t) {
         case 'MetaString':
             return yamlScalar(String(value.c));
@@ -1132,13 +1166,48 @@ function metaValueToYaml(value: PandocNode): string | null {
         case 'MetaInlines':
             return yamlScalar(stringify(value.c as PandocNode[]));
         case 'MetaList': {
-            const items = (value.c as PandocNode[]).map(metaValueToYaml);
+            const items = (value.c as PandocNode[]).map(scalarToYaml);
             if (items.some((x) => x === null)) return null;
             return `[${items.join(', ')}]`;
         }
+        case 'MetaMap':
+            // An empty map has no block form - `key:` with nothing under it
+            // reads back as an empty value, not an empty map - so it takes the
+            // flow spelling. A populated one needs lines of its own.
+            return Object.keys(value.c as Record<string, PandocNode>).length ? null : '{}';
         default:
             return null;
     }
+}
+
+function nestedToYaml(ctx: Ctx, value: PandocNode, depth: number, key: string): string[] | null {
+    if (value.t === 'MetaMap') {
+        const lines = mappingToYaml(ctx, value.c as Record<string, PandocNode>, depth);
+        return lines.length ? lines : null;
+    }
+    if (value.t === 'MetaList') return listToYaml(ctx, value.c as PandocNode[], depth, key);
+    return null;
+}
+
+function listToYaml(ctx: Ctx, items: PandocNode[], depth: number, key: string): string[] | null {
+    const pad = '  '.repeat(depth);
+    const out: string[] = [];
+    for (const item of items) {
+        const inline = scalarToYaml(item);
+        if (inline !== null) {
+            out.push(`${pad}- ${inline}`);
+            continue;
+        }
+        const nested = nestedToYaml(ctx, item, depth + 1, key);
+        if (nested === null) {
+            warn(ctx, `meta: an item of "${key}" (${item.t}) has no YAML form - skipped`);
+            continue;
+        }
+        // `- ` replaces the first two spaces of the child's own indent, so the
+        // keys after it stay aligned under the first one.
+        out.push(`${pad}- ${nested[0]!.slice(pad.length + 2)}`, ...nested.slice(1));
+    }
+    return out.length ? out : null;
 }
 
 // --- Entry point ---
