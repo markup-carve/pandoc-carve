@@ -47,6 +47,7 @@ export const Underline = (xs: Inline[]): Inline => node('Underline', xs);
 export const Strikeout = (xs: Inline[]): Inline => node('Strikeout', xs);
 export const Superscript = (xs: Inline[]): Inline => node('Superscript', xs);
 export const Subscript = (xs: Inline[]): Inline => node('Subscript', xs);
+export const SmallCaps = (xs: Inline[]): Inline => node('SmallCaps', xs);
 export const Code = (a: Attr, s: string): Inline => node('Code', [a, s]);
 export const Link = (a: Attr, xs: Inline[], target: [string, string]): Inline =>
     node('Link', [a, xs, target]);
@@ -212,6 +213,10 @@ export function Table(
     footRows: PRow[] = [],
     shortCaption: Inline[] | null = null,
 ): Block {
+    // The export side of the same ColWidth policy `reverse.ts`'s `table()`
+    // states: alignment is carried, width is always `ColWidthDefault`. Carve
+    // has no width to carry, and pandoc's writers size a default-width column
+    // themselves, so this is the honest value rather than a placeholder.
     const colspecs = colAligns.map((al) => [node(al), node('ColWidthDefault')]);
     return node('Table', [
         a,

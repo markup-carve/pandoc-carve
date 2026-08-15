@@ -59,6 +59,8 @@ interface Ctx {
     abbrevDefs: Map<string, string>;
     /** One bibliography diagnostic per document, however many Cites it has. */
     bibliographyWarned: boolean;
+    /** Same for `Quoted`: one diagnostic, however many quotations there are. */
+    quotedWarned: boolean;
 }
 
 function warn(ctx: Ctx, msg: string): void {
@@ -149,6 +151,15 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             return wrapped(ctx, 'superscript', c);
         case 'Subscript':
             return wrapped(ctx, 'subscript', c);
+        // POLICY: Carve has no small-caps node and is not getting one - the
+        // typographic distinction is a presentation choice, which is what the
+        // `.smallcaps` span already carries. The degradation is not one-way:
+        // `convert.ts` reads that class back as a pandoc `SmallCaps` (pandoc's
+        // own markdown reader defines the same convention), so the construct
+        // survives Pandoc -> Carve -> Pandoc intact. The warning stays because
+        // a consumer reading the Carve document itself sees a class, not a
+        // semantic - it says what the Carve side holds, not that the value is
+        // lost.
         case 'SmallCaps':
             warn(ctx, 'SmallCaps has no Carve form - degraded to a .smallcaps span');
             return [
@@ -159,6 +170,22 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
                 },
             ];
         case 'Quoted': {
+            // POLICY: literal curly quotes, and the degradation is real - the
+            // text re-imports as `Str`, never as `Quoted`, so the quote kind
+            // and pandoc's locale-aware quoting are gone once this is written.
+            // A `.quoted` span would round-trip, but it would put a class into
+            // every quoted phrase of an imported document to preserve a node
+            // Carve has no spelling for; the characters are what an author
+            // would have typed. Warned once per document, like the
+            // bibliography diagnostic: a document quotes many times and the
+            // repetition carries no extra information.
+            if (!ctx.quotedWarned) {
+                ctx.quotedWarned = true;
+                warn(
+                    ctx,
+                    'Quoted degraded to literal curly quote characters - Carve has no quote node, so the quotation does not re-import as Quoted',
+                );
+            }
             const [kind, xs] = c as [PandocNode, PandocNode[]];
             const [open, close] = kind.t === 'SingleQuote' ? ['‘', '’'] : ['“', '”'];
             return mergeText([text(open), ...inlines(ctx, xs), text(close)]);
@@ -680,6 +707,14 @@ function table(
         [Attr, unknown[]],
     ];
 
+    // POLICY: a ColSpec's alignment is read, its ColWidth is dropped, and the
+    // drop is deliberate and silent. Carve's table model has no width slot at
+    // any level (nothing named `width` appears in `resources/ast-schema.json`)
+    // and PART 9 §16's pipe-table source cannot spell one, so there is nowhere
+    // to put the number and no syntax that could reproduce it. No diagnostic,
+    // because the width is usually not the author's: pandoc DERIVES a ColWidth
+    // for every grid and multiline table from the ASCII column widths, so a
+    // warning would fire on the ordinary case and report a value nobody chose.
     const colAligns = colspecs.map((cs) => ALIGN_BACK[cs[0].t] ?? '');
     const nCols = colspecs.length;
 
@@ -1217,6 +1252,7 @@ export function pandocToCarve(doc: PandocDoc): ReverseResult {
         noteCounter: 0,
         abbrevDefs: new Map(),
         bibliographyWarned: false,
+        quotedWarned: false,
     };
     const children = blocks(ctx, doc.blocks);
     if (containsShortCaption(children)) {

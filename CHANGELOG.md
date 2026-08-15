@@ -110,8 +110,23 @@
   - `line_block` (carve#359) maps to pandoc's native `LineBlock`, so the line
     structure survives instead of collapsing into a paragraph.
 
+- **Small caps make the return trip.** A `[text]{.smallcaps}` span exports as a
+  pandoc `SmallCaps` instead of a bare classed `Span`. That is the exact inverse
+  of the degradation the import direction already performed, and it is pandoc's
+  own convention: its markdown reader reads the same class the same way, strips
+  it, and keeps any remaining attributes on a wrapping `Span`. Until now a
+  small-capped phrase reached the LaTeX writer as `{text}` and lost the small
+  caps entirely; only the HTML writer happened to preserve it, by writing the
+  class back out.
+
 ### Fixed
 
+- **A pandoc `Quoted` says that it degrades.** The quotation was rewritten to
+  literal curly quote characters with nothing reported, and the text re-exports
+  as a plain `Str`, so the quote kind and pandoc's locale-aware quoting left the
+  document silently. The characters stay - they are what an author would have
+  typed, and Carve has no quote node - but the conversion now reports the loss,
+  once per document however many quotations it holds.
 - **A quote attribution rides inside the `BlockQuote` and survives every pandoc
   writer.** The spec made a caption on a quote an attribution rather than a
   figure caption (PART 9 section 4a, markup-carve/carve#1159), and the bridge's
