@@ -376,6 +376,23 @@ test('a quote figure draws a number like any other figure', () => {
   assert.ok(JSON.stringify(out[1].c[1][1]).includes('"2:"'), 'the image is Figure 2');
 });
 
+test('a quote figure is a crossref target like any other figure', () => {
+  // The rendered number and the `</#id>` text come from two different passes,
+  // so pinning one says nothing about the other: §4a excluded a quote figure
+  // from the crossref pass as well, and with only the rendered-number test
+  // above, restoring that exclusion left the suite green while `</#q>` went
+  // unresolved and every later figure's crossref shifted down by one.
+  const r = carveToPandoc(
+    '{#q}\n> To be\n^ Figure #: Src\n\n{#i}\n![alt](i.png)\n^ Figure #: real\n\nSee </#q> and </#i>.\n',
+  );
+  assert.deepEqual(r.warnings, []);
+  const links = r.doc.blocks[2].c.filter((i) => i.t === 'Link');
+  assert.deepEqual(
+    links.map((l) => [l.c[2][0], l.c[1].map((x) => x.c ?? ' ').join('')]),
+    [['#q', 'Figure 1'], ['#i', 'Figure 2']],
+  );
+});
+
 test('admonition becomes classed Div with title paragraph', () => {
   const [div] = blocks('::: tip "My Title"\nbody text\n:::');
   assert.equal(div.t, 'Div');
