@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { carveToHtml } from '@markup-carve/carve';
 import { carveToPandoc, carveAstToPandoc } from '../dist/index.js';
 
 const blocks = (src) => carveToPandoc(src).doc.blocks;
@@ -344,35 +345,26 @@ test('listTable: malformed structure falls back to Div, content preserved (codex
   assert.ok(r.warnings.some((w) => w.includes('not table-shaped')));
 });
 
-test('figure from captioned image; blockquote attribution', () => {
+test('captioned images and blockquotes become figures', () => {
   const [fig] = blocks('![alt](i.png)\n^ Figure 1: cap');
   assert.equal(fig.t, 'Figure');
   assert.equal(fig.c[2][0].c[0].t, 'Image');
 
-  // PART 9 §4a: a captioned quote is a quote carrying an attribution, not a
-  // figure - the attribution rides INSIDE the BlockQuote as a trailing Span,
-  // so every pandoc writer keeps it attached (a Figure wrapper lost it
-  // wholesale in the plain and rst writers).
-  const [quote] = blocks('> wise words\n^ Author');
-  assert.equal(quote.t, 'BlockQuote');
-  const attribution = quote.c[quote.c.length - 1];
-  assert.equal(attribution.t, 'Para');
-  assert.equal(attribution.c[0].t, 'Span');
-  assert.deepEqual(attribution.c[0].c[0], ['', ['attribution'], []]);
-  assert.equal(attribution.c[0].c[1][0].c, 'Author');
+  const [quoteFigure] = blocks('> wise words\n^ Author');
+  assert.equal(quoteFigure.t, 'Figure');
+  assert.equal(quoteFigure.c[2][0].t, 'BlockQuote');
+  assert.equal(quoteFigure.c[1][1][0].c[0].c, 'Author');
 });
 
-test('a quote attribution consumes no figure number and keeps `#` literal', () => {
-  // §4a: the placeholder has nothing to resolve against on a quote. The quote
-  // must also not bump the Figure sequence, or the real figure after it would
-  // be numbered 2.
-  const out = blocks('> q\n^ Figure #: Src\n\n![alt](i.png)\n^ Figure #: real\n');
-  const spanText = JSON.stringify(out[0]);
-  assert.ok(spanText.includes('"attribution"'), 'quote carries the attribution span');
-  assert.ok(spanText.includes('#'), 'placeholder stays a literal #: ' + spanText);
-  const figText = JSON.stringify(out[1]);
+test('a quote figure consumes a figure number', () => {
+  const src = '> To be\n^ Figure #: Hamlet\n\n![a](a.png)\n^ Figure #: Second\n';
+  const out = blocks(src);
+  const engineCaptions = [...carveToHtml(src).matchAll(/<figcaption>(.*?)<\/figcaption>/g)].map((m) => m[1]);
+  const pandocCaptions = out.map((figure) => figure.c[1][1][0].c.map((x) => x.c ?? ' ').join(''));
+  assert.equal(out[0].t, 'Figure');
+  assert.equal(out[0].c[2][0].t, 'BlockQuote');
   assert.equal(out[1].t, 'Figure');
-  assert.ok(figText.includes('"1:"'), 'the image is Figure 1, not 2: ' + figText);
+  assert.deepEqual(pandocCaptions, engineCaptions);
 });
 
 test('admonition becomes classed Div with title paragraph', () => {

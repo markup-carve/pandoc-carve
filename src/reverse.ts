@@ -47,7 +47,7 @@ interface CNode {
 }
 
 export interface ReverseResult {
-    ast: CNode;
+    ast: CNode & { children: CNode[] };
     warnings: string[];
 }
 
@@ -528,20 +528,8 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             if (attrs) node.attrs = attrs;
             return [node];
         }
-        case 'BlockQuote': {
-            const body = c as PandocNode[];
-            const attribution = attributionFromBlocks(ctx, body);
-            if (attribution) {
-                return [
-                    {
-                        type: 'block_quote',
-                        children: blocks(ctx, body.slice(0, -1)),
-                        attribution,
-                    },
-                ];
-            }
-            return [{ type: 'block_quote', children: blocks(ctx, body) }];
-        }
+        case 'BlockQuote':
+            return [{ type: 'block_quote', children: blocks(ctx, c as PandocNode[]) }];
         case 'CodeBlock': {
             const [a, content] = c as [Attr, string];
             const [id, classes, kvs] = a;
@@ -1006,26 +994,43 @@ function captionFromInlines(ctx: Ctx, caption: PandocNode[] | null | undefined):
     return caption?.length ? inlines(ctx, caption) : null;
 }
 
-/**
- * A quote's attribution, when the last block is a `Para`/`Plain` holding
- * exactly one Span whose whole Attr is the single class `attribution` - the
- * shape convert.ts emits for PART 9 §4a. A Span that ALSO carries an id, more
- * classes or key/values is someone's content and stays where it is; a foreign
- * document using the bare idiom reads back as the attribution it claims to be.
- */
-function attributionFromBlocks(ctx: Ctx, body: PandocNode[]): CNode[] | null {
-    const last = body[body.length - 1];
-    if (!last || (last.t !== 'Para' && last.t !== 'Plain')) return null;
-    const xs = last.c as PandocNode[];
-    if (xs.length !== 1 || xs[0]!.t !== 'Span') return null;
-    const [[id, classes, kvs], inner] = xs[0]!.c as [Attr, PandocNode[]];
-    if (id !== '' || kvs.length !== 0 || classes.length !== 1 || classes[0] !== 'attribution') {
-        return null;
-    }
-    return inlines(ctx, inner);
-}
-
 // --- Figures and divs ---
+
+/**
+ * A `figure` node, or the bare host when the figure carries no caption.
+ *
+ * `figure.caption` is REQUIRED by `resources/ast-schema.json`, and an empty one
+ * has no Carve spelling: `renderCarve` writes a lone `^` line for it, and that
+ * line re-parses as a lazy continuation - `> q` plus `^` comes back as the
+ * two-line paragraph `q\n^` INSIDE the quote, not as a caption. So an
+ * uncaptioned figure is emitted as its host, which is a shape Carve source can
+ * spell, and the wrapper is reported rather than dropped in silence.
+ *
+ * Not a corner case: pandoc's own HTML reader emits exactly this for
+ * `<figure><img src="a.png"></figure>`. Before the guard, both branches built a
+ * `figure` with no `caption` field, which failed schema validation and made
+ * `renderCarve` throw `Cannot read properties of undefined (reading 'forEach')`.
+ */
+function captionedFigure(
+    ctx: Ctx,
+    target: CNode,
+    caption: CNode[] | null,
+    shortCaption: CNode[] | null,
+    a: Attr,
+    host: () => CNode,
+): CNode[] {
+    const attrs = fromAttr(a);
+    if (!caption) {
+        warn(ctx, 'figure: an uncaptioned figure has no Carve spelling - the wrapper is dropped and its content kept');
+        const bare = host();
+        if (attrs) bare.attrs = attrs;
+        return [bare];
+    }
+    const node: CNode = { type: 'figure', target, caption };
+    if (shortCaption) node.shortCaption = shortCaption;
+    if (attrs) node.attrs = attrs;
+    return [node];
+}
 
 function figure(ctx: Ctx, c: never): CNode[] {
     const [a, capt, body] = c as [Attr, [unknown, PandocNode[]], PandocNode[]];
@@ -1036,38 +1041,18 @@ function figure(ctx: Ctx, c: never): CNode[] {
     if (single?.t === 'Plain' || single?.t === 'Para') {
         const xs = single.c as PandocNode[];
         if (xs.length === 1 && xs[0]!.t === 'Image') {
-            const [img] = inline(ctx, xs[0]!);
-            const node: CNode = { type: 'figure', target: img };
-            if (caption) node.caption = caption;
-            if (shortCaption) node.shortCaption = shortCaption;
-            const attrs = fromAttr(a);
-            if (attrs) node.attrs = attrs;
-            return [node];
+            const img = inline(ctx, xs[0]!)[0]!;
+            // A block image is a paragraph holding the image, which is what
+            // `![alt](src)` on its own line parses to.
+            return captionedFigure(ctx, img, caption, shortCaption, a, () => ({
+                type: 'paragraph',
+                children: [img],
+            }));
         }
     }
     if (single?.t === 'BlockQuote') {
-        // PART 9 §4a: a captioned quote is a quote carrying an attribution,
-        // not a figure. This branch also upgrades this bridge's own pre-§4a
-        // output, which wrapped the quote in a Figure.
-        const [bq] = block(ctx, single) as [CNode];
-        if (caption) {
-            if (Array.isArray(bq.attribution)) {
-                // Both an inner attribution Span and an outer Figure caption:
-                // the caption is the outer author's statement, the inner one
-                // stays visible as an ordinary trailing paragraph.
-                (bq.children as CNode[]).push({
-                    type: 'paragraph',
-                    children: bq.attribution as CNode[],
-                });
-            }
-            bq.attribution = caption;
-        }
-        if (shortCaption) {
-            warn(ctx, 'quote attribution: short caption dropped (a quote has no navigation-caption slot)');
-        }
-        const attrs = fromAttr(a);
-        if (attrs) bq.attrs = attrs;
-        return [bq];
+        const [quote] = block(ctx, single) as [CNode];
+        return captionedFigure(ctx, quote, caption, shortCaption, a, () => quote);
     }
     if (single?.t === 'Table') {
         return [table(ctx, single.c as never, caption, shortCaption)];
@@ -1261,7 +1246,7 @@ export function pandocToCarve(doc: PandocDoc): ReverseResult {
     for (const [abbr, expansion] of [...ctx.abbrevDefs].reverse()) {
         children.unshift({ type: 'abbreviation_def', abbr, expansion });
     }
-    const ast: CNode = { type: 'document', children };
+    const ast: CNode & { children: CNode[] } = { type: 'document', children };
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
     const yaml = metaToYaml(ctx, doc.meta ?? {});
     if (yaml) ast.frontmatter = { format: 'yaml', content: yaml };

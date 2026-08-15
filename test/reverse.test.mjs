@@ -218,29 +218,23 @@ test('reverse: multi-block Note becomes a reference footnote with generated id',
   assert.ok(carve.includes('second'));
 });
 
-test('a quote attribution round-trips to identical Carve source', () => {
-  // Forward emits the attribution Span inside the BlockQuote; reverse detects
-  // it and rebuilds the §4a quote - then serializes through whatever shape
-  // the installed engine's renderCarve actually writes (probed, not sniffed).
+test('a captioned quote round-trips to identical Carve source', () => {
   const src = '> To be, or not to be.\n^ Hamlet\n';
   const { carve, warnings } = pandocToCarve(carveToPandoc(src).doc);
   assert.deepEqual(warnings, []);
   assert.equal(carve, src);
 });
 
-test('the exchange AST keeps the §4a attribution shape', () => {
+test('the exchange AST keeps the quote figure shape', () => {
   const { ast, warnings } = pandocToCarveAst(carveToPandoc('> q\n^ Hamlet\n').doc);
   assert.deepEqual(warnings, []);
-  const [quote] = ast.children;
-  assert.equal(quote.type, 'block_quote');
-  assert.deepEqual(quote.attribution, [{ type: 'text', value: 'Hamlet' }]);
-  assert.ok(!JSON.stringify(ast).includes('"figure"'), 'no quote-figure wrapper');
+  const [figure] = ast.children;
+  assert.equal(figure.type, 'figure');
+  assert.equal(figure.target.type, 'block_quote');
+  assert.deepEqual(figure.caption, [{ type: 'text', value: 'Hamlet' }]);
 });
 
-test('a foreign Figure-wrapped BlockQuote upgrades to a quote with attribution', () => {
-  // This bridge's own pre-§4a output, and any pandoc filter that produced the
-  // same shape. The new schema refuses figure{target: block_quote}, so the
-  // reverse direction must not fabricate it.
+test('a Figure-wrapped BlockQuote becomes a quote figure', () => {
   const doc = {
     'pandoc-api-version': [1, 23, 1],
     meta: {},
@@ -260,25 +254,20 @@ test('a foreign Figure-wrapped BlockQuote upgrades to a quote with attribution',
   assert.equal(carve, '> wise\n^ Author\n');
 });
 
-test('a Span carrying more than the attribution class is content, not attribution', () => {
+test('a classed Span in a BlockQuote remains quote content', () => {
   const quoteWith = (span) => ({
     'pandoc-api-version': [1, 23, 1],
     meta: {},
     blocks: [{ t: 'BlockQuote', c: [{ t: 'Para', c: [span] }] }],
   });
-  // id present -> stays a paragraph inside the quote
   const kept = pandocToCarve(
-    quoteWith({ t: 'Span', c: [['x1', ['attribution'], []], [{ t: 'Str', c: 'A' }]] }),
+    quoteWith({ t: 'Span', c: [['x1', ['source'], []], [{ t: 'Str', c: 'A' }]] }),
   );
   assert.ok(!kept.carve.includes('^ '), kept.carve);
-  // bare class -> attribution
-  const taken = pandocToCarve(
-    quoteWith({ t: 'Span', c: [['', ['attribution'], []], [{ t: 'Str', c: 'A' }]] }),
-  );
-  assert.equal(taken.carve, '>\n^ A\n');
+  assert.ok(kept.carve.includes('A'), kept.carve);
 });
 
-test('a Figure-wrapped quote with a short caption warns instead of losing it silently', () => {
+test('a Figure-wrapped quote preserves its short caption in the exchange AST', () => {
   const doc = {
     'pandoc-api-version': [1, 23, 1],
     meta: {},
@@ -293,7 +282,38 @@ test('a Figure-wrapped quote with a short caption warns instead of losing it sil
       },
     ],
   };
-  const { warnings } = pandocToCarve(doc);
-  assert.equal(warnings.length, 1);
-  assert.ok(warnings[0].includes('short caption'), warnings[0]);
+  const { ast } = pandocToCarveAst(doc);
+  assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'nav' }]);
+});
+
+const uncaptioned = (body) => ({
+  'pandoc-api-version': [1, 23, 1],
+  meta: {},
+  blocks: [{ t: 'Figure', c: [['', [], []], [null, []], [body]] }],
+});
+
+test('an uncaptioned Figure keeps its content instead of throwing', () => {
+  // pandoc's own HTML reader emits `Figure` with an EMPTY caption for
+  // `<figure><img src="a.png"></figure>` and for a figure-wrapped quote, so
+  // this is ordinary input. A `figure` node with no `caption` fails the spec
+  // schema (the field is required) and made renderCarve throw
+  // `Cannot read properties of undefined (reading 'forEach')` - the wrapper is
+  // dropped and reported instead, because an empty caption has no spelling:
+  // renderCarve writes a lone `^` line for it and that line re-parses as a lazy
+  // continuation of the quote.
+  const quote = pandocToCarve(
+    uncaptioned({ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'To be' }] }] }),
+  );
+  assert.equal(quote.carve, '> To be\n');
+  assert.equal(quote.warnings.length, 1);
+  assert.ok(quote.warnings[0].includes('uncaptioned figure'), quote.warnings[0]);
+
+  const image = pandocToCarve(
+    uncaptioned({
+      t: 'Plain',
+      c: [{ t: 'Image', c: [['', [], []], [{ t: 'Str', c: 'alt' }], ['a.png', '']] }],
+    }),
+  );
+  assert.equal(image.carve, '![alt](a.png)\n');
+  assert.equal(image.warnings.length, 1);
 });

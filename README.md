@@ -132,7 +132,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |
 | Footnotes (reference and inline `^[..]`) | Note |
 | Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
-| Images/quotes with `^ caption` lines | Figure |
+| Images/quotes with `^ caption` lines | Figure; a quote target maps to `Figure[BlockQuote]` |
 | `::: note` admonitions | Div `.admonition .note` (+ title paragraph) |
 | Tabs / code-group panels, grouping `[label]` | Div; each `[label]` becomes a bold caption so panels stay distinguishable (graceful degradation) |
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
@@ -147,6 +147,10 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs
 degrade for print formats - are in [`examples/`](examples/README.md).
+
+Pandoc's plain and rst writers drop captions from non-image figures, including
+quote figures; this is writer behavior rather than a quote-specific bridge
+mapping. Writers such as latex, html, and markdown preserve the caption.
 
 ## Why a bridge, not a pandoc reader?
 

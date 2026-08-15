@@ -272,35 +272,6 @@ function verbatimInlines(raw: string): P.Inline[] {
  * `Listing #`, `Figure #` on three figures numbers them Figure 1, Listing 1,
  * Figure 2. Keying on figure-versus-table would have made that Listing 2.
  */
-/** Outer (figure) attrs win per field; the inner quote keeps the rest. */
-function mergeAttrs(inner: CAttrs | undefined, outer: CAttrs | undefined): CAttrs {
-    const out: CAttrs = {};
-    const id = outer?.id ?? inner?.id;
-    if (id) out.id = id;
-    const classes = [...(inner?.classes ?? []), ...(outer?.classes ?? [])].filter(
-        (c, i, all) => all.indexOf(c) === i,
-    );
-    if (classes.length) out.classes = classes;
-    const keyValues = { ...(inner?.keyValues ?? {}), ...(outer?.keyValues ?? {}) };
-    if (Object.keys(keyValues).length) out.keyValues = keyValues;
-    return out;
-}
-
-/**
- * A quote's attribution as Pandoc inlines (PART 9 §4a). A `#` placeholder has
- * nothing to resolve against on a quote and stays a literal `#`, so the
- * `caption_number` node is flattened to text BEFORE the numbering counter in
- * `inline()` can see it - an engine pinned at `^0.1.2` still parses the
- * construct as a numbered figure and hands the placeholder through.
- */
-function attributionInlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] | null {
-    if (!Array.isArray(nodes)) return null;
-    return inlines(
-        ctx,
-        nodes.map((x) => (x?.type === 'caption_number' ? { type: 'text', value: '#' } : x)),
-    );
-}
-
 function captionLabel(nodes: CNode[] | undefined): string | undefined {
     if (!Array.isArray(nodes)) return undefined;
     const at = nodes.findIndex((x) => x?.type === 'caption_number');
@@ -722,14 +693,8 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         }
         case 'heading':
             return [P.Header(Number(n.level ?? 1), toAttr(n.attrs), kids(ctx, n))];
-        case 'block_quote': {
-            const content = untight(ctx, () => blocks(ctx, n.children as CNode[]));
-            const attribution = attributionInlines(ctx, n.attribution as CNode[] | undefined);
-            if (attribution) {
-                content.push(P.Para([P.Span(P.attr('', ['attribution']), attribution)]));
-            }
-            return [P.BlockQuote(content)];
-        }
+        case 'block_quote':
+            return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
             const lang = n.lang ? [String(n.lang)] : [];
             const a = (n.attrs ?? {}) as CAttrs;
@@ -1229,31 +1194,6 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
 
 function figure(ctx: Ctx, n: CNode): P.Block[] {
     const target = n.target as CNode | undefined;
-    if (target?.type === 'block_quote') {
-        // PART 9 §4a (carve#1159): a captioned quote is a quote carrying an
-        // attribution, not a figure. Engines pinned at `^0.1.2` still parse
-        // the construct into this figure shape, so it is synthesized into the
-        // quote-with-attribution node and converted as one - both input
-        // shapes lower identically, and the attrs Div-wrapper in `block()`
-        // applies as for any quote. Before the reroute, the caption reached
-        // Pandoc as a `Figure` wrapper, which the plain and rst writers drop
-        // wholesale and the latex writer numbers as a float.
-        if (Array.isArray(n.shortCaption) && n.shortCaption.length) {
-            warn(ctx, 'quote attribution: short caption dropped (a quote has no navigation-caption slot)');
-        }
-        const quote: CNode = { ...target };
-        if (Array.isArray(n.caption)) quote.attribution = n.caption;
-        const figAttrs = n.attrs as CAttrs | undefined;
-        const quoteAttrs = target.attrs as CAttrs | undefined;
-        if (hasAttrs(figAttrs) || hasAttrs(quoteAttrs)) {
-            // The two nodes collapse into one, so their attrs merge rather
-            // than the figure's replacing the quote's: the figure's id wins
-            // (it was the referenceable one), classes union, key/values merge
-            // with the figure's taking precedence.
-            quote.attrs = mergeAttrs(quoteAttrs, figAttrs);
-        }
-        return block(ctx, quote);
-    }
     ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
     const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
     const shortCaption = Array.isArray(n.shortCaption)
@@ -1512,13 +1452,7 @@ function collectCrossrefTargets(ctx: Ctx, nodes: CNode[], captionCounts: Map<str
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
-        } else if (
-            (n.type === 'figure' && (n.target as CNode | undefined)?.type !== 'block_quote') ||
-            n.type === 'table'
-        ) {
-            // A quote-figure is an attribution under §4a: it takes no number
-            // (pass 2 keeps its `#` literal), so counting it here would drift
-            // every later caption number by one.
+        } else if (n.type === 'figure' || n.type === 'table') {
             const caption = n.caption as CNode[] | undefined;
             if (Array.isArray(caption) && caption.some((x) => x?.type === 'caption_number')) {
                 const label = captionLabel(caption) ?? 'caption';

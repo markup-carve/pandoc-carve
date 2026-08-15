@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { normalizeCarveAst, parseCarveAst, toCarveAst } from '../dist/ast-json.js';
-import { carveAstToPandoc, carveToCarveAst, carveToPandoc } from '../dist/index.js';
+import { carveAstToPandoc, carveToCarveAst, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const schema = JSON.parse(readFileSync(join(repo, 'spec', 'resources', 'ast-schema.json'), 'utf8'));
@@ -109,6 +109,22 @@ test('the critic comment carries the schema spelling, not the hyphenated one', (
 
 test('the serialized document validates against the spec AST schema', () => {
   assertConforms(carveToCarveAst(SOURCE), 'serialized source');
+});
+
+test('a reversed Figure containing a BlockQuote validates against the spec AST schema', () => {
+  const { ast } = pandocToCarveAst({
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [{
+      t: 'Figure',
+      c: [
+        ['', [], []],
+        [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'Hamlet' }] }]],
+        [{ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'To' }, { t: 'Space' }, { t: 'Str', c: 'be' }] }] }],
+      ],
+    }],
+  });
+  assertConforms(ast, 'reversed quote figure');
 });
 
 // --- The other direction: a tree that arrived already serialized ---
