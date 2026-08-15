@@ -320,8 +320,20 @@ interface PCitation {
  */
 function citeGroup(ctx: Ctx, citations: PCitation[], content: PandocNode[]): CNode {
     const modes = citations.map((cit) => cit.citationMode?.t ?? 'NormalCitation');
-    const integral = modes.includes('AuthorInText');
-    if (integral && modes.includes('NormalCitation')) {
+    const keys = citations.map((cit) => String(cit.citationId ?? ''));
+    // `raw` is required by the schema AND is what `renderCarve` writes out
+    // verbatim, so it decides whether the source round-trips byte for byte.
+    // Pandoc's own markdown reader stores the source here too, which is why
+    // recovering it beats rebuilding it - but only while it still DESCRIBES the
+    // records, since a filter may have rewritten them and left the display text
+    // behind.
+    const recovered = carveShapedSource(content, keys);
+    // Pandoc's markdown reader has no integral marker: it reads Carve's `[+@k]`
+    // as `NormalCitation` with a `+` prefix. The recovered source is the only
+    // place that fact survives, and reading it back is what keeps `mode` from
+    // contradicting the `raw` sitting next to it.
+    const integral = modes.includes('AuthorInText') || (recovered?.startsWith('[+') ?? false);
+    if (integral && modes.includes('NormalCitation') && !recovered?.startsWith('[+')) {
         warn(ctx, 'Cite mixes AuthorInText with NormalCitation - Carve\'s integral marker is a property of the whole group, so the group is emitted as integral');
     }
     if (!ctx.bibliographyWarned) {
@@ -343,11 +355,7 @@ function citeGroup(ctx: Ctx, citations: PCitation[], content: PandocNode[]): CNo
     });
 
     const group: CNode = { type: 'citation_group', items };
-    // `raw` is required by the schema AND is what `renderCarve` writes out
-    // verbatim, so it decides whether the source round-trips byte for byte.
-    // Pandoc's own markdown reader stores the source here too, which is why
-    // recovering it beats rebuilding it whenever it is Carve-shaped.
-    group.raw = carveShapedSource(content) ?? synthesizeRaw(items, integral);
+    group.raw = recovered ?? synthesizeRaw(items, integral);
     if (integral) group.mode = 'integral';
     return group;
 }
@@ -384,14 +392,30 @@ function locatorNodes(ctx: Ctx, suffix: PandocNode[] | undefined): CNode[] {
 }
 
 /**
- * A Cite's content is Carve source when it is a tail-less bracket holding a
- * key - the shape §4.1 claims. Anything else (a rendered "(Smith 2020)" out of
- * a docx, say) is prose about the citation, not the citation, and is rebuilt.
+ * A Cite's content is Carve source when it is a tail-less bracket holding
+ * exactly this Cite's keys, in order - the shape §4.1 claims. Two things fail
+ * the test and both must: a rendered "(Smith 2020)" out of a docx is prose
+ * about the citation rather than the citation, and content a filter left stale
+ * after rewriting the records would otherwise be written back as source and
+ * silently restore the old keys on the next parse.
  */
-function carveShapedSource(content: PandocNode[]): string | null {
+function carveShapedSource(content: PandocNode[], keys: string[]): string | null {
     const raw = stringify(content).trim();
-    if (raw.startsWith('[') && raw.endsWith(']') && raw.includes('@')) return raw;
-    return null;
+    if (!raw.startsWith('[') || !raw.endsWith(']')) return null;
+    return sameKeys(citedKeys(raw), keys) ? raw : null;
+}
+
+/** The `@key` run of a Carve citation group; `\@` is literal and not a key. */
+function citedKeys(raw: string): string[] {
+    const out: string[] = [];
+    for (const m of raw.matchAll(/(^|[^\\])@([^\s;,\]]+)/g)) {
+        out.push(String(m[2]).replace(/[.,;:]+$/, ''));
+    }
+    return out;
+}
+
+function sameKeys(found: string[], keys: string[]): boolean {
+    return found.length === keys.length && found.every((k, i) => k === keys[i]);
 }
 
 function synthesizeRaw(items: CItem[], integral: boolean): string {

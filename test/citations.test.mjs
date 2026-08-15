@@ -288,4 +288,52 @@ test('citations: pandoc reading Carve\'s integral form keeps the `+` out of the 
   const [group] = groupsOf(ast);
   assert.equal(group.items[0].prefix, undefined, 'the `+` is not prose');
   assert.equal(group.raw, '[+@smith2020, p. 12]', 'recovered from the Cite content');
+  // `mode` must not contradict the `raw` sitting next to it: the recovered
+  // source is the only place pandoc's reader left the integral marker, so it is
+  // read back from there, and converting the AST again gives AuthorInText.
+  assert.equal(group.mode, 'integral');
+  const [again] = carveAstToPandoc(ast).doc.blocks.flatMap((b) => b.c).filter((i) => i.t === 'Cite')[0].c[0];
+  assert.equal(again.citationMode.t, 'AuthorInText');
+});
+
+test('citations: Cite content that no longer describes its records is rebuilt', () => {
+  // A pandoc filter that rewrites `citationId` leaves the display text behind.
+  // Preferring that text would write the OLD key back as Carve source, and the
+  // next parse would silently restore it.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Para',
+        c: [
+          {
+            t: 'Cite',
+            c: [
+              [
+                {
+                  citationId: 'renamed',
+                  citationPrefix: [],
+                  citationSuffix: [],
+                  citationMode: { t: 'NormalCitation' },
+                },
+              ],
+              [{ t: 'Str', c: '[@stale]' }],
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const [group] = groupsOf(pandocToCarveAst(doc).ast);
+  assert.equal(group.items[0].key, 'renamed');
+  assert.equal(group.raw, '[@renamed]', 'the records are authoritative, not the display text');
+});
+
+test('citations: an escaped `\\@` in a prefix is not read as a key', () => {
+  const src = 'A [see \\@nobody @smith2020] B.\n\n[@smith2020]: S.\n';
+  const { doc } = carveAstToPandoc(cite(src));
+  const [group] = groupsOf(pandocToCarveAst(doc).ast);
+  assert.deepEqual(group.items.map((i) => i.key), ['smith2020']);
+  assert.equal(group.raw, '[see \\@nobody @smith2020]', 'the source still round-trips verbatim');
 });
