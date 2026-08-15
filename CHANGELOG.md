@@ -149,6 +149,13 @@
 
 ### Fixed
 
+- **A pandoc `Figure` wrapping a single `Table` keeps the wrapper's
+  attributes.** The two collapse into one Carve `table`, and the Figure's Attr
+  was going nowhere - but pandoc's readers put the label on the Figure rather
+  than on the Table it wraps, so the id a cross-reference resolves against was
+  being dropped with the wrapper. They merge now: the outer id wins, classes
+  union, key/values merge with the outer taking precedence.
+
 - **A pandoc `Quoted` says that it degrades.** The quotation was rewritten to
   literal curly quote characters with nothing reported, and the text re-exports
   as a plain `Str`, so the quote kind and pandoc's locale-aware quoting left the
