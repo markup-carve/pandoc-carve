@@ -147,20 +147,36 @@ export interface PCell {
     blocks: Block[];
 }
 
-export const cell = (blocks: Block[], align: Alignment = 'AlignDefault'): PCell => ({
-    attr: emptyAttr,
+export const cell = (
+    blocks: Block[],
+    align: Alignment = 'AlignDefault',
+    a: Attr = emptyAttr,
+): PCell => ({
+    attr: a,
     align,
     rowSpan: 1,
     colSpan: 1,
     blocks,
 });
 
+/**
+ * One pandoc `Row`: an `Attr` and its cells. Pandoc gives a row its own
+ * attribute slot, and Carve's `table_row.attrs` is the same thing, so the row
+ * is a record rather than a bare cell list.
+ */
+export interface PRow {
+    attr?: Attr;
+    cells: PCell[];
+}
+
+export const row = (cells: PCell[], a?: Attr): PRow => (a ? { attr: a, cells } : { cells });
+
 function renderCell(c: PCell): unknown {
     return [c.attr, node(c.align), c.rowSpan, c.colSpan, c.blocks];
 }
 
-function renderRow(cells: PCell[]): unknown {
-    return [emptyAttr, cells.map(renderCell)];
+function renderRow(r: PRow): unknown {
+    return [r.attr ?? emptyAttr, r.cells.map(renderCell)];
 }
 
 /**
@@ -174,8 +190,8 @@ function renderRow(cells: PCell[]): unknown {
 export interface TableBody {
     attr?: Attr;
     rowHeadColumns?: number;
-    headRows?: PCell[][];
-    bodyRows: PCell[][];
+    headRows?: PRow[];
+    bodyRows: PRow[];
 }
 
 function renderBody(b: TableBody): unknown {
@@ -191,9 +207,9 @@ export function Table(
     a: Attr,
     caption: Inline[] | null,
     colAligns: Alignment[],
-    headRows: PCell[][],
+    headRows: PRow[],
     bodies: TableBody[],
-    footRows: PCell[][] = [],
+    footRows: PRow[] = [],
     shortCaption: Inline[] | null = null,
 ): Block {
     const colspecs = colAligns.map((al) => [node(al), node('ColWidthDefault')]);
