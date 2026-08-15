@@ -57,6 +57,8 @@ interface Ctx {
     noteCounter: number;
     /** abbr -> expansion, collected so renderCarve gets the `*[abbr]:` defs */
     abbrevDefs: Map<string, string>;
+    /** One bibliography diagnostic per document, however many Cites it has. */
+    bibliographyWarned: boolean;
 }
 
 function warn(ctx: Ctx, msg: string): void {
@@ -162,17 +164,8 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             return mergeText([text(open), ...inlines(ctx, xs), text(close)]);
         }
         case 'Cite': {
-            // Carve citations are a Tier-2 extension the default parser does
-            // not produce, so keep the reader-preserved source text (fmt will
-            // escape it to stay literal); rebuild from records when absent.
-            warn(ctx, 'Cite degraded to literal citation text (Carve citations are an extension)');
-            const [citations, xs] = c as [
-                { citationId: string; citationMode: { t: string } }[],
-                PandocNode[],
-            ];
-            if (xs?.length) return inlines(ctx, xs);
-            const body = citations.map((cit) => `@${cit.citationId}`).join('; ');
-            return [text(`[${body}]`)];
+            const [citations, xs] = c as [PCitation[], PandocNode[]];
+            return [citeGroup(ctx, citations ?? [], xs ?? [])];
         }
         case 'Code': {
             const [a, s] = c as [Attr, string];
@@ -292,6 +285,134 @@ function span(ctx: Ctx, c: never): CNode[] {
     const attrs = fromAttr(a);
     if (attrs) node.attrs = attrs;
     return [node];
+}
+
+interface CItem {
+    key: string;
+    suppressAuthor: boolean;
+    prefix?: CNode[];
+    locator?: CNode[];
+}
+
+interface PCitation {
+    citationId?: string;
+    citationPrefix?: PandocNode[];
+    citationSuffix?: PandocNode[];
+    citationMode?: { t?: string };
+}
+
+/**
+ * pandoc `Cite` -> PART 9 §22 `citation_group`.
+ *
+ * The inverse of `convert.ts`'s `citationGroup`. Two asymmetries:
+ *
+ *  - **Mode.** Pandoc carries one mode per item; Carve's integral `+` is a
+ *    cluster property. A group is integral when any item is `AuthorInText` -
+ *    which is exactly the shape the forward direction emits, since an integral
+ *    group's suppressed items become `SuppressAuthor` and never
+ *    `NormalCitation`. A foreign group that mixes `AuthorInText` with
+ *    `NormalCitation` cannot be spelled and is reported.
+ *  - **Locator typing.** `locatorLabel`/`locatorValue` are NOT rebuilt here.
+ *    They are derived fields: §4.2's label table lives in the engine, and a
+ *    second copy in this bridge is the drift this tracker exists to kill. The
+ *    locator TEXT round-trips, so parsing the emitted source with the citations
+ *    extension re-derives the same pair.
+ */
+function citeGroup(ctx: Ctx, citations: PCitation[], content: PandocNode[]): CNode {
+    const modes = citations.map((cit) => cit.citationMode?.t ?? 'NormalCitation');
+    const integral = modes.includes('AuthorInText');
+    if (integral && modes.includes('NormalCitation')) {
+        warn(ctx, 'Cite mixes AuthorInText with NormalCitation - Carve\'s integral marker is a property of the whole group, so the group is emitted as integral');
+    }
+    if (!ctx.bibliographyWarned) {
+        ctx.bibliographyWarned = true;
+        warn(ctx, 'Cite mapped to a Carve citation group; bibliography entries live in pandoc metadata, so no `[@key]:` definitions are emitted and an undefined key renders verbatim');
+    }
+
+    const items = citations.map((cit) => {
+        // A citation item is a plain object, not a node: it has no `type`.
+        const item: CItem = {
+            key: String(cit.citationId ?? ''),
+            suppressAuthor: (cit.citationMode?.t ?? '') === 'SuppressAuthor',
+        };
+        const prefix = citationPrefixNodes(ctx, cit.citationPrefix);
+        if (prefix.length) item.prefix = prefix;
+        const locator = locatorNodes(ctx, cit.citationSuffix);
+        if (locator.length) item.locator = locator;
+        return item;
+    });
+
+    const group: CNode = { type: 'citation_group', items };
+    // `raw` is required by the schema AND is what `renderCarve` writes out
+    // verbatim, so it decides whether the source round-trips byte for byte.
+    // Pandoc's own markdown reader stores the source here too, which is why
+    // recovering it beats rebuilding it whenever it is Carve-shaped.
+    group.raw = carveShapedSource(content) ?? synthesizeRaw(items, integral);
+    if (integral) group.mode = 'integral';
+    return group;
+}
+
+/**
+ * The `+` pandoc's markdown reader leaves in the prefix when it reads Carve's
+ * own integral spelling is the group marker, not prose - it is read off the
+ * modes instead, so carrying it here would print `[+see +@k]`.
+ */
+function citationPrefixNodes(ctx: Ctx, prefix: PandocNode[] | undefined): CNode[] {
+    if (!prefix?.length) return [];
+    const stripped = prefix[0]?.t === 'Str' && String(prefix[0].c) === '+' ? prefix.slice(1) : prefix;
+    const nodes = mergeText(inlines(ctx, stripped));
+    const first = nodes[0];
+    if (first?.type === 'text') {
+        const trimmed = String(first.value ?? '').replace(/^\s+/, '');
+        if (!trimmed) return nodes.slice(1);
+        first.value = trimmed;
+    }
+    return nodes;
+}
+
+/** Drop citeproc's `, ` separator; what remains is Carve's locator run. */
+function locatorNodes(ctx: Ctx, suffix: PandocNode[] | undefined): CNode[] {
+    if (!suffix?.length) return [];
+    const nodes = mergeText(inlines(ctx, suffix));
+    const first = nodes[0];
+    if (first?.type === 'text') {
+        const trimmed = String(first.value ?? '').replace(/^\s*,?\s*/, '');
+        if (!trimmed) return nodes.slice(1);
+        first.value = trimmed;
+    }
+    return nodes;
+}
+
+/**
+ * A Cite's content is Carve source when it is a tail-less bracket holding a
+ * key - the shape §4.1 claims. Anything else (a rendered "(Smith 2020)" out of
+ * a docx, say) is prose about the citation, not the citation, and is rebuilt.
+ */
+function carveShapedSource(content: PandocNode[]): string | null {
+    const raw = stringify(content).trim();
+    if (raw.startsWith('[') && raw.endsWith(']') && raw.includes('@')) return raw;
+    return null;
+}
+
+function synthesizeRaw(items: CItem[], integral: boolean): string {
+    const body = items
+        .map((item) => {
+            const prefix = plainOf(item.prefix);
+            const locator = plainOf(item.locator);
+            return (
+                (prefix ? `${prefix} ` : '')
+                + (item.suppressAuthor ? '-' : '')
+                + `@${item.key}`
+                + (locator ? `, ${locator}` : '')
+            );
+        })
+        .join('; ');
+    return `[${integral ? '+' : ''}${body}]`;
+}
+
+function plainOf(nodes: CNode[] | undefined): string {
+    if (!nodes?.length) return '';
+    return nodes.map((n) => (typeof n.value === 'string' ? n.value : plainOf(n.children as CNode[]))).join('');
 }
 
 function stringify(xs: PandocNode[]): string {
@@ -832,7 +953,13 @@ function metaValueToYaml(value: PandocNode): string | null {
 // --- Entry point ---
 
 export function pandocToCarve(doc: PandocDoc): ReverseResult {
-    const ctx: Ctx = { warnings: [], footnoteDefs: {}, noteCounter: 0, abbrevDefs: new Map() };
+    const ctx: Ctx = {
+        warnings: [],
+        footnoteDefs: {},
+        noteCounter: 0,
+        abbrevDefs: new Map(),
+        bibliographyWarned: false,
+    };
     const children = blocks(ctx, doc.blocks);
     if (containsShortCaption(children)) {
         warn(ctx, 'short caption: preserved in the Carve AST; Carve 0.1 source has no spelling for it');

@@ -135,6 +135,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `::: note` admonitions | Div `.admonition .note` (+ title paragraph) |
 | Tabs / code-group panels, grouping `[label]` | Div; each `[label]` becomes a bold caption so panels stay distinguishable (graceful degradation) |
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
+| Citations `[@key]`, `[+@key]`, `[-@key, p. 33]` | Cite with one Citation per key (AuthorInText / SuppressAuthor / NormalCitation), the locator in the citation suffix, the verbatim source as the Cite content |
 | `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
 | Frontmatter `title:`/`author:`/`date:`/`tags:` | Meta |
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
@@ -183,6 +184,19 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 - Reverse conversion keeps flattening for display targets: `pandocToCarve`
   serializes through Carve 0.1 source, which has no spelling for row groups or
   a short caption, so those fields survive only on the `pandocToCarveAst` path.
+- Citations cross as pandoc's own citeproc convention, which is lossy in one
+  respect: pandoc's `Citation` has no locator field, so Carve's typed
+  `locatorLabel`/`locatorValue` pair is serialized into `citationSuffix` behind
+  a `, ` and citeproc re-derives it from there. The bridge does not rebuild
+  those two fields on the way back - the label table is section 4.2's, it lives
+  in the engine, and a second copy here would drift. The locator TEXT round-
+  trips byte for byte, so re-parsing the emitted source with the citations
+  extension restores the typed pair. A group whose items mix `AuthorInText` and
+  `NormalCitation` cannot be spelled in Carve (the integral `+` is a property of
+  the whole cluster) and is imported as integral with a warning.
+- Pandoc keeps its bibliography in document metadata, not in the AST, so
+  importing a `Cite` emits no `[@key]:` definition lines. Carve renders a group
+  with an undefined key verbatim; the import warns once per document.
 - Attribute order inside `{...}` is normalized to `#id .class key=val` on
   round-trip - pandoc's Attr has fixed slots, so the author's original order
   is not representable. Semantics are unchanged.

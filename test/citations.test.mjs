@@ -1,0 +1,258 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { mkdtempSync } from 'node:fs';
+import * as carve from '@markup-carve/carve';
+import { carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { findPandoc, pandocRender } from './helpers.mjs';
+
+const pandoc = findPandoc();
+
+/*
+ * Citations are a Tier-2 extension, so the core parser never produces a
+ * `citation_group` and `carveToPandoc` cannot reach one. The production path is
+ * the exchange AST - `carve --to-json` from a citations-enabled engine, piped
+ * into `carveAstToPandoc` - which is what these tests drive.
+ *
+ * Before this file existed the forward direction had no switch arm at all: a
+ * `citation_group` fell through to `plainText()`, which reads `value` and
+ * `children` and finds neither, so the whole citation left the document as an
+ * empty string with a generic "unknown node type" warning. Measured on the
+ * fixture below: `See  and .`
+ */
+
+const cite = (src) => carve.parse(src, { extensions: [carve.citations()] });
+
+/** A real document: integral group, prefix, typed locator, suppressed author. */
+const FIXTURE = `# Sources
+
+Newton stood on shoulders [see also @smith2020, p. 33 and following; -@jones1999].
+
+An integral cluster reads [+@doe2021, chap. 4] in the sentence.
+
+A plain parenthetical [@roe1999] closes it.
+
+[@smith2020]: Smith, Jane. 2020.
+[@jones1999]: Jones, Ada. 1999.
+[@doe2021]: Doe, John. 2021.
+[@roe1999]: Roe, Ann. 1999.
+`;
+
+const citesOf = (doc) => {
+  const found = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    if (node.t === 'Cite') found.push(node);
+    if (node.c !== undefined) walk(node.c);
+  };
+  walk(doc.blocks);
+  return found;
+};
+
+const groupsOf = (ast) => {
+  const found = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'citation_group') found.push(node);
+    if (Array.isArray(node.children)) walk(node.children);
+    if (Array.isArray(node.rows)) walk(node.rows);
+  };
+  walk(ast.children ?? []);
+  return found;
+};
+
+test('citations: a group reaches pandoc as a native Cite, not an empty string', () => {
+  const { doc, warnings } = carveAstToPandoc(cite(FIXTURE));
+  const cites = citesOf(doc);
+  // Seven, not three: the extension's `afterParse` hook strips `[@key]:`
+  // definition lines at RENDER time, so a plain `parse()` still carries all
+  // four of them as citation groups of their own. The bridge converts the tree
+  // it is handed; that count is the measured one, not a rounded intent.
+  assert.equal(cites.length, 7, `three in the body plus four definition lines: ${JSON.stringify(cites.map((x) => x.c[0].map((y) => y.citationId)))}`);
+  assert.ok(!warnings.some((w) => w.includes('unknown node type "citation_group"')), warnings.join(' | '));
+
+  const [first] = cites;
+  const [records, content] = first.c;
+  assert.deepEqual(records.map((r) => r.citationId), ['smith2020', 'jones1999']);
+  assert.equal(records[0].citationMode.t, 'NormalCitation');
+  assert.equal(records[1].citationMode.t, 'SuppressAuthor', '`-@key` is a suppressed author');
+  assert.deepEqual(records[0].citationPrefix, [{ t: 'Str', c: 'see' }, { t: 'Space' }, { t: 'Str', c: 'also' }]);
+  // D2(a): the locator goes into the suffix behind citeproc's own `, `.
+  assert.equal(records[0].citationSuffix[0].t, 'Str');
+  assert.equal(records[0].citationSuffix[0].c, ',');
+  assert.ok(
+    records[0].citationSuffix.map((x) => (x.t === 'Space' ? ' ' : x.c)).join('').includes('p. 33 and following'),
+    JSON.stringify(records[0].citationSuffix),
+  );
+  // The Cite content is the verbatim source, which is where the text a
+  // non-citeproc writer prints comes from.
+  assert.equal(
+    content.map((x) => (x.t === 'Space' ? ' ' : x.c)).join(''),
+    '[see also @smith2020, p. 33 and following; -@jones1999]',
+  );
+});
+
+test('citations: an integral group marks every item AuthorInText', () => {
+  const { doc } = carveAstToPandoc(cite('Read [+@doe2021, chap. 4].\n\n[@doe2021]: Doe.\n'));
+  const [records] = citesOf(doc)[0].c;
+  assert.equal(records[0].citationMode.t, 'AuthorInText');
+});
+
+test('citations: the typed locator flattening into the suffix is reported', () => {
+  const { warnings } = carveAstToPandoc(cite(FIXTURE));
+  const typed = warnings.filter((w) => w.includes('typed locator'));
+  assert.equal(typed.length, 2, `smith2020's page and doe2021's chapter: ${warnings.join(' | ')}`);
+  assert.ok(typed.some((w) => w.includes('@smith2020') && w.includes('(page)')), typed.join(' | '));
+  assert.ok(typed.some((w) => w.includes('@doe2021') && w.includes('(chapter)')), typed.join(' | '));
+  // A group with no locator says nothing.
+  const plain = carveAstToPandoc(cite('Text [@roe1999].\n\n[@roe1999]: Roe.\n'));
+  assert.deepEqual(plain.warnings, []);
+});
+
+test('citations: a suppressed author inside an integral group is reported', () => {
+  const { doc, warnings } = carveAstToPandoc(cite('Read [+@doe2021; -@roe1999].\n\n[@doe2021]: D.\n[@roe1999]: R.\n'));
+  const [records] = citesOf(doc)[0].c;
+  assert.deepEqual(records.map((r) => r.citationMode.t), ['AuthorInText', 'SuppressAuthor']);
+  assert.ok(
+    warnings.some((w) => w.includes('@roe1999') && w.includes('integral group')),
+    warnings.join(' | '),
+  );
+});
+
+test('citations: a Cite becomes a citation group, not literal citation text', () => {
+  const { doc } = carveAstToPandoc(cite(FIXTURE));
+  const { ast, warnings } = pandocToCarveAst(doc);
+  const groups = groupsOf(ast);
+  assert.equal(groups.length, 7, 'three in the body plus the four definition lines');
+  assert.deepEqual(groups[0].items.map((i) => i.key), ['smith2020', 'jones1999']);
+  assert.equal(groups[0].items[1].suppressAuthor, true);
+  assert.deepEqual(groups[0].items[0].prefix, [{ type: 'text', value: 'see also' }]);
+  assert.deepEqual(groups[0].items[0].locator, [{ type: 'text', value: 'p. 33 and following' }]);
+  assert.equal(groups[1].mode, 'integral', 'the integral marker is recovered from the modes');
+  assert.equal(groups[2].mode, undefined, 'a parenthetical group carries no mode');
+  assert.ok(!warnings.some((w) => w.includes('degraded to literal citation text')), warnings.join(' | '));
+});
+
+test('citations: the bibliography diagnostic fires once per document', () => {
+  const { doc } = carveAstToPandoc(cite(FIXTURE));
+  const { warnings } = pandocToCarve(doc);
+  const bib = warnings.filter((w) => w.includes('bibliography entries live in pandoc metadata'));
+  assert.equal(bib.length, 1, `three Cites, one document-level diagnostic: ${warnings.join(' | ')}`);
+});
+
+test('citations: round trip preserves ids, modes and locators', () => {
+  const strip = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'pos' ? undefined : v)));
+  const { doc } = carveAstToPandoc(cite(FIXTURE));
+  const { carve: source } = pandocToCarve(doc);
+
+  // The `raw` field is what renderCarve writes, so the source comes back byte
+  // for byte and the engine re-derives `locatorLabel`/`locatorValue` from it -
+  // which is why this bridge does not carry a second copy of §4.2's table.
+  const before = groupsOf(strip(cite(FIXTURE)));
+  const after = groupsOf(strip(cite(source)));
+  assert.equal(after.length, before.length);
+  assert.deepEqual(after, before, `round-tripped source:\n${source}`);
+  assert.equal(after[0].items[0].locatorLabel, 'page');
+  assert.equal(after[0].items[0].locatorValue, '33');
+  assert.equal(after[1].mode, 'integral');
+});
+
+test('citations: a foreign Cite whose content is prose gets a rebuilt source', () => {
+  // What a docx or a citeproc-processed document hands over: the rendered
+  // citation, not Carve's bracket form.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Para',
+        c: [
+          {
+            t: 'Cite',
+            c: [
+              [
+                {
+                  citationId: 'smith2020',
+                  citationPrefix: [],
+                  citationSuffix: [{ t: 'Str', c: ',' }, { t: 'Space' }, { t: 'Str', c: 'p. 12' }],
+                  citationMode: { t: 'AuthorInText' },
+                },
+              ],
+              [{ t: 'Str', c: 'Smith' }, { t: 'Space' }, { t: 'Str', c: '(2020,' }, { t: 'Space' }, { t: 'Str', c: '12)' }],
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const { ast } = pandocToCarveAst(doc);
+  const [group] = groupsOf(ast);
+  assert.equal(group.raw, '[+@smith2020, p. 12]', 'rebuilt in Carve syntax, not kept as prose');
+  assert.equal(group.mode, 'integral');
+  assert.deepEqual(group.items[0].locator, [{ type: 'text', value: 'p. 12' }]);
+});
+
+test('citations: a foreign Cite mixing AuthorInText with NormalCitation is reported', () => {
+  const record = (id, mode) => ({
+    citationId: id,
+    citationPrefix: [],
+    citationSuffix: [],
+    citationMode: { t: mode },
+  });
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Para',
+        c: [{ t: 'Cite', c: [[record('a', 'AuthorInText'), record('b', 'NormalCitation')], []] }],
+      },
+    ],
+  };
+  const { ast, warnings } = pandocToCarveAst(doc);
+  assert.equal(groupsOf(ast)[0].mode, 'integral');
+  assert.ok(
+    warnings.some((w) => w.includes('mixes AuthorInText with NormalCitation')),
+    warnings.join(' | '),
+  );
+});
+
+test('citations: citeproc reads the locator back out of the suffix', { skip: !pandoc && 'pandoc not found' }, () => {
+  const { doc } = carveAstToPandoc(cite('See [@smith2020, p. 33].\n\n[@smith2020]: S.\n'));
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-cite-'));
+  const bib = join(dir, 'bib.json');
+  writeFileSync(
+    bib,
+    JSON.stringify([
+      {
+        id: 'smith2020',
+        type: 'book',
+        title: 'A Book',
+        author: [{ family: 'Smith', given: 'Jane' }],
+        issued: { 'date-parts': [[2020]] },
+      },
+    ]),
+  );
+  const plain = pandocRender(pandoc, doc, 'plain', ['--citeproc', `--bibliography=${bib}`]);
+  // This is what D2(a) buys: the locator TYPE is lost, but citeproc still
+  // parses the locator out of the suffix and prints the page.
+  assert.ok(/\(Smith 2020, 33\)/.test(plain), plain);
+  assert.ok(plain.includes('A Book'), 'the reference list resolved the key');
+});
+
+test('citations: pandoc writers print the verbatim source when citeproc is off', { skip: !pandoc && 'pandoc not found' }, () => {
+  const { doc } = carveAstToPandoc(cite('See [@smith2020, p. 33].\n\n[@smith2020]: S.\n'));
+  const latex = pandocRender(pandoc, doc, 'latex');
+  assert.ok(latex.includes('@smith2020'), latex);
+  assert.ok(latex.includes('p. 33'), latex);
+});
