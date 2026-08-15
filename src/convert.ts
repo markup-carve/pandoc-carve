@@ -505,6 +505,8 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             warn(ctx, `extension: :${name}[..] degraded to a Span with class "ext-${name}"`);
             return [P.Span(P.attr(undefined, [`ext-${name}`]), content)];
         }
+        case 'citation_group':
+            return [citationGroup(ctx, n)];
         case 'span':
             return [P.Span(toAttr(n.attrs), kids(ctx, n))];
         case 'insert':
@@ -546,6 +548,72 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             warn(ctx, `inline: unknown node type "${n.type}" degraded to its text content`);
             return textInlines(plainText([n]));
     }
+}
+
+/** One `@key` of a citation group, as `resources/ast-schema.json` pins it. */
+interface CCitation {
+    key?: string;
+    prefix?: CNode[];
+    locator?: CNode[];
+    locatorLabel?: string;
+    locatorValue?: string;
+    suffix?: CNode[];
+    suppressAuthor?: boolean;
+}
+
+/**
+ * PART 9 §22 citation group -> pandoc `Cite`.
+ *
+ * Three things do not line up, and each is handled the way citeproc itself
+ * does it rather than by inventing a convention:
+ *
+ *  - **Mode.** Carve's integral `+` is a property of the whole cluster;
+ *    pandoc's mode is per item. Integral maps to `AuthorInText` on each item.
+ *    An item's own `-` (suppress author) is narrower than the group's mode and
+ *    wins, because dropping it would print an author the source asked to hide.
+ *  - **Locator.** `Citation` has no locator slot at all - pandoc's markdown
+ *    reader puts `, p. 33` in `citationSuffix` and citeproc parses it back out
+ *    there. So the locator TEXT crosses intact and citeproc re-derives the same
+ *    `{label, value}` pair Carve had parsed; only the typing is lost, which is
+ *    what the warning says.
+ *  - **Content.** The Cite's second field is the verbatim source, which is
+ *    exactly what `citation_group.raw` holds. Every non-citeproc writer prints
+ *    that, so a document converted without `--citeproc` still reads correctly.
+ */
+function citationGroup(ctx: Ctx, n: CNode): P.Inline {
+    const integral = n.mode === 'integral';
+    const items = (n.items as CCitation[] | undefined) ?? [];
+    const citations = items.map((item) => {
+        const key = String(item.key ?? '');
+        let mode: P.CitationMode = integral ? 'AuthorInText' : 'NormalCitation';
+        if (item.suppressAuthor) {
+            if (integral) {
+                warn(ctx, `citation: @${key} suppresses its author inside an integral group - pandoc's mode is per item, so the item keeps SuppressAuthor`);
+            }
+            mode = 'SuppressAuthor';
+        }
+        if (item.locatorLabel) {
+            warn(ctx, `citation: @${key}'s typed locator (${item.locatorLabel}) is serialized into the pandoc citation suffix - pandoc's Citation has no locator field`);
+        }
+        return P.citation(
+            key,
+            mode,
+            item.prefix?.length ? inlines(ctx, item.prefix) : [],
+            citationSuffix(ctx, item),
+        );
+    });
+    return P.Cite(citations, textInlines(String(n.raw ?? '')));
+}
+
+/**
+ * The suffix citeproc reads: the locator text after its `, ` separator, which
+ * is the whole post-comma run - Carve's `suffix` is the tail of `locator`, not
+ * a sibling of it, so emitting both would print the tail twice.
+ */
+function citationSuffix(ctx: Ctx, item: CCitation): P.Inline[] {
+    if (item.locator?.length) return [P.Str(','), P.Space, ...inlines(ctx, item.locator)];
+    if (item.suffix?.length) return [P.Space, ...inlines(ctx, item.suffix)];
+    return [];
 }
 
 function findCaseInsensitive(map: Map<string, CNode[]>, target: string): CNode[] | undefined {

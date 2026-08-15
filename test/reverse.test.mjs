@@ -150,10 +150,12 @@ test('reverse: foreign pandoc nodes degrade with warnings, never throw', () => {
   const { carve, warnings } = pandocToCarve(doc);
   assert.ok(carve.includes('caps'));
   assert.ok(carve.includes('“quoted”'));
-  // Citation source text is kept as literal (escaped) text.
-  assert.ok(carve.includes('key1'), `citation text kept in: ${carve}`);
+  // A Cite is no longer foreign: it is a citation group now, and the only
+  // diagnostic left is the bibliography one.
+  assert.ok(carve.includes('[@key1]'), `citation kept in: ${carve}`);
   assert.ok(warnings.some((w) => w.includes('SmallCaps')));
-  assert.ok(warnings.some((w) => w.includes('Cite')));
+  assert.ok(warnings.some((w) => w.includes('bibliography entries live in pandoc metadata')));
+  assert.ok(!warnings.some((w) => w.includes('degraded to literal citation text')), warnings.join(' | '));
 });
 
 // A LineBlock is not foreign: Carve's `::: |` line block is the same construct,

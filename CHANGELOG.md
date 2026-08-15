@@ -4,6 +4,22 @@
 
 ### Added
 
+- **Citations cross the bridge in both directions.** A `citation_group` becomes
+  a native pandoc `Cite`: one `Citation` per key, carrying the prefix, the mode
+  (Carve's cluster-level integral `+` maps to `AuthorInText`, an item's own `-`
+  to `SuppressAuthor`), and the locator serialized into `citationSuffix` behind
+  citeproc's own `, ` separator - so `pandoc --citeproc` resolves the key and
+  prints the page. The Cite's content is the verbatim `[...]` source, which is
+  what every non-citeproc writer prints. In reverse, a `Cite` becomes a
+  `citation_group` instead of literal text, rebuilding Carve source for a
+  foreign Cite whose content is rendered prose.
+
+  Two things are reported rather than lost quietly: a typed locator flattening
+  into the suffix, and a suppressed author inside an integral group (pandoc's
+  mode is per item, so the narrower one wins). The locator text round-trips
+  byte for byte, so re-parsing restores `locatorLabel`/`locatorValue`; the
+  bridge deliberately keeps no second copy of the section 4.2 label table.
+
 - **A table's head, body groups, foot and row-head columns survive in both
   directions.** The bridge used to emit one body, no foot and zero row-head
   columns whatever the table said. It now reads the optional `table.rowGroups`
