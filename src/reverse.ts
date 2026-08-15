@@ -96,6 +96,36 @@ function fromAttr(a: Attr | undefined): CAttrs | undefined {
     return attrs;
 }
 
+/**
+ * Attrs for two Pandoc nodes that collapse into ONE Carve node: `outer` wins
+ * per field (it was the referenceable one), classes union, key/values merge
+ * with the outer taking precedence. `order` is recomputed from what survived.
+ */
+function mergeCAttrs(inner: CAttrs | undefined, outer: CAttrs | undefined): CAttrs | undefined {
+    const id = outer?.id ?? inner?.id;
+    const classes = [...(inner?.classes ?? []), ...(outer?.classes ?? [])].filter(
+        (c, i, all) => all.indexOf(c) === i,
+    );
+    const keyValues = { ...(inner?.keyValues ?? {}), ...(outer?.keyValues ?? {}) };
+    const out: CAttrs = {};
+    const order: string[] = [];
+    if (id) {
+        out.id = id;
+        order.push('#id');
+    }
+    if (classes.length) {
+        out.classes = classes;
+        order.push('.class');
+    }
+    if (Object.keys(keyValues).length) {
+        out.keyValues = keyValues;
+        order.push('key');
+    }
+    if (!order.length) return undefined;
+    out.order = order;
+    return out;
+}
+
 const text = (value: string): CNode => ({ type: 'text', value });
 
 /** Merge adjacent text nodes so renderCarve sees natural runs. */
@@ -1084,7 +1114,19 @@ function figure(ctx: Ctx, c: never, asPanel = false): CNode[] {
         return [bq];
     }
     if (single?.t === 'Table') {
-        return [table(ctx, single.c as never, caption, shortCaption)];
+        // The wrapper and the Table collapse into ONE Carve node, so their
+        // attrs merge rather than the inner one silently winning: pandoc's
+        // readers put the label on the Figure, not on the Table it wraps, and
+        // dropping it took the id a `</#id>` resolves against with it. Same
+        // collapse rule as the §4a quote branch above - the outer id wins,
+        // classes union, key/values merge with the outer taking precedence.
+        //
+        // It matters most for a §4c table PANEL, whose id is what resolves as
+        // the group's number plus a letter.
+        const node = table(ctx, single.c as never, caption, shortCaption);
+        const outer = fromAttr(a);
+        if (outer) node.attrs = mergeCAttrs(node.attrs as CAttrs | undefined, outer);
+        return [node];
     }
     if (asPanel && single && PANEL_HOSTS.has(single.t)) {
         // A PANEL is an ordinary `figure` around one captionable host, and the

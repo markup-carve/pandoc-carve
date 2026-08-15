@@ -232,6 +232,55 @@ test('CONTROL: a single-target pandoc Figure keeps its plain figure mapping', ()
   assert.equal(pandocToCarve(doc).carve, '![x](x.png)\n^ Lone\n');
 });
 
+test('a Figure-wrapped table panel keeps the wrapper id it is referenced by', () => {
+  // pandoc's readers put the label on the Figure, not on the Table it wraps,
+  // and the two collapse into one Carve node - so the wrapper's id has to
+  // survive the collapse or `</#id>` to that panel resolves against nothing.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Figure',
+        c: [
+          ['fig-x', [], []],
+          [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'Group' }] }]],
+          [
+            {
+              t: 'Figure',
+              c: [
+                ['panel-t', ['wide'], []],
+                [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'A table panel' }] }]],
+                [
+                  {
+                    t: 'Table',
+                    c: [
+                      ['', ['inner'], []],
+                      [null, []],
+                      [[{ t: 'AlignDefault' }, { t: 'ColWidthDefault' }]],
+                      [['', [], []], []],
+                      [[['', [], []], 0, [], [[['', [], []], [[['', [], []], { t: 'AlignDefault' }, 1, 1, [{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]]]]]],
+                      [['', [], []], []],
+                    ],
+                  },
+                ],
+              ],
+            },
+          ],
+        ],
+      },
+    ],
+  };
+  const { ast } = pandocToCarveAst(doc);
+  const [group] = ast.children;
+  assert.equal(group.type, 'figure_group');
+  const [panel] = group.children;
+  assert.equal(panel.type, 'table', '§4c: the panel wrapper adds nothing to a table');
+  assert.equal(panel.attrs.id, 'panel-t', 'the wrapper id, not dropped with the wrapper');
+  assert.deepEqual(panel.attrs.classes, ['inner', 'wide'], 'classes union, inner first');
+  assert.equal(panel.caption.map((c) => c.value).join(''), 'A table panel');
+});
+
 test('a group with a pandoc short caption warns rather than inventing a field', () => {
   const doc = {
     'pandoc-api-version': [1, 23, 1],
