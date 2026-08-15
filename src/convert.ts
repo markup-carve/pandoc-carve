@@ -1283,7 +1283,12 @@ interface YamlReader {
     at: number;
 }
 
-const KEY_LINE = /^("[^"]*"|'[^']*'|[^:]+):(?:\s+(.*))?$/;
+/**
+ * A `key:` line. The unquoted alternative must not OPEN with a quote, or a
+ * quoted scalar holding a colon (`- "scope: local"`) matches it and becomes a
+ * map whose key is `"scope` - pandoc reads that item as one string.
+ */
+const KEY_LINE = /^("[^"]*"|'[^']*'|[^:"'][^:]*|[^:"']):(?:\s+(.*))?$/;
 
 /** A mapping runs while lines sit at exactly `indent` and look like keys. */
 function readMapping(r: YamlReader, indent: number): Record<string, P.MetaValue> {
@@ -1358,6 +1363,10 @@ function unquoteYaml(s: string): string {
 }
 
 function scalarValue(key: string, raw: string): P.MetaValue {
+    // `{}` is the only flow map read: an EMPTY one, which is what the writer
+    // emits for a `MetaMap` with no entries. A populated flow map is not in the
+    // subset and falls through to being read as a string, same as before.
+    if (raw.replace(/\s+/g, '') === '{}') return P.MetaMap({});
     if (raw.startsWith('[') && raw.endsWith(']')) {
         const items = raw
             .slice(1, -1)

@@ -1170,6 +1170,11 @@ function scalarToYaml(value: PandocNode): string | null {
             if (items.some((x) => x === null)) return null;
             return `[${items.join(', ')}]`;
         }
+        case 'MetaMap':
+            // An empty map has no block form - `key:` with nothing under it
+            // reads back as an empty value, not an empty map - so it takes the
+            // flow spelling. A populated one needs lines of its own.
+            return Object.keys(value.c as Record<string, PandocNode>).length ? null : '{}';
         default:
             return null;
     }

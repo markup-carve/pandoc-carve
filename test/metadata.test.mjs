@@ -155,3 +155,36 @@ test('metadata: a non-yaml frontmatter format is still refused', () => {
   assert.deepEqual(doc.meta, {});
   assert.ok(warnings.some((w) => w.includes('not supported')), warnings.join(' | '));
 });
+
+test('metadata: a quoted list scalar holding a colon stays a scalar', { skip: !pandoc && 'pandoc not found' }, () => {
+  // `- "scope: local"` looks like a `key: value` line once the quotes are
+  // ignored, and pandoc reads it as one string. Reading it as a map produced a
+  // key of `"scope`.
+  const source = `---
+keywords:
+  - "scope: local"
+  - plain
+---
+
+B.
+`;
+  const { doc } = carveToPandoc(source);
+  assert.deepEqual(doc.meta, readMeta(source));
+  assert.equal(doc.meta.keywords.c[0].t, 'MetaInlines');
+});
+
+test('metadata: an empty map keeps its shape through the round trip', () => {
+  // `key:` with nothing under it reads back as an EMPTY VALUE, not an empty
+  // map, so an empty map needs the flow spelling to survive.
+  const meta = { cfg: { t: 'MetaMap', c: {} }, k: { t: 'MetaInlines', c: [{ t: 'Str', c: 'v' }] } };
+  const { carve, warnings } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
+  assert.deepEqual(warnings, [], 'an empty map is not a value with no YAML form');
+  assert.ok(carve.includes('cfg: {}'), carve);
+  assert.deepEqual(carveToPandoc(carve).doc.meta, meta);
+});
+
+test('metadata: a quoted key is still a key', () => {
+  const { doc, warnings } = carveToPandoc('---\n"a b": v\n---\n\nB.\n');
+  assert.deepEqual(warnings, []);
+  assert.equal(doc.meta['a b'].c[0].c, 'v');
+});
