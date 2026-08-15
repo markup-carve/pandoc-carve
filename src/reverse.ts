@@ -867,6 +867,15 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
     if (bodies.some((b) => b.headRows > 0)) {
         warn(ctx, 'list-table: a body group\'s intermediate header rows become ordinary body rows - `header-rows` counts only the leading run');
     }
+    if (bodies.length > 1) {
+        warn(ctx, `list-table: the table's ${bodies.length} body groups merge into one - the extension has no body boundary`);
+    }
+    if (bodies.some((b) => b.attrs)) {
+        warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');
+    }
+    if (new Set(bodies.filter((b) => b.rowHeadColumns).map((b) => b.rowHeadColumns)).size > 1) {
+        warn(ctx, 'list-table: the body groups disagree on their row-head column count - `header-cols` is one number for the whole table, and the first is kept');
+    }
 
     const headerCols = bodies.find((b) => b.rowHeadColumns)?.rowHeadColumns ?? 0;
 

@@ -246,3 +246,49 @@ test('block cells: the emitted tight flags match what the emitted source parses 
   assert.deepEqual(flags(ast.children[0]), flags(parse(carve).children[0]));
   assert.ok(flags(ast.children[0]).includes(false), 'the two-paragraph cell is loose');
 });
+
+test('block cells: row-head columns survive the list-table loop', { skip: !pandoc && 'pandoc not found' }, () => {
+  // `header-cols` is a real list-table key (extensions.md §5.1) and pandoc's
+  // `RowHeadColumns` is the same thing. The reader ignored it, so the key was
+  // emitted, left behind as an ordinary table attribute, and the row-header
+  // semantics were lost on the way back.
+  const doc = read('<table><tbody><tr><th>rh</th><td><ul><li>x</li></ul></td></tr></tbody></table>', 'html');
+  assert.equal(doc.blocks[0].c[4][0][1], 1, 'the premise: pandoc recorded one row-head column');
+
+  const { carve } = pandocToCarve(doc);
+  assert.ok(carve.includes('{header-cols=1}'), carve);
+
+  const { doc: back } = carveToPandoc(carve, { listTable: true });
+  assert.equal(back.blocks[0].c[4][0][1], 1, 'restored as RowHeadColumns');
+  assert.deepEqual(back.blocks[0].c[0], ['', [], []], 'and not left behind as a table attribute');
+});
+
+test('block cells: merged body groups and their attributes are reported', () => {
+  const cell = (bs) => [['', [], []], { t: 'AlignDefault' }, 1, 1, bs];
+  const row = (bs) => [['', [], []], [cell(bs)]];
+  const list = { t: 'BulletList', c: [[{ t: 'Plain', c: [{ t: 'Str', c: 'x' }] }]] };
+  const plain = { t: 'Plain', c: [{ t: 'Str', c: 'p' }] };
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Table',
+        c: [
+          ['', [], []],
+          [null, []],
+          [[{ t: 'AlignDefault' }, { t: 'ColWidthDefault' }]],
+          [['', [], []], []],
+          [
+            [['', ['g1'], []], 0, [], [row([list])]],
+            [['', [], []], 0, [], [row([plain])]],
+          ],
+          [['', [], []], []],
+        ],
+      },
+    ],
+  };
+  const { warnings } = pandocToCarveAst(doc);
+  assert.ok(warnings.some((w) => w.includes('2 body groups merge into one')), warnings.join(' | '));
+  assert.ok(warnings.some((w) => w.includes("body group's attributes are dropped")), warnings.join(' | '));
+});

@@ -30,7 +30,14 @@
   whose cells are list items and therefore hold full block content, with the
   caption as the quoted title, `header-rows`/`header-cols` for the head and the
   same `^`/`<` span markers. Per-column alignment, a foot and a body group's
-  intermediate header rows have no list-table spelling and are reported.
+  intermediate header rows have no list-table spelling and are reported, as are
+  merged body groups and their attributes.
+
+- **`header-cols` on a `::: list-table` now reaches pandoc's `RowHeadColumns`.**
+  The key is part of the extension (promoting the first N cells of every row to
+  row headers) and pandoc has the matching slot, but the reader ignored it: the
+  row-header semantics were lost and the key was left behind as an ordinary
+  table attribute.
 
 - **A cell's and a row's attribute block reach pandoc's own `Attr`.** Carve
   spells them glued to the opening pipe (`|{#id .cls k=v} text`) and after the

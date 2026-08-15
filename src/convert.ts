@@ -1108,6 +1108,10 @@ function headerCount(value: string | undefined): number {
 function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
     const a = (n.attrs ?? {}) as CAttrs;
     const headerRows = headerCount(a.keyValues?.['header-rows']);
+    // `header-cols` promotes the first N cells of every row to row headers
+    // (extensions.md §5.1), which is exactly pandoc's `RowHeadColumns`. It was
+    // read by nobody and left behind as an ordinary table attribute.
+    const headerCols = headerCount(a.keyValues?.['header-cols']);
     const caption = Array.isArray(n.title) ? inlines(ctx, n.title as CNode[]) : null;
 
     // Strict shape: exactly one child, the outer list; every row item holds
@@ -1172,12 +1176,14 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
 
     const head = Math.min(headerRows, grid.length);
     const [id, classes, kvs] = toAttr(a);
+    const body: P.TableBody = { bodyRows: toRows(head, grid.length) };
+    if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
     return P.Table(
-        [id, classes, kvs.filter(([k]) => k !== 'header-rows')],
+        [id, classes, kvs.filter(([k]) => k !== 'header-rows' && k !== 'header-cols')],
         caption,
         Array<P.Alignment>(nCols).fill('AlignDefault'),
         toRows(0, head),
-        [{ bodyRows: toRows(head, grid.length) }],
+        [body],
     );
 }
 
