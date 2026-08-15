@@ -89,6 +89,18 @@ interface Ctx {
     captionCounts: Map<string, number>;
     /** The caption LABEL currently being converted, for `caption_number`. */
     captionKind: string | undefined;
+    /**
+     * True while converting a PANEL of a composite figure, or anything inside
+     * one.
+     *
+     * PART 9 §4c: the group is ONE numbering unit, so a panel draws nothing
+     * from the document sequence - and neither does anything the panel
+     * contains. A `#` in a panel caption "stays LITERAL, the visible failure
+     * this language prefers to a silent one". Suppressing the DRAW matters as
+     * much as suppressing the digit: a panel that consumed a number would
+     * shift every later caption in the document by one.
+     */
+    inPanel: boolean;
     roundtrip: boolean;
     symbols: Record<string, string>;
     listTable: boolean;
@@ -443,6 +455,11 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // renderer assigns one - so it was degrading to empty and the
             // caption reached pandoc as `Figure : text`, silently unnumbered
             // in every writer.
+            //
+            // Inside a panel it draws nothing and prints as the author wrote
+            // it (PART 9 §4c, corpus 318-composite-figures-8's sibling lint
+            // `figure-group-panel-number`).
+            if (ctx.inPanel) return [P.Str('#')];
             const kind = ctx.captionKind ?? 'caption';
             const next = (ctx.captionCounts.get(kind) ?? 0) + 1;
             ctx.captionCounts.set(kind, next);
@@ -657,7 +674,15 @@ function blocks(ctx: Ctx, nodes: CNode[] | undefined): P.Block[] {
 }
 
 /** Block types whose Pandoc form carries the Attr itself. */
-const ATTR_CARRYING = new Set(['heading', 'code_block', 'table', 'figure', 'div', 'admonition']);
+const ATTR_CARRYING = new Set([
+    'heading',
+    'code_block',
+    'table',
+    'figure',
+    'figure_group',
+    'div',
+    'admonition',
+]);
 
 function block(ctx: Ctx, n: CNode): P.Block[] {
     const result = blockInner(ctx, n);
@@ -750,6 +775,8 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return [table(ctx, n, null)];
         case 'figure':
             return figure(ctx, n);
+        case 'figure_group':
+            return figureGroup(ctx, n);
         case 'admonition': {
             const kind = String(n.kind ?? 'note');
             if (kind === 'list-table' && ctx.listTable) {
@@ -1227,9 +1254,9 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
 
 // --- Figures ---
 
-function figure(ctx: Ctx, n: CNode): P.Block[] {
+function figure(ctx: Ctx, n: CNode, asPanel = false): P.Block[] {
     const target = n.target as CNode | undefined;
-    if (target?.type === 'block_quote') {
+    if (target?.type === 'block_quote' && !asPanel) {
         // PART 9 §4a (carve#1159): a captioned quote is a quote carrying an
         // attribution, not a figure. Engines pinned at `^0.1.2` still parse
         // the construct into this figure shape, so it is synthesized into the
@@ -1269,8 +1296,62 @@ function figure(ctx: Ctx, n: CNode): P.Block[] {
         const img = inline(ctx, target);
         return [P.Figure(toAttr(n.attrs), caption, [P.Plain(img)], shortCaption)];
     }
-    // any other captionable target (a quote never reaches here - see above)
+    // any other captionable target (outside a group a quote never reaches
+    // here - see above; as a PANEL it does, and lowers as a nested Figure)
     return [P.Figure(toAttr(n.attrs), caption, untight(ctx, () => block(ctx, target)), shortCaption)];
+}
+
+/** The §4c panels of a group: its `figure` and `table` children, in order. */
+function isPanel(n: CNode): boolean {
+    return n?.type === 'figure' || n?.type === 'table';
+}
+
+/**
+ * A composite figure (PART 9 §4c, carve#1122): a bare `::: figure` container
+ * is ONE figure of ordered panels, and Pandoc has that model natively - a
+ * `Figure` whose blocks are themselves `Figure`s is its subfigure shape. So
+ * the group becomes the outer `Figure`, its caption the outer caption, and its
+ * children the blocks, with the panels among them lowering to nested Figures.
+ *
+ * Before the engine pin carried the node, `::: figure` parsed as a generic
+ * admonition and crossed as `Div ["admonition","figure"]`. That Div is gone;
+ * a filter keyed on it has to key on the Figure nesting instead.
+ *
+ * THE NUMBER IS DRAWN AT THE OPENING FENCE, which is why the caption is
+ * converted BEFORE the children even though its `^ ` line is the construct's
+ * last: corpus 318-composite-figures-11 numbers the group "Figure 1" and a
+ * captioned figure nested deeper inside it "Figure 2".
+ *
+ * PANELS ARE THE DIRECT `figure`/`table` CHILDREN, and everything else is
+ * plain group content preserved IN PLACE between them (§4c, corpus
+ * 318-composite-figures-5) - so the children convert in source order and
+ * nothing is re-sorted into a panel array.
+ *
+ * A DIRECT-CHILD CAPTIONED QUOTE IS A PANEL, not a §4a attribution: "the quote
+ * is not a special host inside the group either" (corpus
+ * 318-composite-figures-10, where it renders as a panel with a figcaption).
+ * The §4a reroute stays in force everywhere else, including deeper inside the
+ * group's stray content.
+ */
+function figureGroup(ctx: Ctx, n: CNode): P.Block[] {
+    ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
+    const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
+    ctx.captionKind = undefined;
+
+    const children = (n.children as CNode[] | undefined) ?? [];
+    const body = untight(ctx, () =>
+        children.flatMap((child) => {
+            if (!isPanel(child)) return block(ctx, child);
+            const prev = ctx.inPanel;
+            ctx.inPanel = true;
+            try {
+                return child.type === 'figure' ? figure(ctx, child, true) : block(ctx, child);
+            } finally {
+                ctx.inPanel = prev;
+            }
+        }),
+    );
+    return [P.Figure(toAttr(n.attrs), caption, body)];
 }
 
 // --- Metadata (frontmatter) ---
@@ -1451,6 +1532,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         inCrossref: false,
         captionCounts: new Map(),
         captionKind: undefined,
+        inPanel: false,
         roundtrip: options.roundtrip ?? false,
         symbols: options.symbols ?? {},
         listTable: options.listTable ?? false,
@@ -1504,17 +1586,31 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
  * picked up there instead, mirroring `table()`'s fallback. Table cells are
  * not recursed into, matching the pre-existing limitation for headings
  * nested inside a table.
+ *
+ * `inPanel` is the third kind of target and the §4c suppression in one flag:
+ * inside a composite figure's panel nothing draws a number, so nothing there
+ * registers either - see `figureGroupTargets`.
  */
-function collectCrossrefTargets(ctx: Ctx, nodes: CNode[], captionCounts: Map<string, number>): void {
+function collectCrossrefTargets(
+    ctx: Ctx,
+    nodes: CNode[],
+    captionCounts: Map<string, number>,
+    inPanel = false,
+): void {
     for (const n of nodes) {
+        if (n.type === 'figure_group') {
+            figureGroupTargets(ctx, n, captionCounts, inPanel);
+            continue;
+        }
         if (n.type === 'heading') {
             const children = (n.children as CNode[] | undefined) ?? [];
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
         } else if (
-            (n.type === 'figure' && (n.target as CNode | undefined)?.type !== 'block_quote') ||
-            n.type === 'table'
+            !inPanel &&
+            ((n.type === 'figure' && (n.target as CNode | undefined)?.type !== 'block_quote') ||
+                n.type === 'table')
         ) {
             // A quote-figure is an attribution under §4a: it takes no number
             // (pass 2 keeps its `#` literal), so counting it here would drift
@@ -1532,8 +1628,81 @@ function collectCrossrefTargets(ctx: Ctx, nodes: CNode[], captionCounts: Map<str
         }
         for (const key of ['children', 'items', 'target'] as const) {
             const v = n[key];
-            if (Array.isArray(v)) collectCrossrefTargets(ctx, v as CNode[], captionCounts);
-            else if (v && typeof v === 'object') collectCrossrefTargets(ctx, [v as CNode], captionCounts);
+            if (Array.isArray(v)) collectCrossrefTargets(ctx, v as CNode[], captionCounts, inPanel);
+            else if (v && typeof v === 'object') {
+                collectCrossrefTargets(ctx, [v as CNode], captionCounts, inPanel);
+            }
         }
     }
+}
+
+/**
+ * The `</#id>` targets a composite figure contributes (PART 9 §4c).
+ *
+ * The GROUP draws one number from its label's sequence, at its OPENING fence -
+ * before anything inside it, which is what makes corpus
+ * 318-composite-figures-11 number the group "Figure 1" and a figure nested
+ * inside its stray content "Figure 2".
+ *
+ * A PANEL - a direct `figure` or `table` child - draws nothing, and its id
+ * resolves as the group's number plus a letter by panel order: "Figure 2a"
+ * (corpus 318-composite-figures-2), a..z then aa, ab, ... A group whose
+ * caption carries no `#` has no number to lend, so it registers nothing for
+ * its panels either.
+ *
+ * The suppression covers everything a panel CONTAINS, not just the panel's own
+ * caption. Stray non-panel content numbers normally, exactly as it would
+ * outside the group.
+ */
+function figureGroupTargets(
+    ctx: Ctx,
+    n: CNode,
+    captionCounts: Map<string, number>,
+    inPanel: boolean,
+): void {
+    const caption = n.caption as CNode[] | undefined;
+    let resolved: string | undefined;
+    if (
+        !inPanel &&
+        Array.isArray(caption) &&
+        caption.some((x) => x?.type === 'caption_number')
+    ) {
+        const label = captionLabel(caption) ?? 'caption';
+        const next = (captionCounts.get(label) ?? 0) + 1;
+        captionCounts.set(label, next);
+        resolved = `${label} ${next}`;
+        const a = (n.attrs ?? {}) as CAttrs;
+        if (a.id && !ctx.crossrefTargets.has(a.id)) {
+            ctx.crossrefTargets.set(a.id, [{ type: 'text', value: resolved }]);
+        }
+    }
+
+    let panelIndex = 0;
+    for (const child of (n.children as CNode[] | undefined) ?? []) {
+        if (!isPanel(child)) {
+            collectCrossrefTargets(ctx, [child], captionCounts, inPanel);
+            continue;
+        }
+        const a = (child.attrs ?? {}) as CAttrs;
+        const letter = panelLetter(panelIndex++);
+        if (resolved && a.id && !ctx.crossrefTargets.has(a.id)) {
+            ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${resolved}${letter}` }]);
+        }
+        collectCrossrefTargets(ctx, [child], captionCounts, true);
+    }
+}
+
+/**
+ * The §4c panel letter for panel index `k` (0-based): `a`..`z`, then `aa`,
+ * `ab`, ... - bijective base 26, the same function the engine resolves with.
+ */
+function panelLetter(k: number): string {
+    let out = '';
+    let i = k + 1;
+    while (i > 0) {
+        i--;
+        out = String.fromCharCode(97 + (i % 26)) + out;
+        i = Math.floor(i / 26);
+    }
+    return out;
 }
