@@ -198,3 +198,51 @@ test('block cells: an empty cell alongside a block cell stays empty', { skip: !p
   const [empty] = ast.children[0].children[0].items[0].children[0].items;
   assert.deepEqual(empty.children, [{ type: 'paragraph', children: [] }]);
 });
+
+test('block cells: two paragraphs alone are enough, with no list anywhere', { skip: !pandoc && 'pandoc not found' }, () => {
+  // The other fixtures pair a two-paragraph cell with a list cell, so the list
+  // alone would carry them. This one has no list: the joining soft break of the
+  // old path serialized as a literal newline inside the pipe row, which is what
+  // split the table, so a multi-block cell must trip the branch on its own.
+  const src = `+------+-----------+
+| a    | para one
+|      |
+|      | para two
++------+-----------+
+`;
+  const { ast, warnings } = pandocToCarveAst(read(src, 'markdown'));
+  assert.equal(ast.children[0].kind, 'list-table');
+  assert.ok(warnings.some((w) => w.includes('a cell holds block content')), warnings.join(' | '));
+
+  const { carve } = pandocToCarve(read(src, 'markdown'));
+  assert.deepEqual(
+    parse(carve).children.map((c) => c.type),
+    ['admonition'],
+    `no stray paragraph:\n${carve}`,
+  );
+});
+
+test('block cells: the emitted tight flags match what the emitted source parses to', { skip: !pandoc && 'pandoc not found' }, () => {
+  // `tight` is an AST field, not a formatting preference: fmt writes `+`
+  // continuations for a tight item and a blank line for a loose one, and both
+  // re-parse to the same blocks but NOT to the same flag. Claiming a cell of
+  // two paragraphs is tight makes the emitted tree disagree with its own source.
+  const { ast } = pandocToCarveAst(read(GRID, 'markdown'));
+  const { carve } = pandocToCarve(read(GRID, 'markdown'));
+
+  const flags = (node) => {
+    const out = [];
+    const walk = (n) => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'list') out.push(n.tight);
+      if (n.items) walk(n.items);
+      if (n.children) walk(n.children);
+    };
+    walk(node);
+    return out;
+  };
+
+  assert.deepEqual(flags(ast.children[0]), flags(parse(carve).children[0]));
+  assert.ok(flags(ast.children[0]).includes(false), 'the two-paragraph cell is loose');
+});
