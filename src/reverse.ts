@@ -486,15 +486,13 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             const children = stanzas
                 .filter((stanza) => stanza.length > 0)
                 .map((stanza) => ({ type: 'paragraph', children: mergeText(stanza) }));
-            // The DIV form, not the `line_block` node: this package pins a
-            // published engine whose writer knows `{.line-block}` and throws on
-            // `line_block` ("renderCarve: unknown block"). Both parse to the same
-            // rendering, and the node form can replace this once the pin moves.
-            return [{
-                type: 'div',
-                attrs: { classes: ['line-block'], order: ['.class'] },
-                children,
-            }];
+            // The `line_block` NODE of PART 9 §23, which is what the engine's
+            // own parser produces for `::: |`. This used to be the
+            // `{.line-block}` div instead: `0.1.2`'s writer threw
+            // "renderCarve: unknown block line_block", and the two spellings
+            // parse to the same rendering, so the div was the one both could
+            // carry. `0.1.3` writes the node, and the floor moved to it.
+            return [{ type: 'line_block', children }];
         }
         case 'Header': {
             const [level, a, xs] = c as [number, Attr, PandocNode[]];
