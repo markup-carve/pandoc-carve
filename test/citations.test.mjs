@@ -6,7 +6,12 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
 import * as carve from '@markup-carve/carve';
 import { carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { execFileSync } from 'node:child_process';
 import { findPandoc, pandocRender } from './helpers.mjs';
+
+/** Read foreign source with pandoc, so the fixture is pandoc's own output. */
+const pandocRead = (bin, source, from = 'markdown') =>
+  execFileSync(bin, ['-f', from, '-t', 'json'], { input: source, encoding: 'utf8' });
 
 const pandoc = findPandoc();
 
@@ -255,4 +260,32 @@ test('citations: pandoc writers print the verbatim source when citeproc is off',
   const latex = pandocRender(pandoc, doc, 'latex');
   assert.ok(latex.includes('@smith2020'), latex);
   assert.ok(latex.includes('p. 33'), latex);
+});
+
+test('citations: source the rebuilder cannot reproduce is recovered verbatim', () => {
+  // `synthesizeRaw` writes a canonical group: one space after `;`, the prefix
+  // flattened to plain text. Neither survives a source that spells it another
+  // way, which is why the Cite content is preferred whenever it is Carve-shaped.
+  const src = 'A [/see/ @smith2020;@jones1999] B.\n\n[@smith2020]: S.\n[@jones1999]: J.\n';
+  const { doc } = carveAstToPandoc(cite(src));
+  const { ast } = pandocToCarveAst(doc);
+  const [group] = groupsOf(ast);
+  assert.equal(group.raw, '[/see/ @smith2020;@jones1999]');
+  assert.equal(pandocToCarve(doc).carve, src, 'byte for byte, emphasis and tight `;` included');
+});
+
+test('citations: pandoc reading Carve\'s integral form keeps the `+` out of the prefix', { skip: !pandoc && 'pandoc not found' }, () => {
+  // Pandoc's markdown reader has no integral marker, so it files Carve's `+`
+  // as prefix text and reports NormalCitation. The marker is a group property
+  // read off the modes, so carrying it into the prefix would print `[+ @key]`.
+  const doc = JSON.parse(
+    pandocRead(pandoc, '[+@smith2020, p. 12]\n'),
+  );
+  const [record] = doc.blocks.flatMap((b) => b.c).filter((i) => i.t === 'Cite')[0].c[0];
+  assert.deepEqual(record.citationPrefix, [{ t: 'Str', c: '+' }], 'the premise: pandoc puts it in the prefix');
+
+  const { ast } = pandocToCarveAst(doc);
+  const [group] = groupsOf(ast);
+  assert.equal(group.items[0].prefix, undefined, 'the `+` is not prose');
+  assert.equal(group.raw, '[+@smith2020, p. 12]', 'recovered from the Cite content');
 });
