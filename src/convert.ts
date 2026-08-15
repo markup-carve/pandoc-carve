@@ -104,6 +104,29 @@ function toAttr(attrs: unknown): P.Attr {
     return P.attr(a.id, a.classes, kvs);
 }
 
+/**
+ * POLICY: Carve has no small-caps node, and `.smallcaps` is the span that
+ * stands in for one - in both directions. `reverse.ts` writes that class for a
+ * pandoc `SmallCaps`; this reads it back, so the construct survives
+ * Pandoc -> Carve -> Pandoc instead of arriving at the LaTeX/Typst/DOCX writers
+ * as a bare `Span` they render without any small-caps at all.
+ *
+ * The rule is pandoc's own, not an invention here: its markdown reader turns
+ * `[x]{.smallcaps}` into `SmallCaps`, strips the class, and keeps whatever
+ * other attributes the span had by wrapping the result in a `Span`. Matched
+ * exactly, case included (`.SmallCaps` is an ordinary class to pandoc too), so
+ * a document that goes through pandoc-flavored markdown and one that goes
+ * through this bridge produce the same tree.
+ */
+function smallCapsOrSpan(a: P.Attr, xs: P.Inline[]): P.Inline {
+    const [id, classes, kvs] = a;
+    if (!classes.includes('smallcaps')) return P.Span(a, xs);
+    const rest = classes.filter((c) => c !== 'smallcaps');
+    const caps = P.SmallCaps(xs);
+    if (!id && rest.length === 0 && kvs.length === 0) return caps;
+    return P.Span([id, rest, kvs], [caps]);
+}
+
 /** Carve's heading slug: case-preserving, GitHub-style. */
 function slugify(text: string): string {
     return text
@@ -508,7 +531,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'citation_group':
             return [citationGroup(ctx, n)];
         case 'span':
-            return [P.Span(toAttr(n.attrs), kids(ctx, n))];
+            return [smallCapsOrSpan(toAttr(n.attrs), kids(ctx, n))];
         case 'insert':
             return [P.Span(P.attr(undefined, ['insertion']), kids(ctx, n))];
         case 'delete':
@@ -1007,6 +1030,19 @@ function table(
             } else if (cc.span === 'rowspan') {
                 const org = r > 0 ? origin[r - 1]![c] : undefined;
                 if (org) {
+                    // POLICY: clip, do not restructure. Carve is the richer
+                    // model here - its rows are one flat list, so a rowspan may
+                    // start in the head and continue into the body; pandoc's
+                    // TableHead and TableBody hold separate row lists and a
+                    // Cell's rowSpan is confined to the section that owns it,
+                    // so the covering cell has no shape on that side. The
+                    // alternatives both lie about the source: moving the
+                    // boundary so the span fits silently reclassifies a header
+                    // row as a body row (or the reverse), and duplicating the
+                    // origin's content into the body invents a second cell the
+                    // author never wrote. Clipping to an empty body cell keeps
+                    // the grid the right size, and the warning below says what
+                    // was lost.
                     if (sectionOf[org.row] !== sectionOf[r]) {
                         warn(ctx, `table: rowspan crossing the header/body boundary at row ${r + 1}, col ${c + 1} - clipped to an empty body cell (pandoc cannot represent it)`);
                     } else {
@@ -1152,6 +1188,8 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
             }
             if (marker === 'rowspan' && r > 0 && origin[r - 1]![c]) {
                 const org = origin[r - 1]![c]!;
+                // The list-table half of the clip-do-not-restructure policy the
+                // pipe-table path states in full; same reason, same outcome.
                 const crossesHead = org.row < headerRows && r >= headerRows;
                 if (!crossesHead) {
                     org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);

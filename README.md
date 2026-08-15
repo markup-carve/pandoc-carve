@@ -138,6 +138,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
 | Citations `[@key]`, `[+@key]`, `[-@key, p. 33]` | Cite with one Citation per key (AuthorInText / SuppressAuthor / NormalCitation), the locator in the citation suffix, the verbatim source as the Cite content |
 | `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
+| `[text]{.smallcaps}` | SmallCaps (pandoc's own class convention, both directions) |
 | Frontmatter, nested: maps, block and flow sequences, sequences of maps | Meta, to the depth pandoc's own reader gives it |
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter |
@@ -189,6 +190,32 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   preserved; three things the extension does not spell are reported instead -
   per-column alignment, a foot, and a body group's intermediate header rows.
   Convert back with `listTable: true` to get the pandoc table again.
+- Pandoc `SmallCaps` has no Carve node and is not getting one: it imports as a
+  `[text]{.smallcaps}` span, with a warning saying so. The span is not a dead
+  end, though - the export direction reads that class back as `SmallCaps`, the
+  same convention pandoc's own markdown reader uses, so small caps survive
+  Pandoc -> Carve -> Pandoc and still reach the LaTeX, Typst and DOCX writers.
+  Other attributes on the span are preserved around it, exactly as pandoc does.
+- Pandoc `Quoted` imports as literal curly quote characters (`“…”` / `‘…’`).
+  Carve has no quote node, and the characters are what an author would have
+  typed. This one is genuinely one-way: the text re-exports as `Str`, so the
+  quote kind and pandoc's locale-aware quoting are gone. Reported once per
+  document.
+- A `ColSpec`'s `ColWidth` is dropped. Carve's table model has no width slot at
+  any level and pipe-table source cannot spell one, so there is nowhere to put
+  the number and no syntax that would reproduce it - a wontfix rather than a
+  gap. The drop is silent on purpose: pandoc derives a `ColWidth` for every
+  grid and multiline table from the ASCII column widths, so a diagnostic would
+  fire on the ordinary case and report a value the author never chose. Column
+  ALIGNMENT is carried in both directions; tables leaving the bridge always
+  carry `ColWidthDefault`, which pandoc's writers size themselves.
+- A rowspan that starts in a header row and continues into the body is clipped
+  to an empty body cell, with a warning. Carve is the richer model here: its
+  rows are one flat list, while pandoc's `TableHead` and `TableBody` hold
+  separate row lists and confine a cell's `rowSpan` to its own section. Moving
+  the head/body boundary to make the span fit would silently reclassify a row,
+  and duplicating the origin's content would invent a cell the author never
+  wrote, so the grid keeps its shape and the diagnostic reports the loss.
 - Reverse conversion keeps flattening for display targets: `pandocToCarve`
   serializes through Carve 0.1 source, which has no spelling for row groups or
   a short caption, so those fields survive only on the `pandocToCarveAst` path.
