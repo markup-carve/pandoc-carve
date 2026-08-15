@@ -1238,49 +1238,135 @@ function figure(ctx: Ctx, n: CNode): P.Block[] {
 // --- Metadata (frontmatter) ---
 
 /**
- * Minimal YAML subset for typical frontmatter: flat `key: value` pairs with
- * plain scalars, quoted strings, and `[a, b]` flow lists. Anything else is
- * kept as a raw MetaString with a warning.
+ * The YAML subset typical frontmatter uses, read to the depth pandoc's `Meta`
+ * has: nested maps, block and flow sequences, scalars.
+ *
+ * Not a YAML implementation. Anchors, tags, multi-document streams, block
+ * scalars and flow maps are out; a line that does not fit is reported and
+ * skipped rather than guessed at. What IS in is the shape a real document
+ * carries - `author: [ - name:, affiliation: ]`, `keywords:` as a block list,
+ * a `bibliography` map - which used to end as an EMPTY `MetaInlines` under the
+ * parent key, with one "line not understood" per child line and nothing said
+ * about the parent having been emptied.
  */
 function parseMeta(ctx: Ctx, frontmatter: unknown): Record<string, P.MetaValue> {
-    const meta: Record<string, P.MetaValue> = {};
     const fm = frontmatter as { format?: string; content?: string } | undefined;
-    if (!fm?.content) return meta;
+    if (!fm?.content) return {};
     if (fm.format && fm.format !== 'yaml') {
         warn(ctx, `frontmatter: format "${fm.format}" not supported - skipped`);
-        return meta;
+        return {};
     }
-    for (const line of fm.content.split('\n')) {
-        if (!line.trim() || line.trim().startsWith('#')) continue;
-        const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
-        if (!m) {
-            warn(ctx, `frontmatter: line not understood, skipped: ${line.trim()}`);
-            continue;
-        }
-        const key = m[1]!;
-        const raw = m[2]!.trim();
-        meta[key] = metaValue(key, raw);
+    const lines: YamlLine[] = [];
+    for (const raw of fm.content.split('\n')) {
+        if (!raw.trim() || raw.trim().startsWith('#')) continue;
+        lines.push({ indent: raw.length - raw.trimStart().length, text: raw.trim() });
     }
-    return meta;
+    const reader: YamlReader = { ctx, lines, at: 0 };
+    const map = readMapping(reader, lines[0]?.indent ?? 0);
+    // A line the mapping reader could not use never advances past it; the guard
+    // is what keeps a malformed document from spinning here.
+    while (reader.at < lines.length) {
+        warn(ctx, `frontmatter: line not understood, skipped: ${lines[reader.at]!.text}`);
+        reader.at++;
+    }
+    return map;
 }
 
-function metaValue(key: string, raw: string): P.MetaValue {
-    const unquote = (s: string): string => {
-        const t = s.trim();
-        if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-            return t.slice(1, -1);
+interface YamlLine {
+    indent: number;
+    text: string;
+}
+
+interface YamlReader {
+    ctx: Ctx;
+    lines: YamlLine[];
+    at: number;
+}
+
+const KEY_LINE = /^("[^"]*"|'[^']*'|[^:]+):(?:\s+(.*))?$/;
+
+/** A mapping runs while lines sit at exactly `indent` and look like keys. */
+function readMapping(r: YamlReader, indent: number): Record<string, P.MetaValue> {
+    const out: Record<string, P.MetaValue> = {};
+    while (r.at < r.lines.length) {
+        const line = r.lines[r.at]!;
+        if (line.indent !== indent || line.text.startsWith('- ') || line.text === '-') break;
+        const m = KEY_LINE.exec(line.text);
+        if (!m) break;
+        const key = unquoteYaml(m[1]!);
+        const inline = (m[2] ?? '').trim();
+        r.at++;
+        out[key] = inline !== '' ? scalarValue(key, inline) : readChild(r, indent, key);
+    }
+    return out;
+}
+
+/** A sequence runs while lines sit at exactly `indent` and open with `-`. */
+function readSequence(r: YamlReader, indent: number): P.MetaValue[] {
+    const out: P.MetaValue[] = [];
+    while (r.at < r.lines.length) {
+        const line = r.lines[r.at]!;
+        if (line.indent !== indent || !(line.text === '-' || line.text.startsWith('- '))) break;
+        const rest = line.text.slice(1).trim();
+        if (rest === '') {
+            r.at++;
+            out.push(readChild(r, indent, ''));
+            continue;
         }
-        return t;
-    };
+        const m = KEY_LINE.exec(rest);
+        if (m) {
+            // `- name: Ada` opens a map whose later keys align under `name`, so
+            // the item's own indent is where that key starts, not the dash.
+            const keyIndent = indent + (line.text.length - rest.length);
+            r.lines[r.at] = { indent: keyIndent, text: rest };
+            out.push(P.MetaMap(readMapping(r, keyIndent)));
+            continue;
+        }
+        r.at++;
+        out.push(scalarValue('', rest));
+    }
+    return out;
+}
+
+/**
+ * The value written under a key that had none on its own line: whatever sits at
+ * the next deeper indent. Nothing deeper means an empty value, which is YAML's
+ * own reading of `key:` alone.
+ */
+function readChild(r: YamlReader, indent: number, key: string): P.MetaValue {
+    const next = r.lines[r.at];
+    if (!next || next.indent <= indent) return P.MetaInlines([]);
+    if (next.text === '-' || next.text.startsWith('- ')) {
+        return P.MetaList(readSequence(r, next.indent));
+    }
+    const map = readMapping(r, next.indent);
+    if (Object.keys(map).length) return P.MetaMap(map);
+    // Nothing consumed at that indent: the reader would not advance, so report
+    // it here rather than leaving the caller to spin.
+    warn(r.ctx, `frontmatter: value under "${key}" not understood, skipped: ${next.text}`);
+    r.at++;
+    return P.MetaInlines([]);
+}
+
+function unquoteYaml(s: string): string {
+    const t = s.trim();
+    if ((t.startsWith('"') && t.endsWith('"') && t.length > 1)
+        || (t.startsWith("'") && t.endsWith("'") && t.length > 1)) {
+        return t.slice(1, -1);
+    }
+    return t;
+}
+
+function scalarValue(key: string, raw: string): P.MetaValue {
     if (raw.startsWith('[') && raw.endsWith(']')) {
         const items = raw
             .slice(1, -1)
             .split(',')
-            .map(unquote)
+            .map(unquoteYaml)
             .filter((s) => s !== '');
         return P.MetaList(items.map((s) => P.MetaInlines(textInlines(s))));
     }
-    const value = unquote(raw);
+    const value = unquoteYaml(raw);
     // Lists where pandoc conventionally expects lists, inlines elsewhere.
     if (key === 'author' || key === 'authors') {
         return P.MetaList([P.MetaInlines(textInlines(value))]);

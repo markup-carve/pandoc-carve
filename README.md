@@ -138,7 +138,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
 | Citations `[@key]`, `[+@key]`, `[-@key, p. 33]` | Cite with one Citation per key (AuthorInText / SuppressAuthor / NormalCitation), the locator in the citation suffix, the verbatim source as the Cite content |
 | `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
-| Frontmatter `title:`/`author:`/`date:`/`tags:` | Meta |
+| Frontmatter, nested: maps, block and flow sequences, sequences of maps | Meta, to the depth pandoc's own reader gives it |
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter |
 | A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
@@ -205,6 +205,15 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 - Pandoc keeps its bibliography in document metadata, not in the AST, so
   importing a `Cite` emits no `[@key]:` definition lines. Carve renders a group
   with an undefined key verbatim; the import warns once per document.
+- Block content inside metadata (pandoc's `MetaBlocks`, e.g. `abstract: |`) is
+  skipped with a warning on import, deliberately. It has no honest YAML string
+  form: flattening it to one scalar throws away the paragraph structure, and
+  writing Carve source into a YAML value makes the frontmatter carry markup that
+  nothing on the reading side parses. Every other `Meta` shape - maps, lists,
+  lists of maps, scalars, booleans - round-trips.
+- The frontmatter reader covers the YAML subset frontmatter uses, not YAML.
+  Anchors, tags, multi-document streams, block scalars and flow maps are out; a
+  line that fits no shape is reported and skipped rather than guessed at.
 - Attribute order inside `{...}` is normalized to `#id .class key=val` on
   round-trip - pandoc's Attr has fixed slots, so the author's original order
   is not representable. Semantics are unchanged.

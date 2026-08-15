@@ -20,6 +20,19 @@
   byte for byte, so re-parsing restores `locatorLabel`/`locatorValue`; the
   bridge deliberately keeps no second copy of the section 4.2 label table.
 
+- **Frontmatter crosses at the depth pandoc's `Meta` has.** The reader took one
+  flat `key: value` line at a time, so a nested map or a block sequence produced
+  one "line not understood" per child line and left the parent key as an EMPTY
+  value - present, carrying nothing, with nothing said about the emptying. It
+  now reads nested maps, block and flow sequences, and sequences of maps
+  (`author: [ - name:, affiliation: ]`), and its result matches what pandoc's
+  own YAML parser makes of the same frontmatter. Going the other way, `MetaMap`
+  and a `MetaList` of maps used to be dropped with a warning and are now written
+  as nested YAML that pandoc reads back identically.
+
+  `MetaBlocks` keeps its skip-with-warn on purpose: block content in metadata
+  has no honest YAML string form, and the warning is the honest outcome.
+
 - **A pandoc table with block content in a cell imports as `::: list-table`.**
   Real docx and LaTeX tables hold lists and paragraphs in cells; Carve's
   pipe-table cell holds inlines, so there was no form for them. What happened

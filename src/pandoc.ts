@@ -228,3 +228,5 @@ export function Table(
 export const MetaString = (s: string): MetaValue => node('MetaString', s);
 export const MetaInlines = (xs: Inline[]): MetaValue => node('MetaInlines', xs);
 export const MetaList = (xs: MetaValue[]): MetaValue => node('MetaList', xs);
+export const MetaMap = (m: Record<string, MetaValue>): MetaValue => node('MetaMap', m);
+export const MetaBool = (b: boolean): MetaValue => node('MetaBool', b);
