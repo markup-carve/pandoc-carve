@@ -1027,7 +1027,15 @@ function attributionFromBlocks(ctx: Ctx, body: PandocNode[]): CNode[] | null {
 
 // --- Figures and divs ---
 
-function figure(ctx: Ctx, c: never): CNode[] {
+/**
+ * The pandoc blocks a §4c panel can wrap, which is `figure.target`'s own list
+ * in `resources/ast-schema.json`: an image, a quote, a table, a code block, a
+ * paragraph. Anything else has no `figure` to become and stays plain group
+ * content.
+ */
+const PANEL_HOSTS = new Set(['Plain', 'Para', 'BlockQuote', 'Table', 'CodeBlock']);
+
+function figure(ctx: Ctx, c: never, asPanel = false): CNode[] {
     const [a, capt, body] = c as [Attr, [unknown, PandocNode[]], PandocNode[]];
     const caption = captionFromBlocks(ctx, capt[1]);
     const shortCaption = captionFromInlines(ctx, capt[0] as PandocNode[] | null);
@@ -1045,10 +1053,16 @@ function figure(ctx: Ctx, c: never): CNode[] {
             return [node];
         }
     }
-    if (single?.t === 'BlockQuote') {
+    if (single?.t === 'BlockQuote' && !asPanel) {
         // PART 9 §4a: a captioned quote is a quote carrying an attribution,
         // not a figure. This branch also upgrades this bridge's own pre-§4a
         // output, which wrapped the quote in a Figure.
+        //
+        // §4c overrides it for a group's direct child: "the quote is not a
+        // special host inside the group either" - there the captioned quote is
+        // a `figure` whose target is the quote, and a PANEL (corpus
+        // 318-composite-figures-10). Everywhere else, including deeper inside
+        // the group's stray content, §4a still governs.
         const [bq] = block(ctx, single) as [CNode];
         if (caption) {
             if (Array.isArray(bq.attribution)) {
@@ -1071,6 +1085,55 @@ function figure(ctx: Ctx, c: never): CNode[] {
     }
     if (single?.t === 'Table') {
         return [table(ctx, single.c as never, caption, shortCaption)];
+    }
+    if (asPanel && single && PANEL_HOSTS.has(single.t)) {
+        // A PANEL is an ordinary `figure` around one captionable host, and the
+        // hosts are the ones the schema lists for `figure.target`: an image, a
+        // quote, a table, a code block, a paragraph (a display-math panel is
+        // the paragraph case). Outside a group a quote never reaches here and
+        // a code listing or an equation arrives as this same single-block
+        // Figure - so only the quote's routing actually differs, which is what
+        // `asPanel` says.
+        const [target] = block(ctx, single) as [CNode | undefined];
+        if (target) {
+            const node: CNode = { type: 'figure', target };
+            if (caption) node.caption = caption;
+            if (shortCaption) node.shortCaption = shortCaption;
+            const attrs = fromAttr(a);
+            if (attrs) node.attrs = attrs;
+            return [node];
+        }
+    }
+    if (body.some((b) => b.t === 'Figure' || b.t === 'Table')) {
+        // A Figure whose blocks are themselves Figures (or Tables) is pandoc's
+        // SUBFIGURE shape, and PART 9 §4c has the node for it: a `figure_group`
+        // whose direct `figure`/`table` children are the panels, with any other
+        // block preserved in place between them. Before this arm it fell to the
+        // unwrap below, which dropped the grouping entirely and turned the
+        // group caption into a trailing paragraph.
+        //
+        // The single-block Figures above keep their existing mapping on
+        // purpose - a lone captioned image or table is one figure, not a group
+        // of one, and the reader has no way to tell a subfigure-shaped document
+        // from that.
+        const children = body.flatMap((b) =>
+            b.t === 'Figure' ? figure(ctx, b.c as never, true) : block(ctx, b),
+        );
+        const node: CNode = { type: 'figure_group', children };
+        if (caption) node.caption = caption;
+        if (shortCaption) {
+            // PART 12 §16: "NO `shortCaption`, NO legends, NO label fields" on
+            // the group - whether it ever reaches there is carve#1118's design
+            // space, and inventing the field here would put a property on the
+            // wire that the schema rejects on ingest (§11).
+            warn(
+                ctx,
+                'figure group: short caption dropped (a composite figure has no navigation-caption slot)',
+            );
+        }
+        const attrs = fromAttr(a);
+        if (attrs) node.attrs = attrs;
+        return [node];
     }
     warn(ctx, 'figure: general figure content unwrapped (caption kept as a trailing paragraph)');
     const out = blocks(ctx, body);
