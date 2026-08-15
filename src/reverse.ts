@@ -731,7 +731,7 @@ function table(
                 cells.push({ type: 'table_cell', header: isHeader, children: [] });
                 continue;
             }
-            const [, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
+            const [cellAttr, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
             const cell: CNode = {
                 type: 'table_cell',
                 header: isHeader,
@@ -739,6 +739,8 @@ function table(
             };
             const align = ALIGN_BACK[cellAlign.t] ?? (isHeader ? colAligns[col] : '');
             if (align) cell.align = align;
+            const cellAttrs = fromAttr(cellAttr);
+            if (cellAttrs) cell.attrs = cellAttrs;
             cells.push(cell);
             for (let j = 1; j < colSpan && col + j < nCols; j++) {
                 cells.push({ type: 'table_cell', header: isHeader, children: [], span: 'colspan' });
@@ -752,7 +754,12 @@ function table(
             }
             col += colSpan - 1;
         }
-        rows.push({ type: 'table_row', cells });
+        const rowNode: CNode = { type: 'table_row', cells };
+        // Pandoc gives a Row its own Attr and Carve spells it after the closing
+        // pipe (`| a | b |{.cls}`), so it is the same slot, not a degradation.
+        const rowAttrs = fromAttr(allRaw[r]![0]);
+        if (rowAttrs) rowNode.attrs = rowAttrs;
+        rows.push(rowNode);
     }
 
     const node: CNode = { type: 'table', rows };

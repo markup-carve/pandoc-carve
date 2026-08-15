@@ -20,6 +20,16 @@
   byte for byte, so re-parsing restores `locatorLabel`/`locatorValue`; the
   bridge deliberately keeps no second copy of the section 4.2 label table.
 
+- **A cell's and a row's attribute block reach pandoc's own `Attr`.** Carve
+  spells them glued to the opening pipe (`|{#id .cls k=v} text`) and after the
+  closing one (`| a | b |{.cls}`); pandoc's `Cell` and `Row` each have an `Attr`
+  slot, so neither is a degradation. Both were dropped in both directions with
+  no warning. They now survive the crossing, compose with a `rowGroups`
+  partition, and come back on import - including from a table pandoc read out of
+  HTML, which is the shape a Word or Docs export takes. Attributes on a
+  continuation cell are the one lossy case and are reported: pandoc omits
+  covered positions, so there is no node left to hang them on.
+
 - **A table's head, body groups, foot and row-head columns survive in both
   directions.** The bridge used to emit one body, no foot and zero row-head
   columns whatever the table said. It now reads the optional `table.rowGroups`

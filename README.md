@@ -129,6 +129,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | Headings + `{#id .class}` attributes | Header with Attr |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
 | `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
+| Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |
 | Footnotes (reference and inline `^[..]`) | Note |
 | Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
 | Images/quotes with `^ caption` lines | Figure |

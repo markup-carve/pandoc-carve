@@ -890,6 +890,7 @@ interface CCell {
     align?: string;
     span?: 'colspan' | 'rowspan';
     children?: CNode[];
+    attrs?: CAttrs;
 }
 
 const ALIGN: Record<string, P.Alignment> = {
@@ -980,6 +981,18 @@ function table(
         const row = rows[r]!;
         for (let c = 0; c < row.length; c++) {
             const cc = row[c]!;
+            // Pandoc omits covered positions entirely, so a continuation that
+            // RESOLVES leaves nowhere to hang its attributes. The grammar
+            // cannot produce that shape (a cell carrying attributes is never a
+            // bare span cell); a wire AST can. An ORPHAN continuation is a
+            // different story - it falls through and becomes a real cell below,
+            // which keeps them, so the warning belongs on the resolving paths
+            // only.
+            const droppedAttrs = (): void => {
+                if (hasAttrs(cc.attrs)) {
+                    warn(ctx, `table: attributes on the continuation cell at row ${r + 1}, col ${c + 1} are dropped - pandoc omits covered positions`);
+                }
+            };
             if (cc.span === 'colspan') {
                 const org = origin[r]![c - 1];
                 if (org) {
@@ -987,6 +1000,7 @@ function table(
                     // a lower row must not widen the origin again.
                     if (r === org.row) org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
                     origin[r]![c] = org;
+                    droppedAttrs();
                     continue;
                 }
                 warn(ctx, `table: colspan continuation at row ${r + 1}, col ${c + 1} has no origin - emitting empty cell`);
@@ -1000,6 +1014,7 @@ function table(
                         // covered column - count rows, not continuations.
                         org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
                         origin[r]![c] = org;
+                        droppedAttrs();
                         continue;
                     }
                 } else {
@@ -1009,22 +1024,24 @@ function table(
             const cellBlocks = cc.children?.length
                 ? [P.Plain(untight(ctx, () => inlines(ctx, cc.children)))]
                 : [];
-            const pc = P.cell(cellBlocks, ALIGN[cc.align ?? ''] ?? 'AlignDefault');
+            const pc = P.cell(cellBlocks, ALIGN[cc.align ?? ''] ?? 'AlignDefault', toAttr(cc.attrs));
             origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;
         }
     }
 
-    const toRows = (from: number, to: number): P.PCell[][] => {
-        const out: P.PCell[][] = [];
+    const toRows = (from: number, to: number): P.PRow[] => {
+        const out: P.PRow[] = [];
         for (let r = from; r < to; r++) {
-            out.push(emitted[r]!.filter((x): x is P.PCell => x !== null));
+            const cells = emitted[r]!.filter((x): x is P.PCell => x !== null);
+            const rowAttrs = (n.rows as CNode[])[r]?.attrs as CAttrs | undefined;
+            out.push(P.row(cells, hasAttrs(rowAttrs) ? toAttr(rowAttrs) : undefined));
         }
         return out;
     };
 
     let bodies: P.TableBody[];
-    let footRows: P.PCell[][] = [];
+    let footRows: P.PRow[] = [];
     if (groups) {
         let at = headCount;
         bodies = groups.bodies.map((body) => {
@@ -1145,10 +1162,10 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
         }
     }
 
-    const toRows = (from: number, to: number): P.PCell[][] => {
-        const out: P.PCell[][] = [];
+    const toRows = (from: number, to: number): P.PRow[] => {
+        const out: P.PRow[] = [];
         for (let r = from; r < to; r++) {
-            out.push(emitted[r]!.filter((x): x is P.PCell => x !== null));
+            out.push(P.row(emitted[r]!.filter((x): x is P.PCell => x !== null)));
         }
         return out;
     };
