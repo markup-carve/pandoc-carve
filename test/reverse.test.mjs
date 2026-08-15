@@ -172,13 +172,24 @@ test('reverse: a LineBlock becomes a line block, stanzas and all', () => {
     ],
   };
   const { carve, warnings } = pandocToCarve(doc);
-  assert.match(carve, /\{\.line-block\}/);
+  // The `::: |` form, not `{.line-block}`: the AST carries PART 9 SS23's
+  // `line_block` node now, and the engine's writer spells it this way.
+  assert.match(carve, /^::: \|$/m, carve);
+  assert.doesNotMatch(carve, /\{\.line-block\}/, carve);
   assert.match(carve, /line1/);
   assert.match(carve, /stanza2/);
   // The stanza break is a BLANK LINE between the block's paragraphs, not a third
   // hard break in the first one.
   assert.match(carve, /line2\n\nstanza2/);
   assert.deepStrictEqual(warnings, []);
+
+  const { ast } = pandocToCarveAst(doc);
+  assert.equal(ast.children[0].type, 'line_block', 'and the exchange AST carries the node');
+  assert.equal(ast.children[0].attrs, undefined, 'with no leftover .line-block class');
+
+  // The whole loop: the emitted source parses back to the same node, and that
+  // converts to the LineBlock it started as, stanza break included.
+  assert.deepStrictEqual(carveToPandoc(carve).doc.blocks, doc.blocks);
 });
 
 test('reverse: multi-block Note becomes a reference footnote with generated id', () => {

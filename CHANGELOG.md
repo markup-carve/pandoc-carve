@@ -20,6 +20,13 @@
   byte for byte, so re-parsing restores `locatorLabel`/`locatorValue`; the
   bridge deliberately keeps no second copy of the section 4.2 label table.
 
+- **A pandoc `LineBlock` imports as the `line_block` node, not a
+  `{.line-block}` div.** The node is what PART 9 section 23 calls this and what
+  the engine's own parser produces for `::: |`; the div was a stand-in because
+  `0.1.2`'s writer threw on the node. The engine floor is now `^0.1.3`, which
+  writes it, so the exchange AST carries the canonical shape and the emitted
+  source is `::: |`.
+
 - **Frontmatter crosses at the depth pandoc's `Meta` has.** The reader took one
   flat `key: value` line at a time, so a nested map or a block sequence produced
   one "line not understood" per child line and left the parent key as an EMPTY
