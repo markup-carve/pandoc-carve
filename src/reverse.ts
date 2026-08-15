@@ -1073,14 +1073,40 @@ function figure(ctx: Ctx, c: never): CNode[] {
         if (outer) node.attrs = mergeCAttrs(node.attrs as CAttrs | undefined, outer);
         return [node];
     }
-    if (single && FIGURE_HOSTS.has(single.t)) {
+    // A HOST THAT CARRIES ITS OWN ATTRIBUTES ARRIVES INSIDE A DIV. Pandoc's
+    // BlockQuote, Para and CodeBlock have no Attr slot, so `block()` in the
+    // forward direction wraps an attributed one in a Div. A `div` is not a
+    // legal `figure.target` - `resources/ast-schema.json` lists an image, a
+    // quote, a table, a code block and a paragraph - so a Figure holding one
+    // is that wrapper rather than an authored container, and the attributes
+    // belong on the target. Roundtrip mode marks the wrapper with
+    // `carve-block`; plain mode cannot, which is why the schema's own target
+    // list is what decides here.
+    let host = single;
+    let hostAttrs: CAttrs | undefined;
+    if (single?.t === 'Div') {
+        const [divAttr, divBody] = single.c as [Attr, PandocNode[]];
+        const only = divBody.length === 1 ? divBody[0]! : undefined;
+        if (only && FIGURE_HOSTS.has(only.t)) {
+            host = only;
+            hostAttrs = fromAttr([
+                divAttr[0],
+                divAttr[1],
+                divAttr[2].filter(([k]) => k !== 'carve-block'),
+            ]);
+        }
+    }
+    if (host && FIGURE_HOSTS.has(host.t)) {
         // A single-host `Figure` is an ordinary `figure` around that host -
         // the generic captioned wrapper of PART 9 §4b, which is what the
         // forward direction emits for a captioned quote, code listing or
         // display-math block alike. A group PANEL is the same shape and used
         // to be the only way in here.
-        const [target] = block(ctx, single) as [CNode | undefined];
+        const [target] = block(ctx, host) as [CNode | undefined];
         if (target) {
+            if (hostAttrs) {
+                target.attrs = mergeCAttrs(target.attrs as CAttrs | undefined, hostAttrs);
+            }
             const node: CNode = { type: 'figure', target };
             if (caption) node.caption = caption;
             if (shortCaption) node.shortCaption = shortCaption;

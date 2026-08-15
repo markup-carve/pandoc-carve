@@ -266,6 +266,52 @@ test('a foreign Figure-wrapped BlockQuote is a captioned quote', () => {
   assert.equal(carve, '> wise\n^ Author\n');
 });
 
+test('a figure host that carries its own attributes survives its Div wrapper', () => {
+  // Pandoc's BlockQuote has no Attr slot, so a quote with attributes crosses
+  // inside a Div and the Figure holds a Div rather than the quote. A `div` is
+  // not a legal `figure.target`, so that Div is the wrapper - reading it as an
+  // authored container instead sent the document down the unwrap path, which
+  // dropped the figure and left the caption as a trailing paragraph.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Figure',
+        c: [
+          ['', [], []],
+          [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'Author' }] }]],
+          [
+            {
+              t: 'Div',
+              c: [
+                ['inner', ['kept'], []],
+                [{ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'wise' }] }] }],
+              ],
+            },
+          ],
+        ],
+      },
+    ],
+  };
+  const { carve, warnings } = pandocToCarve(doc);
+  assert.deepEqual(warnings, []);
+  assert.equal(carve, '{#inner .kept}\n> wise\n^ Author\n');
+
+  const { ast } = pandocToCarveAst(doc);
+  const [figure] = ast.children;
+  assert.equal(figure.type, 'figure');
+  assert.equal(figure.target.type, 'block_quote');
+  assert.equal(figure.target.attrs.id, 'inner');
+
+  // The control: a Div holding TWO blocks is not a wrapper for one host, and
+  // must still take the unwrap path rather than be silently reinterpreted.
+  const two = structuredClone(doc);
+  two.blocks[0].c[2][0].c[1].push({ t: 'Para', c: [{ t: 'Str', c: 'more' }] });
+  const spread = pandocToCarve(two);
+  assert.ok(spread.warnings.some((w) => w.includes('unwrapped')), JSON.stringify(spread.warnings));
+});
+
 test('an attribution-classed Span inside a quote is ordinary content', () => {
   // The §4a lowering emitted a bare `[...]{.attribution}` Span as the quote's
   // last block, and the reverse direction consumed that idiom to rebuild the

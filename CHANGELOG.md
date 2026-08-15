@@ -170,7 +170,11 @@
   listing or display-math block, so a document could not survive a round trip
   through pandoc. The host list is `figure.target`'s own list from
   `resources/ast-schema.json`, and it is no longer consulted only for a
-  section 4c panel.
+  section 4c panel. A host that carries its own attributes crosses inside a
+  `Div`, because pandoc's `BlockQuote`, `Para` and `CodeBlock` have no
+  attribute slot; that wrapper is unwrapped on the way back and its attributes
+  stay on the target, since a `div` is not a legal figure target in the first
+  place.
 - **Line blocks actually reach `LineBlock` now.** The arm for the `line_block`
   node type has been here since the smart-punctuation change, and no document
   could reach it: the PINNED published engine models `::: |` as a div carrying
