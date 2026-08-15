@@ -4,6 +4,34 @@
 
 ### Added
 
+- **A composite figure crosses as pandoc's subfigure model, both ways.** A bare
+  `::: figure` container (PART 9 section 4c) is one figure of ordered panels,
+  and pandoc has that natively: the group becomes a `Figure` whose blocks are
+  the converted children, with the panels - the direct `figure` and `table`
+  children - as nested `Figure`s and `Table`s. Stray content stays in place
+  between them. Going the other way, a `Figure` holding nested `Figure`/`Table`
+  blocks used to hit the "general figure content unwrapped" path, which dropped
+  the grouping and turned the caption into a trailing paragraph; it now imports
+  as a `figure_group`. A single-target `Figure` keeps its plain `figure`
+  mapping.
+
+  Numbering follows section 4c rather than source order: the group draws one
+  number at its OPENING fence, a panel draws none (and neither does anything a
+  panel contains, so its `#` prints as written), and a panel id resolves
+  `</#id>` as the group's number plus a letter - "Figure 2a". Inside a group a
+  captioned quote is a panel rather than a section 4a attribution, which is the
+  one place that reroute does not apply.
+
+  **This replaces the `Div ["admonition","figure"]` a `::: figure` used to
+  cross as.** A filter keyed on that Div has to key on the Figure nesting
+  instead. An opener carrying a quoted title or a `[label]` is a different
+  production and is unaffected - it still crosses as that same Div.
+
+  The engine dependency is a git pin for now: no published
+  `@markup-carve/carve` carries the node yet, and `0.1.3` parses `::: figure`
+  as a generic container. It returns to a version range at the next engine
+  release.
+
 - **Citations cross the bridge in both directions.** A `citation_group` becomes
   a native pandoc `Cite`: one `Citation` per key, carrying the prefix, the mode
   (Carve's cluster-level integral `+` maps to `AuthorInText`, an item's own `-`
