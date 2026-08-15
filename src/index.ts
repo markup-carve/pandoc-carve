@@ -22,57 +22,6 @@ export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
 const engineSerializer = (carve as unknown as { toAstJson?: (doc: unknown) => unknown }).toAstJson;
 
 /**
- * Whether the installed engine's `renderCarve` serializes the PART 9 §4a
- * `attribution` field on a block quote. A pre-§4a engine drops the field
- * SILENTLY - the probe renders a one-node document and looks for the marker,
- * because there is no version to sniff that answers this reliably.
- */
-let engineWritesAttributionCache: boolean | undefined;
-function engineWritesAttribution(): boolean {
-    if (engineWritesAttributionCache === undefined) {
-        const probe = {
-            type: 'document',
-            children: [
-                {
-                    type: 'block_quote',
-                    children: [
-                        { type: 'paragraph', children: [{ type: 'text', value: 'q' }] },
-                    ],
-                    attribution: [{ type: 'text', value: 'carve-attribution-probe' }],
-                },
-            ],
-        };
-        try {
-            engineWritesAttributionCache = carve
-                .renderCarve(probe as unknown as Parameters<typeof carve.renderCarve>[0])
-                .includes('carve-attribution-probe');
-        } catch {
-            engineWritesAttributionCache = false;
-        }
-    }
-    return engineWritesAttributionCache;
-}
-
-/**
- * Lower every attributed quote back to the pre-§4a figure shape - the shape a
- * `^0.1.2`-line engine still parses AND serializes as `> quote` + `^ text`.
- * Only the serialization path uses this; the exchange AST keeps the §4a shape.
- */
-function lowerAttributionForEngine(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(lowerAttributionForEngine);
-    if (!value || typeof value !== 'object') return value;
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = lowerAttributionForEngine(v);
-    if (out['type'] === 'block_quote' && Array.isArray(out['attribution'])) {
-        const { attribution, attrs, ...quote } = out;
-        const fig: Record<string, unknown> = { type: 'figure', target: quote, caption: attribution };
-        if (attrs) fig['attrs'] = attrs;
-        return fig;
-    }
-    return out;
-}
-
-/**
  * Parse Carve source to the serialized AST of PART 12 - the shape
  * `resources/ast-schema.json` pins, and the shape every engine's `--to-json`
  * writes.
@@ -123,9 +72,8 @@ export function carveToPandocJson(source: string, options?: ConvertOptions): str
 export function pandocToCarve(doc: PandocDoc | string): { carve: string; warnings: string[] } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
     const { ast, warnings } = reverse(parsed);
-    const writable = engineWritesAttribution() ? ast : lowerAttributionForEngine(ast);
     return {
-        carve: carve.renderCarve(writable as Parameters<typeof carve.renderCarve>[0]),
+        carve: carve.renderCarve(ast as unknown as Parameters<typeof carve.renderCarve>[0]),
         warnings,
     };
 }

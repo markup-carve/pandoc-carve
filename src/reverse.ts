@@ -558,20 +558,8 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             if (attrs) node.attrs = attrs;
             return [node];
         }
-        case 'BlockQuote': {
-            const body = c as PandocNode[];
-            const attribution = attributionFromBlocks(ctx, body);
-            if (attribution) {
-                return [
-                    {
-                        type: 'block_quote',
-                        children: blocks(ctx, body.slice(0, -1)),
-                        attribution,
-                    },
-                ];
-            }
-            return [{ type: 'block_quote', children: blocks(ctx, body) }];
-        }
+        case 'BlockQuote':
+            return [{ type: 'block_quote', children: blocks(ctx, c as PandocNode[]) }];
         case 'CodeBlock': {
             const [a, content] = c as [Attr, string];
             const [id, classes, kvs] = a;
@@ -1036,36 +1024,23 @@ function captionFromInlines(ctx: Ctx, caption: PandocNode[] | null | undefined):
     return caption?.length ? inlines(ctx, caption) : null;
 }
 
-/**
- * A quote's attribution, when the last block is a `Para`/`Plain` holding
- * exactly one Span whose whole Attr is the single class `attribution` - the
- * shape convert.ts emits for PART 9 §4a. A Span that ALSO carries an id, more
- * classes or key/values is someone's content and stays where it is; a foreign
- * document using the bare idiom reads back as the attribution it claims to be.
- */
-function attributionFromBlocks(ctx: Ctx, body: PandocNode[]): CNode[] | null {
-    const last = body[body.length - 1];
-    if (!last || (last.t !== 'Para' && last.t !== 'Plain')) return null;
-    const xs = last.c as PandocNode[];
-    if (xs.length !== 1 || xs[0]!.t !== 'Span') return null;
-    const [[id, classes, kvs], inner] = xs[0]!.c as [Attr, PandocNode[]];
-    if (id !== '' || kvs.length !== 0 || classes.length !== 1 || classes[0] !== 'attribution') {
-        return null;
-    }
-    return inlines(ctx, inner);
-}
-
 // --- Figures and divs ---
 
 /**
- * The pandoc blocks a §4c panel can wrap, which is `figure.target`'s own list
- * in `resources/ast-schema.json`: an image, a quote, a table, a code block, a
- * paragraph. Anything else has no `figure` to become and stays plain group
- * content.
+ * The pandoc blocks a `figure` can wrap, which is `figure.target`'s own list in
+ * `resources/ast-schema.json`: an image, a quote, a table, a code block, a
+ * paragraph (a display-math figure is the paragraph case). Anything else has no
+ * `figure` to become and is unwrapped below.
+ *
+ * This used to be PANEL_HOSTS and was consulted only for a §4c panel, because
+ * outside a group a captioned quote was rerouted to a quote carrying an
+ * attribution and every other single-block Figure fell to the unwrap. With
+ * §4a withdrawn (carve#1213) a captioned host is a `figure` wherever it sits,
+ * so the list is not panel-specific and there is no `asPanel` reading left.
  */
-const PANEL_HOSTS = new Set(['Plain', 'Para', 'BlockQuote', 'Table', 'CodeBlock']);
+const FIGURE_HOSTS = new Set(['Plain', 'Para', 'BlockQuote', 'Table', 'CodeBlock']);
 
-function figure(ctx: Ctx, c: never, asPanel = false): CNode[] {
+function figure(ctx: Ctx, c: never): CNode[] {
     const [a, capt, body] = c as [Attr, [unknown, PandocNode[]], PandocNode[]];
     const caption = captionFromBlocks(ctx, capt[1]);
     const shortCaption = captionFromInlines(ctx, capt[0] as PandocNode[] | null);
@@ -1083,36 +1058,6 @@ function figure(ctx: Ctx, c: never, asPanel = false): CNode[] {
             return [node];
         }
     }
-    if (single?.t === 'BlockQuote' && !asPanel) {
-        // PART 9 §4a: a captioned quote is a quote carrying an attribution,
-        // not a figure. This branch also upgrades this bridge's own pre-§4a
-        // output, which wrapped the quote in a Figure.
-        //
-        // §4c overrides it for a group's direct child: "the quote is not a
-        // special host inside the group either" - there the captioned quote is
-        // a `figure` whose target is the quote, and a PANEL (corpus
-        // 318-composite-figures-10). Everywhere else, including deeper inside
-        // the group's stray content, §4a still governs.
-        const [bq] = block(ctx, single) as [CNode];
-        if (caption) {
-            if (Array.isArray(bq.attribution)) {
-                // Both an inner attribution Span and an outer Figure caption:
-                // the caption is the outer author's statement, the inner one
-                // stays visible as an ordinary trailing paragraph.
-                (bq.children as CNode[]).push({
-                    type: 'paragraph',
-                    children: bq.attribution as CNode[],
-                });
-            }
-            bq.attribution = caption;
-        }
-        if (shortCaption) {
-            warn(ctx, 'quote attribution: short caption dropped (a quote has no navigation-caption slot)');
-        }
-        const attrs = fromAttr(a);
-        if (attrs) bq.attrs = attrs;
-        return [bq];
-    }
     if (single?.t === 'Table') {
         // The wrapper and the Table collapse into ONE Carve node, so their
         // attrs merge rather than the inner one silently winning: pandoc's
@@ -1128,16 +1073,40 @@ function figure(ctx: Ctx, c: never, asPanel = false): CNode[] {
         if (outer) node.attrs = mergeCAttrs(node.attrs as CAttrs | undefined, outer);
         return [node];
     }
-    if (asPanel && single && PANEL_HOSTS.has(single.t)) {
-        // A PANEL is an ordinary `figure` around one captionable host, and the
-        // hosts are the ones the schema lists for `figure.target`: an image, a
-        // quote, a table, a code block, a paragraph (a display-math panel is
-        // the paragraph case). Outside a group a quote never reaches here and
-        // a code listing or an equation arrives as this same single-block
-        // Figure - so only the quote's routing actually differs, which is what
-        // `asPanel` says.
-        const [target] = block(ctx, single) as [CNode | undefined];
+    // A HOST THAT CARRIES ITS OWN ATTRIBUTES ARRIVES INSIDE A DIV. Pandoc's
+    // BlockQuote, Para and CodeBlock have no Attr slot, so `block()` in the
+    // forward direction wraps an attributed one in a Div. A `div` is not a
+    // legal `figure.target` - `resources/ast-schema.json` lists an image, a
+    // quote, a table, a code block and a paragraph - so a Figure holding one
+    // is that wrapper rather than an authored container, and the attributes
+    // belong on the target. Roundtrip mode marks the wrapper with
+    // `carve-block`; plain mode cannot, which is why the schema's own target
+    // list is what decides here.
+    let host = single;
+    let hostAttrs: CAttrs | undefined;
+    if (single?.t === 'Div') {
+        const [divAttr, divBody] = single.c as [Attr, PandocNode[]];
+        const only = divBody.length === 1 ? divBody[0]! : undefined;
+        if (only && FIGURE_HOSTS.has(only.t)) {
+            host = only;
+            hostAttrs = fromAttr([
+                divAttr[0],
+                divAttr[1],
+                divAttr[2].filter(([k]) => k !== 'carve-block'),
+            ]);
+        }
+    }
+    if (host && FIGURE_HOSTS.has(host.t)) {
+        // A single-host `Figure` is an ordinary `figure` around that host -
+        // the generic captioned wrapper of PART 9 §4b, which is what the
+        // forward direction emits for a captioned quote, code listing or
+        // display-math block alike. A group PANEL is the same shape and used
+        // to be the only way in here.
+        const [target] = block(ctx, host) as [CNode | undefined];
         if (target) {
+            if (hostAttrs) {
+                target.attrs = mergeCAttrs(target.attrs as CAttrs | undefined, hostAttrs);
+            }
             const node: CNode = { type: 'figure', target };
             if (caption) node.caption = caption;
             if (shortCaption) node.shortCaption = shortCaption;
@@ -1159,7 +1128,7 @@ function figure(ctx: Ctx, c: never, asPanel = false): CNode[] {
         // of one, and the reader has no way to tell a subfigure-shaped document
         // from that.
         const children = body.flatMap((b) =>
-            b.t === 'Figure' ? figure(ctx, b.c as never, true) : block(ctx, b),
+            b.t === 'Figure' ? figure(ctx, b.c as never) : block(ctx, b),
         );
         const node: CNode = { type: 'figure_group', children };
         if (caption) node.caption = caption;

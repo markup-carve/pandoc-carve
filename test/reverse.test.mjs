@@ -218,29 +218,35 @@ test('reverse: multi-block Note becomes a reference footnote with generated id',
   assert.ok(carve.includes('second'));
 });
 
-test('a quote attribution round-trips to identical Carve source', () => {
-  // Forward emits the attribution Span inside the BlockQuote; reverse detects
-  // it and rebuilds the §4a quote - then serializes through whatever shape
-  // the installed engine's renderCarve actually writes (probed, not sniffed).
+test('a captioned quote round-trips to identical Carve source', () => {
+  // Forward wraps the quote in a Figure with the caption; reverse reads that
+  // single-host Figure back as the `figure` it is, and renderCarve writes the
+  // `> quote` + `^ caption` pair.
   const src = '> To be, or not to be.\n^ Hamlet\n';
   const { carve, warnings } = pandocToCarve(carveToPandoc(src).doc);
   assert.deepEqual(warnings, []);
   assert.equal(carve, src);
 });
 
-test('the exchange AST keeps the §4a attribution shape', () => {
+test('the exchange AST carries a captioned quote as a figure', () => {
+  // PART 9 §4b: the generic captioned wrapper, target and all. The withdrawn
+  // §4a shape put the caption in an `attribution` field on the quote itself
+  // (carve#1213); `resources/ast-schema.json` has no such property, and an
+  // unknown property is rejected on ingest (PART 12 §11), so producing it here
+  // would emit an AST no engine will read back.
   const { ast, warnings } = pandocToCarveAst(carveToPandoc('> q\n^ Hamlet\n').doc);
   assert.deepEqual(warnings, []);
-  const [quote] = ast.children;
-  assert.equal(quote.type, 'block_quote');
-  assert.deepEqual(quote.attribution, [{ type: 'text', value: 'Hamlet' }]);
-  assert.ok(!JSON.stringify(ast).includes('"figure"'), 'no quote-figure wrapper');
+  const [figure] = ast.children;
+  assert.equal(figure.type, 'figure');
+  assert.equal(figure.target.type, 'block_quote');
+  assert.deepEqual(figure.caption, [{ type: 'text', value: 'Hamlet' }]);
+  assert.ok(!JSON.stringify(ast).includes('attribution'), 'no attribution field');
 });
 
-test('a foreign Figure-wrapped BlockQuote upgrades to a quote with attribution', () => {
-  // This bridge's own pre-§4a output, and any pandoc filter that produced the
-  // same shape. The new schema refuses figure{target: block_quote}, so the
-  // reverse direction must not fabricate it.
+test('a foreign Figure-wrapped BlockQuote is a captioned quote', () => {
+  // The shape any pandoc filter produces for a quote with its attribution -
+  // and the shape the HTML Standard names as the right one, which is the
+  // argument PART 9 §4b withdrew the attribution clause on.
   const doc = {
     'pandoc-api-version': [1, 23, 1],
     meta: {},
@@ -260,25 +266,76 @@ test('a foreign Figure-wrapped BlockQuote upgrades to a quote with attribution',
   assert.equal(carve, '> wise\n^ Author\n');
 });
 
-test('a Span carrying more than the attribution class is content, not attribution', () => {
+test('a figure host that carries its own attributes survives its Div wrapper', () => {
+  // Pandoc's BlockQuote has no Attr slot, so a quote with attributes crosses
+  // inside a Div and the Figure holds a Div rather than the quote. A `div` is
+  // not a legal `figure.target`, so that Div is the wrapper - reading it as an
+  // authored container instead sent the document down the unwrap path, which
+  // dropped the figure and left the caption as a trailing paragraph.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'Figure',
+        c: [
+          ['', [], []],
+          [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'Author' }] }]],
+          [
+            {
+              t: 'Div',
+              c: [
+                ['inner', ['kept'], []],
+                [{ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'wise' }] }] }],
+              ],
+            },
+          ],
+        ],
+      },
+    ],
+  };
+  const { carve, warnings } = pandocToCarve(doc);
+  assert.deepEqual(warnings, []);
+  assert.equal(carve, '{#inner .kept}\n> wise\n^ Author\n');
+
+  const { ast } = pandocToCarveAst(doc);
+  const [figure] = ast.children;
+  assert.equal(figure.type, 'figure');
+  assert.equal(figure.target.type, 'block_quote');
+  assert.equal(figure.target.attrs.id, 'inner');
+
+  // The control: a Div holding TWO blocks is not a wrapper for one host, and
+  // must still take the unwrap path rather than be silently reinterpreted.
+  const two = structuredClone(doc);
+  two.blocks[0].c[2][0].c[1].push({ t: 'Para', c: [{ t: 'Str', c: 'more' }] });
+  const spread = pandocToCarve(two);
+  assert.ok(spread.warnings.some((w) => w.includes('unwrapped')), JSON.stringify(spread.warnings));
+});
+
+test('an attribution-classed Span inside a quote is ordinary content', () => {
+  // The §4a lowering emitted a bare `[...]{.attribution}` Span as the quote's
+  // last block, and the reverse direction consumed that idiom to rebuild the
+  // attribution - which meant a FOREIGN document using the same class had its
+  // paragraph lifted out of the quote and turned into a caption. With §4a
+  // withdrawn (carve#1213) nothing claims the class: the span is a span,
+  // whatever else its Attr carries.
   const quoteWith = (span) => ({
     'pandoc-api-version': [1, 23, 1],
     meta: {},
     blocks: [{ t: 'BlockQuote', c: [{ t: 'Para', c: [span] }] }],
   });
-  // id present -> stays a paragraph inside the quote
-  const kept = pandocToCarve(
+  const withId = pandocToCarve(
     quoteWith({ t: 'Span', c: [['x1', ['attribution'], []], [{ t: 'Str', c: 'A' }]] }),
   );
-  assert.ok(!kept.carve.includes('^ '), kept.carve);
-  // bare class -> attribution
-  const taken = pandocToCarve(
+  assert.equal(withId.carve, '> [A]{#x1 .attribution}\n');
+  const bare = pandocToCarve(
     quoteWith({ t: 'Span', c: [['', ['attribution'], []], [{ t: 'Str', c: 'A' }]] }),
   );
-  assert.equal(taken.carve, '>\n^ A\n');
+  assert.equal(bare.carve, '> [A]{.attribution}\n');
+  assert.ok(!bare.carve.includes('^ '), 'the span is not lifted out as a caption');
 });
 
-test('a Figure-wrapped quote with a short caption warns instead of losing it silently', () => {
+test('a Figure-wrapped quote keeps its short caption in the AST and says so', () => {
   const doc = {
     'pandoc-api-version': [1, 23, 1],
     meta: {},
@@ -293,7 +350,14 @@ test('a Figure-wrapped quote with a short caption warns instead of losing it sil
       },
     ],
   };
-  const { warnings } = pandocToCarve(doc);
+  const { carve, warnings } = pandocToCarve(doc);
   assert.equal(warnings.length, 1);
   assert.ok(warnings[0].includes('short caption'), warnings[0]);
+  // Carve 0.1 source has no spelling for a short caption, so the source loses
+  // it and the warning says so - but the AST path keeps it, which is the whole
+  // reason `pandocToCarveAst` exists. Under §4a this warned that a quote had
+  // no slot for one at all.
+  assert.equal(carve, '> wise\n^ Author\n');
+  const { ast } = pandocToCarveAst(doc);
+  assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'nav' }]);
 });

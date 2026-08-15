@@ -18,9 +18,9 @@
   Numbering follows section 4c rather than source order: the group draws one
   number at its OPENING fence, a panel draws none (and neither does anything a
   panel contains, so its `#` prints as written), and a panel id resolves
-  `</#id>` as the group's number plus a letter - "Figure 2a". Inside a group a
-  captioned quote is a panel rather than a section 4a attribution, which is the
-  one place that reroute does not apply.
+  `</#id>` as the group's number plus a letter - "Figure 2a". A captioned quote
+  among the children is a panel like any other captioned host: "the quote is
+  not a special host inside the group either".
 
   **This replaces the `Div ["admonition","figure"]` a `::: figure` used to
   cross as.** A filter keyed on that Div has to key on the Figure nesting
@@ -162,26 +162,19 @@
   document silently. The characters stay - they are what an author would have
   typed, and Carve has no quote node - but the conversion now reports the loss,
   once per document however many quotations it holds.
-- **A quote attribution rides inside the `BlockQuote` and survives every pandoc
-  writer.** The spec made a caption on a quote an attribution rather than a
-  figure caption (PART 9 section 4a, markup-carve/carve#1159), and the bridge's
-  old `Figure`-wrapped lowering lost the attribution wholesale in pandoc's
-  plain and rst writers and numbered the quote as a float in latex. The quote
-  now lowers to a `BlockQuote` whose last block is a `Para` holding one
-  `attribution`-classed `Span`, which every writer keeps attached, and which
-  the reverse direction recognizes and folds back - `> quote` + `^ author`
-  round-trips to identical source, including through pandoc's own markdown.
-  Both input shapes convert identically: the `attribution` field an engine past
-  markup-carve/carve#1159 serializes, and the quote-figure shape the pinned
-  `^0.1.2` engine line still parses. On the way back, the serializer is probed
-  once - a pre-4a engine whose `renderCarve` would drop the field silently gets
-  the shape it can write, while `pandocToCarveAst` always keeps the spec shape.
-  A quote consumes no figure number anymore, so the numbering of every later
-  figure and its cross-references no longer drifts by one per attributed quote,
-  and a `#` placeholder in an attribution stays literal. An incoming
-  `Figure`-wrapped `BlockQuote` (this bridge's own earlier output) upgrades to
-  the attribution model; its short caption, which a quote cannot carry, is
-  dropped with a degradation warning instead of silently.
+- **A single-host `Figure` imports as a `figure`, whatever the host is.** Only
+  an image and a table were read back as one; a `Figure` wrapping a quote, a
+  code block or a paragraph hit the "general figure content unwrapped" path,
+  which dropped the wrapper and left the caption as a trailing paragraph. That
+  is the exact shape the forward direction emits for a captioned quote,
+  listing or display-math block, so a document could not survive a round trip
+  through pandoc. The host list is `figure.target`'s own list from
+  `resources/ast-schema.json`, and it is no longer consulted only for a
+  section 4c panel. A host that carries its own attributes crosses inside a
+  `Div`, because pandoc's `BlockQuote`, `Para` and `CodeBlock` have no
+  attribute slot; that wrapper is unwrapped on the way back and its attributes
+  stay on the target, since a `div` is not a legal figure target in the first
+  place.
 - **Line blocks actually reach `LineBlock` now.** The arm for the `line_block`
   node type has been here since the smart-punctuation change, and no document
   could reach it: the PINNED published engine models `::: |` as a div carrying

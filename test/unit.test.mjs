@@ -344,35 +344,53 @@ test('listTable: malformed structure falls back to Div, content preserved (codex
   assert.ok(r.warnings.some((w) => w.includes('not table-shaped')));
 });
 
-test('figure from captioned image; blockquote attribution', () => {
+test('a captioned image and a captioned quote are both a Figure', () => {
   const [fig] = blocks('![alt](i.png)\n^ Figure 1: cap');
   assert.equal(fig.t, 'Figure');
   assert.equal(fig.c[2][0].c[0].t, 'Image');
 
-  // PART 9 §4a: a captioned quote is a quote carrying an attribution, not a
-  // figure - the attribution rides INSIDE the BlockQuote as a trailing Span,
-  // so every pandoc writer keeps it attached (a Figure wrapper lost it
-  // wholesale in the plain and rst writers).
+  // PART 9 §4b: `figure` is the GENERIC captioned wrapper, and a quote is not
+  // a special host. carve#1161 briefly made a caption on a quote an
+  // `attribution` Span inside the BlockQuote; that clause is withdrawn
+  // (carve#1213), and the HTML Standard puts the attribution outside the
+  // blockquote, in exactly this figure/figcaption shape.
   const [quote] = blocks('> wise words\n^ Author');
-  assert.equal(quote.t, 'BlockQuote');
-  const attribution = quote.c[quote.c.length - 1];
-  assert.equal(attribution.t, 'Para');
-  assert.equal(attribution.c[0].t, 'Span');
-  assert.deepEqual(attribution.c[0].c[0], ['', ['attribution'], []]);
-  assert.equal(attribution.c[0].c[1][0].c, 'Author');
+  assert.equal(quote.t, 'Figure');
+  assert.equal(quote.c[2][0].t, 'BlockQuote');
+  assert.equal(quote.c[1][1][0].c[0].c, 'Author');
+
+  // The control: without the caption the quote is a bare BlockQuote, so the
+  // wrapper above is the caption's doing.
+  const [bare] = blocks('> wise words');
+  assert.equal(bare.t, 'BlockQuote');
 });
 
-test('a quote attribution consumes no figure number and keeps `#` literal', () => {
-  // §4a: the placeholder has nothing to resolve against on a quote. The quote
-  // must also not bump the Figure sequence, or the real figure after it would
-  // be numbered 2.
+test('a quote figure draws a number like any other figure', () => {
+  // §4a excluded a quote from the counter, because an attribution was not a
+  // numbered thing. Withdrawn: the quote takes Figure 1 and the image after it
+  // takes Figure 2, exactly as a captioned code listing between them would.
   const out = blocks('> q\n^ Figure #: Src\n\n![alt](i.png)\n^ Figure #: real\n');
-  const spanText = JSON.stringify(out[0]);
-  assert.ok(spanText.includes('"attribution"'), 'quote carries the attribution span');
-  assert.ok(spanText.includes('#'), 'placeholder stays a literal #: ' + spanText);
-  const figText = JSON.stringify(out[1]);
+  assert.equal(out[0].t, 'Figure');
+  assert.ok(JSON.stringify(out[0].c[1][1]).includes('"1:"'), 'the quote is Figure 1');
   assert.equal(out[1].t, 'Figure');
-  assert.ok(figText.includes('"1:"'), 'the image is Figure 1, not 2: ' + figText);
+  assert.ok(JSON.stringify(out[1].c[1][1]).includes('"2:"'), 'the image is Figure 2');
+});
+
+test('a quote figure is a crossref target like any other figure', () => {
+  // The rendered number and the `</#id>` text come from two different passes,
+  // so pinning one says nothing about the other: §4a excluded a quote figure
+  // from the crossref pass as well, and with only the rendered-number test
+  // above, restoring that exclusion left the suite green while `</#q>` went
+  // unresolved and every later figure's crossref shifted down by one.
+  const r = carveToPandoc(
+    '{#q}\n> To be\n^ Figure #: Src\n\n{#i}\n![alt](i.png)\n^ Figure #: real\n\nSee </#q> and </#i>.\n',
+  );
+  assert.deepEqual(r.warnings, []);
+  const links = r.doc.blocks[2].c.filter((i) => i.t === 'Link');
+  assert.deepEqual(
+    links.map((l) => [l.c[2][0], l.c[1].map((x) => x.c ?? ' ').join('')]),
+    [['#q', 'Figure 1'], ['#i', 'Figure 2']],
+  );
 });
 
 test('admonition becomes classed Div with title paragraph', () => {
