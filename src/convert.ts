@@ -1258,8 +1258,10 @@ function figure(ctx: Ctx, n: CNode): P.Block[] {
         const img = inline(ctx, target);
         return [P.Figure(toAttr(n.attrs), caption, [P.Plain(img)], shortCaption)];
     }
-    // any other captionable target (outside a group a quote never reaches
-    // here - see above; as a PANEL it does, and lowers as a nested Figure)
+    // Any other captionable target, a QUOTE INCLUDED - this is the arm a
+    // captioned quote takes, at document level and as a §4c panel alike. It
+    // used to be unreachable for a quote outside a group, because §4a rerouted
+    // that case; nothing reroutes it now.
     return [P.Figure(toAttr(n.attrs), caption, untight(ctx, () => block(ctx, target)), shortCaption)];
 }
 

@@ -111,6 +111,40 @@ test('the serialized document validates against the spec AST schema', () => {
   assertConforms(carveToCarveAst(SOURCE), 'serialized source');
 });
 
+test('the pinned engine hands a captioned quote over as a figure, not an attribution', () => {
+  // WHERE THE ENGINE PIN IS ACTUALLY CHECKED. PART 9 section 4a briefly made a
+  // caption on a quote an `attribution` field on the quote itself; the clause
+  // is withdrawn (carve#1213) and `figure` is the generic captioned wrapper
+  // again, so `resources/ast-schema.json` has no `attribution` property and an
+  // unknown property is rejected on ingest (PART 12 section 11).
+  //
+  // Every other assertion about this shape in the suite reads the CONVERTED
+  // pandoc tree, which cannot tell a correct engine from a stale one that
+  // `convert.ts` compensated for - the failure mode markup-carve/carve#755
+  // collects. This one reads what the engine itself serialized, before the
+  // converter sees it, so a pin that slipped back behind the withdrawal has
+  // nowhere downstream to hide.
+  const ast = carveToCarveAst('> To be, or not to be.\n^ Hamlet\n');
+  assertConforms(ast, 'captioned quote');
+
+  const [figure] = ast.children;
+  assert.equal(figure.type, 'figure');
+  assert.equal(figure.target.type, 'block_quote');
+  // The caption is the half a `figure` has and an `attribution` had elsewhere,
+  // so it is asserted rather than assumed to have come along. Compared by type
+  // and text because a serialized node also carries its `pos`.
+  assert.deepEqual(
+    figure.caption.map((n) => [n.type, n.value]),
+    [['text', 'Hamlet']],
+  );
+  assert.ok(!JSON.stringify(ast).includes('attribution'), 'no attribution field anywhere');
+
+  // The control: an UNCAPTIONED quote is a bare `block_quote`, so the `figure`
+  // above is the caption's doing and not the engine wrapping every quote.
+  const [bare] = carveToCarveAst('> To be, or not to be.\n').children;
+  assert.equal(bare.type, 'block_quote');
+});
+
 // --- The other direction: a tree that arrived already serialized ---
 
 const WIRE = {

@@ -87,6 +87,51 @@ test('no test source carries a literal control byte where an escape belongs', ()
   );
 });
 
+test('the engine under test is the engine the manifest pins', () => {
+  // A THIRD POPULATION THAT CAN GO UNCOMPARED: the dependency itself.
+  //
+  // `package.json` names a commit of carve-js, `package-lock.json` resolves it,
+  // and `node_modules/.package-lock.json` records what npm actually wrote to
+  // disk. Nothing in this suite reads the last one, so a checkout whose
+  // `node_modules` predates a pin bump runs every engine-facing test against a
+  // DIFFERENT engine and reports the same green.
+  //
+  // Measured, not hypothesized. A long-lived checkout of this repo held:
+  //
+  //   package-lock.json                git+...carve-js.git#3f5dd8cb
+  //   node_modules/.package-lock.json  registry.npmjs.org/...carve-0.1.3.tgz
+  //
+  // 0.1.3 is the last released tag and predates the PART 9 section 4b
+  // withdrawal (carve#1213), so that tree still carried `block_quote`'s
+  // `attribution` field. `npm test` there would have run the quote-figure
+  // assertions against an engine that cannot satisfy them - or, worse, passed
+  // them one day and not the next with no file in the diff to explain it.
+  //
+  // The fix is `npm ci`, and this is the line that says so.
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const read = (p) => JSON.parse(readFileSync(join(root, p), 'utf8'));
+  const dep = '@markup-carve/carve';
+
+  const manifest = read('package.json').dependencies[dep];
+  const locked = read('package-lock.json').packages[`node_modules/${dep}`].resolved;
+  const installed = read('node_modules/.package-lock.json').packages[`node_modules/${dep}`].resolved;
+
+  // A git pin is `<url>#<sha>`; the sha is the only part that identifies code.
+  // The url half legitimately differs between the three (npm rewrites the
+  // manifest's `git+https:` to `git+ssh:` when it resolves), so comparing whole
+  // strings would fail on a correct tree and teach everyone to ignore this.
+  const sha = (spec) => (typeof spec === 'string' ? (spec.split('#')[1] ?? null) : null);
+
+  assert.ok(sha(manifest), `${dep} is not pinned to a commit in package.json: ${manifest}`);
+  assert.equal(sha(locked), sha(manifest), 'package-lock.json did not follow the manifest bump');
+  assert.equal(
+    sha(installed),
+    sha(manifest),
+    `node_modules holds ${installed}, not the pinned commit. Run \`npm ci\`: every ` +
+      'engine-facing test in this suite is currently measuring a different engine.',
+  );
+});
+
 test('a short count is a finding, and a sufficient one is not', () => {
   assert.equal(shortfall({ label: 'X', actual: 4, atLeast: 4 }), null);
   assert.match(

@@ -22,8 +22,27 @@ name: Engine drift
 #
 # It WARNS on both rather than failing. Upstream moving is not a defect in
 # this repo, and a job that goes red for something outside it teaches people
-# to ignore the job. It DOES fail when the range resolves to nothing, which
-# means the dependency is unreachable and an install here is broken.
+# to ignore the job. It DOES fail when the pin is unresolvable, which means
+# an install here is broken.
+#
+# A GIT PIN IS THE THIRD SHAPE, and it is the shape this repo is in whenever
+# it needs a node no release carries yet. `npm view` cannot resolve one - it
+# answers "GitFetcher requires an Arborist constructor to pack a tarball" - so
+# the range half of this job read that as an EMPTY resolution and failed with
+# "resolves to nothing on the registry, an install here is broken" while
+# `npm ci` was installing the pin perfectly well. The job went red the first
+# morning after the pin landed and said the opposite of the truth, which is
+# worth more than the drift it was watching for.
+#
+# So the pin's shape decides which comparison is meaningful:
+#
+#   - a RANGE is compared against the registry, as before;
+#   - a COMMIT is compared against carve-js `main` directly, which is the same
+#     "how far behind the language is this repo" question with the registry
+#     taken out of the middle. What DOES fail there is a commit carve-js does
+#     not have - a rebased-away or force-pushed sha is an install that cannot
+#     be reproduced, which is the real version of the error the range path was
+#     reporting falsely.
 
 on:
   schedule:
@@ -41,43 +60,76 @@ jobs:
         with:
           node-version: 22
 
-      - name: Compare the range against the registry
+      - name: Compare the pin against the registry
         id: registry
         run: |
           set -euo pipefail
           pkg='@markup-carve/carve'
-          range="$(node -p "const p=require('./package.json');const d=p.dependencies||{},v=p.devDependencies||{};d['${pkg}']||v['${pkg}']||''")"
-          if [ -z "${range}" ]; then
+          spec="$(node -p "const p=require('./package.json');const d=p.dependencies||{},v=p.devDependencies||{};d['${pkg}']||v['${pkg}']||''")"
+          if [ -z "${spec}" ]; then
             echo "::error::${pkg} is not a dependency of this repo - this workflow is watching nothing"
             exit 1
           fi
-          # `npm view <pkg>@<range> version` prints ONE bare version when the
-          # range matches a single release, and `<pkg>@<v> '<v>'` lines when it
-          # matches several. Taking the last WHITESPACE-SEPARATED FIELD reads
-          # both; `tail -1` alone concatenates the spec onto the version the
-          # moment a second matching release exists, yielding
-          # `@markup-carve/carve@0.1.20.1.2` rather than a version.
-          resolved="$(npm view "${pkg}@${range}" version 2>/dev/null | tail -1 | tr -d "'\"" | awk '{print $NF}')"
-          latest="$(npm view "${pkg}" version 2>/dev/null | tr -d "'\"" | awk '{print $NF}')"
-          if [ -z "${resolved}" ]; then
-            echo "::error::${pkg}@${range} resolves to nothing on the registry - an install here is broken"
-            exit 1
-          fi
-          # Both reads are checked for the SHAPE of a version before anything is
+
+          # WHICH SHAPE IS IT. A dependency npm fetches from git carries the
+          # commit after a `#`; anything else is a semver range. The two are
+          # asked different questions, and asking a git pin the range question
+          # is what made this job report a broken install against a healthy one.
+          case "${spec}" in
+            *://*|git+*|github:*)
+              commit="${spec##*#}"
+              case "${commit}" in
+                # A branch or tag after the `#` pins nothing reproducible, and
+                # no `#` at all leaves `commit` holding the whole url.
+                ????????????????????????????????????????) ;;
+                *) echo "::error::${pkg} is fetched from git as \"${spec}\", which names no 40-character commit - an install here is not reproducible"; exit 1 ;;
+              esac
+              echo "pinned to       carve-js ${commit}"
+              echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
+              ;;
+            *)
+              # `npm view <pkg>@<range> version` prints ONE bare version when
+              # the range matches a single release, and `<pkg>@<v> '<v>'` lines
+              # when it matches several. Taking the last WHITESPACE-SEPARATED
+              # FIELD reads both; `tail -1` alone concatenates the spec onto the
+              # version the moment a second matching release exists, yielding
+              # `@markup-carve/carve@0.1.20.1.2` rather than a version.
+              #
+              # `|| true` because the message below is the point. Under
+              # `set -e -o pipefail` an `npm view` that exits non-zero - which
+              # is exactly what an unresolvable spec does - kills the step
+              # THERE, before the `::error::` explaining it ever runs, and the
+              # job fails with an empty log. That is how this step failed for
+              # real: `--log-failed` printed nothing at all.
+              resolved="$(npm view "${pkg}@${spec}" version 2>/dev/null | tail -1 | tr -d "'\"" | awk '{print $NF}' || true)"
+              if [ -z "${resolved}" ]; then
+                echo "::error::${pkg}@${spec} resolves to nothing on the registry - an install here is broken"
+                exit 1
+              fi
+              echo "resolved=${resolved}" >> "${GITHUB_OUTPUT}"
+              ;;
+          esac
+
+          latest="$(npm view "${pkg}" version 2>/dev/null | tr -d "'\"" | awk '{print $NF}' || true)"
+          # Every read is checked for the SHAPE of a version before anything is
           # compared. Without this the workflow's failure mode is silence: a
           # mis-read compares unequal to everything, so the drift warning fires
           # with a nonsense string in it and reads as a result (carve#755).
-          for pair in "resolved=${resolved}" "latest=${latest}"; do
+          for pair in ${resolved:+"resolved=${resolved}"} "latest=${latest}"; do
             case "${pair#*=}" in
               [0-9]*.[0-9]*.[0-9]*) ;;
               *) echo "::error::${pair%%=*} read back as \"${pair#*=}\" from the registry, which is not a version - every comparison below it would be meaningless"; exit 1 ;;
             esac
           done
-          echo "range           ${range}"
-          echo "resolves to     ${resolved}"
+          echo "spec            ${spec}"
           echo "registry latest ${latest}"
-          if [ "${resolved}" != "${latest}" ]; then
-            echo "::warning::${pkg} ${latest} is published, but the range ${range} takes ${resolved} - a major-bumped release does not arrive on its own"
+          if [ -n "${resolved:-}" ]; then
+            echo "resolves to     ${resolved}"
+            if [ "${resolved}" != "${latest}" ]; then
+              echo "::warning::${pkg} ${latest} is published, but the range ${spec} takes ${resolved} - a major-bumped release does not arrive on its own"
+            fi
+          else
+            echo "::warning::${pkg} is on a GIT PIN, so the published ${latest} is not what installs here - the pin returns to a range at the next engine release"
           fi
           echo "latest=${latest}" >> "${GITHUB_OUTPUT}"
 
@@ -88,7 +140,30 @@ jobs:
           path: carve-js
           fetch-depth: 0
 
+      - name: Compare the pinned commit against carve-js main
+        if: steps.registry.outputs.commit != ''
+        run: |
+          set -euo pipefail
+          commit='${{ steps.registry.outputs.commit }}'
+          # THE ONE FAILURE THIS PATH OWNS. A pinned commit carve-js does not
+          # have is a dependency nobody can install - a rebase or a force-push
+          # upstream, or a sha typed by hand. It is checked before it is
+          # measured, because `rev-list` on an unknown ref exits non-zero with
+          # a message about a bad revision, which reads as a workflow bug
+          # rather than as the finding it is.
+          if ! git -C carve-js cat-file -e "${commit}^{commit}" 2>/dev/null; then
+            echo "::error::carve-js has no commit ${commit} - the pin in package.json cannot be installed"
+            exit 1
+          fi
+          behind="$(git -C carve-js rev-list --count "${commit}..origin/main")"
+          echo "pinned ${commit} ($(git -C carve-js log -1 --format=%s "${commit}"))"
+          echo "carve-js main is ${behind} commit(s) ahead of it"
+          if [ "${behind}" -gt 0 ]; then
+            echo "::warning::the PINNED engine is ${behind} commit(s) behind carve-js main - a git pin does not move on its own, so nothing here will notice the language moving until someone bumps it"
+          fi
+
       - name: Compare the published engine against carve-js main
+        if: steps.registry.outputs.commit == ''
         run: |
           set -euo pipefail
           latest='${{ steps.registry.outputs.latest }}'
