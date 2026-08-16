@@ -12,7 +12,7 @@ This Markdown is the *seed* for the DOCX import example. The build renders it to
 {#numbers}
 ## Numbers
 
-|=Metric|=Value|
+|= Metric |= Value |
 | Revenue | 5.0M |
 | Users | 12k |
 

@@ -22,8 +22,9 @@
  *
  * A published engine that exports its own serializer is authoritative and is
  * used when present ({@link toCarveAst}'s `serialize` parameter, wired to the
- * engine in `index.ts`). The mapping below is what runs when the pinned engine
- * predates it - the pinned `^0.1.2` exports no `toAstJson` at all - and it is
+ * engine in `index.ts`), and the current git pin exports one. The mapping
+ * below is what runs when the installed engine predates `toAstJson` (any
+ * published release up to `0.1.3` does) - and it is
  * measured, not assumed: every one of the 610 spec-corpus documents validates
  * against the schema after passing through here (test/spec-corpus.test.mjs).
  */

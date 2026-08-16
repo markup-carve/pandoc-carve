@@ -14,8 +14,9 @@ export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
  *
  * PART 12 section 1: an implementation whose internals differ maps on the way
  * out. Where the engine does that itself its mapping is authoritative and is
- * used; the published `^0.1.2` pinned here exports no `toAstJson`, and
- * `toCarveAst` applies the section 7 mapping instead. Feature-detected through
+ * used; the current git pin exports `toAstJson`, while any published release
+ * up to `0.1.3` does not, and there `toCarveAst` applies the section 7
+ * mapping instead. Feature-detected through
  * a NAMESPACE import on purpose - a named import of an export the installed
  * version does not have fails at link time, before any check could run.
  */
