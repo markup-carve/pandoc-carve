@@ -1062,9 +1062,14 @@ function figure(ctx: Ctx, c: never): CNode[] {
         // The wrapper and the Table collapse into ONE Carve node, so their
         // attrs merge rather than the inner one silently winning: pandoc's
         // readers put the label on the Figure, not on the Table it wraps, and
-        // dropping it took the id a `</#id>` resolves against with it. Same
-        // collapse rule as the §4a quote branch above - the outer id wins,
-        // classes union, key/values merge with the outer taking precedence.
+        // dropping it took the id a `</#id>` resolves against with it. The
+        // outer id wins, classes union, key/values merge with the outer taking
+        // precedence.
+        //
+        // A table is the only host that collapses this way, because it is the
+        // only one Carve gives a caption of its own. Every other host keeps
+        // both nodes - the wrapper stays a `figure` and the host's own attrs
+        // ride on the target - which is what the Div arm below sorts out.
         //
         // It matters most for a §4c table PANEL, whose id is what resolves as
         // the group's number plus a letter.
