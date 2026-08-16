@@ -999,9 +999,24 @@ function table(
         }
     }
 
-    // Column alignments come from the first row's cells.
+    // Column alignment comes from the first row's cells, but ONLY when that row
+    // is the head. Carve spells column alignment on the header marker
+    // (`|=> Name |`), and a marker on a body cell aligns that cell alone -
+    // measured on the engine: `|>a| b |` styles `a` and leaves the cell below
+    // it untouched. Reading a body row's markers as the column's therefore
+    // aligned cells the author had not aligned, in every pandoc writer, because
+    // a cell with `AlignDefault` inherits its ColSpec.
+    //
+    // The head case moves the alignment rather than copying it: the marker on a
+    // head cell IS the column's alignment, so it becomes the ColSpec and the
+    // cell keeps `AlignDefault`. That is pandoc's own model, and it makes the
+    // crossing exact in both directions instead of adding a per-cell override
+    // that was never in the source.
+    const firstRowIsHead = headCount > 0;
     const firstRow = rows[0] ?? [];
-    const colAligns: P.Alignment[] = firstRow.map((c) => ALIGN[c.align ?? ''] ?? 'AlignDefault');
+    const colAligns: P.Alignment[] = firstRow.map(
+        (c) => (firstRowIsHead ? ALIGN[c.align ?? ''] ?? 'AlignDefault' : 'AlignDefault'),
+    );
 
     // origin[r][c] -> the origin record covering grid position (r, c).
     interface Origin {
@@ -1072,7 +1087,13 @@ function table(
             const cellBlocks = cc.children?.length
                 ? [P.Plain(untight(ctx, () => inlines(ctx, cc.children)))]
                 : [];
-            const pc = P.cell(cellBlocks, ALIGN[cc.align ?? ''] ?? 'AlignDefault', toAttr(cc.attrs));
+            // A head cell's marker became the ColSpec above, so repeating it
+            // here would emit an override pandoc does not need and the source
+            // never had.
+            const cellAlign: P.Alignment = firstRowIsHead && r === 0
+                ? 'AlignDefault'
+                : ALIGN[cc.align ?? ''] ?? 'AlignDefault';
+            const pc = P.cell(cellBlocks, cellAlign, toAttr(cc.attrs));
             origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;
         }

@@ -244,6 +244,33 @@ test('table: alignment colspecs, head/body split, caption', () => {
   assert.equal(t.c[4][0][3].length, 1);
 });
 
+/*
+ * A marker on a HEAD cell is the column's alignment; a marker on a BODY cell is
+ * that cell's own. Measured on the engine: `|>a| b |` styles `a` and leaves the
+ * cell below it untouched. Reading a body row's markers as the column's aligned
+ * cells the author never aligned - every pandoc writer applies a ColSpec to any
+ * cell carrying AlignDefault.
+ */
+
+test('table: a body cell marker aligns that cell, not its column', () => {
+  const [t] = blocks('|>a| b |\n| c | d |');
+  assert.deepEqual(t.c[2].map((cs) => cs[0].t), ['AlignDefault', 'AlignDefault'], 'the column is untouched');
+  const cellAlign = (r, c) => t.c[4][0][3][r][1][c][1].t;
+  assert.equal(cellAlign(0, 0), 'AlignRight', 'the marked cell keeps it');
+  assert.equal(cellAlign(1, 0), 'AlignDefault', 'the cell below does not inherit it');
+});
+
+test('table: a head cell marker becomes the column, and only the column', () => {
+  // Every cell in the row has to be a header cell for the row to BE the head.
+  const [t] = blocks('|=>H|= I |\n| c | d |');
+  assert.deepEqual(t.c[2].map((cs) => cs[0].t), ['AlignRight', 'AlignDefault']);
+  assert.equal(
+    t.c[3][1][0][1][0][1].t,
+    'AlignDefault',
+    'the head cell adds no override of its own - the ColSpec already says it',
+  );
+});
+
 test('structural short captions map to Pandoc without changing the full caption', () => {
   const doc = {
     type: 'document',

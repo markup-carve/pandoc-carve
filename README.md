@@ -245,6 +245,11 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   spells only a leading run of header rows, so `pandocToCarve` flattens it into
   body rows and says so. Use the AST entry point, or the `::: list-table`
   fallback a block cell already triggers, when that structure has to survive.
+- A marker on a HEAD cell (`|=> Name |`) is the column's alignment and becomes
+  pandoc's `ColSpec`; a marker on a BODY cell (`|> 12 |`) aligns that cell alone
+  and becomes the cell's own `Alignment`. The two are not interchangeable: a
+  pandoc cell with `AlignDefault` inherits its ColSpec, so promoting a body
+  cell's marker to the column would align cells the author did not.
 - Column alignment needs a header row to live on (`|=> Name |`). A headerless
   pandoc table's column alignment is written onto each cell instead, which
   renders the same; the move is reported.
