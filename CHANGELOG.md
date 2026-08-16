@@ -12,6 +12,16 @@
 
 ### Fixed
 
+- **A body cell's alignment marker aligns that cell alone.** Column alignment
+  was read off the first row whatever that row was, so a table whose first row
+  is a body row exported with that row's markers as the ColSpec - and since a
+  pandoc cell carrying `AlignDefault` inherits its ColSpec, every other cell in
+  the column came out aligned in every writer. Measured on the engine,
+  `|>a| b |` styles `a` alone and leaves the cell below it untouched. The
+  column is read only from a head row, and a head cell's marker MOVES to the
+  ColSpec instead of being copied there, which is pandoc's own model and makes
+  the crossing exact in both directions.
+
 - **The pipe-table writer reports the structure it flattens.** A `rowGroups`
   partition reaches the exchange AST intact, but the source writer spells only
   a leading run of header rows - so a foot, a second body group, a body's own
