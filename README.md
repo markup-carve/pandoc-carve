@@ -142,7 +142,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `[text]{.smallcaps}` | SmallCaps (pandoc's own class convention, both directions) |
 | Frontmatter, nested: maps, block and flow sequences, sequences of maps | Meta, to the depth pandoc's own reader gives it |
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
-| Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter |
+| Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
 | A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
 
 The complete node-by-node contract lives in the test goldens. Worked

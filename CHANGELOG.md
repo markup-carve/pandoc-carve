@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **An ordered-list marker Carve cannot spell is reported.** Pandoc's
+  example-list style (`(@)`) became an ordinary decimal list in silence. The
+  numbers themselves survive - pandoc resolves its document-wide counter into
+  the list's `start` before the bridge sees it - but the counter does not, so
+  the lists no longer renumber each other, and the marker becomes `1)`. A `(1)`
+  marker on any other style was likewise emitted as `1)` with the opening
+  parenthesis dropped and nothing said. Both now warn; `1)`, `1.` and the
+  alpha/roman styles are unaffected.
+
 - **A dropped comment is reported, not silent**
   (markup-carve/pandoc-carve#75). Pandoc's AST has no comment node, so
   dropping is the conversion - but the bridge's contract is to report what

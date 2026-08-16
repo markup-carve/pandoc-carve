@@ -589,3 +589,34 @@ test('a dropped comment is reported, not silent', () => {
   // The content still does not reach the document.
   assert.ok(!JSON.stringify(block.doc.blocks).includes('hidden note'));
 });
+
+test('ordered list: a style or delimiter with no Carve form is reported', async () => {
+  const { pandocToCarve } = await import('../dist/reverse.js');
+  const doc = (style, delim) => ({
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [{ t: 'OrderedList', c: [[1, { t: style }, { t: delim }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
+  });
+
+  // Pandoc always pairs `Example` with `TwoParens` - measured on `(@) one` -
+  // so that shape must produce ONE diagnostic, not the example warning plus a
+  // `(1)` warning describing a marker the author never wrote.
+  const example = pandocToCarve(doc('Example', 'TwoParens'));
+  assert.equal(example.ast.children[0].olType, undefined, 'it becomes a decimal list');
+  assert.equal(example.warnings.length, 1, example.warnings.join(' | '));
+  assert.ok(example.warnings[0].includes('example-list'), example.warnings[0]);
+  assert.ok(
+    example.warnings[0].includes('resolved numbers are kept'),
+    'the numbers survive in `start`; the shared counter is what does not',
+  );
+
+  const twoParens = pandocToCarve(doc('Decimal', 'TwoParens'));
+  assert.equal(twoParens.ast.children[0].delim, ')', 'the closing paren is kept');
+  assert.ok(
+    twoParens.warnings.some((w) => w.includes('(1)')),
+    twoParens.warnings.join(' | '),
+  );
+
+  assert.deepEqual(pandocToCarve(doc('Decimal', 'OneParen')).warnings, [], 'control: `1)` is exact');
+  assert.deepEqual(pandocToCarve(doc('UpperRoman', 'Period')).warnings, [], 'control: `I.` is exact');
+});
