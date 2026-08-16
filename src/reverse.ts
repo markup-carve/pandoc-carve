@@ -651,6 +651,37 @@ function orderedList(ctx: Ctx, c: never): CNode {
     // normalizes to `1.` regardless (fmt canonical form).
     if (delim?.t === 'OneParen' || delim?.t === 'TwoParens') node.delim = ')';
     else if (delim?.t === 'Period') node.delim = '.';
+
+    // Pandoc's `Example` list is `(@)` numbering: ONE counter shared by every
+    // example list in the document, and items can be labelled and referenced
+    // from prose. PART 12 section 6 admits `a`/`A`/`i`/`I` and decimal, so the
+    // list becomes an ordinary decimal one.
+    //
+    // What survives is the numbers: pandoc has already resolved the counter
+    // into `start`, so a second example list arrives with `start: 3` and still
+    // prints 3. What does not is the counter itself - editing the first list
+    // no longer renumbers the second - and the marker, which becomes `1)`.
+    // Pandoc always pairs `Example` with `TwoParens`, so this is the one and
+    // only diagnostic for that shape; a `(1)` marker on any other style gets
+    // its own below.
+    if (style.t === 'Example') {
+        warn(
+            ctx,
+            'ordered list: pandoc\'s example-list numbering `(@)` has no Carve form '
+            + '- emitted as a decimal list. The resolved numbers are kept, the '
+            + 'document-wide counter is not, so the lists no longer renumber '
+            + 'each other',
+        );
+    } else if (delim?.t === 'TwoParens') {
+        // `(1)` has no Carve spelling either - section 6 has `.` and `)` - so
+        // the closing paren is kept and the opening one goes. Reported because
+        // the marker the author chose is not the marker that comes out.
+        warn(
+            ctx,
+            'ordered list: the `(1)` marker has no Carve form - emitted as `1)`, '
+            + 'without the opening parenthesis',
+        );
+    }
     return node;
 }
 
