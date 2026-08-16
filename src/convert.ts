@@ -110,6 +110,15 @@ function warn(ctx: Ctx, msg: string): void {
     ctx.warnings.push(msg);
 }
 
+/**
+ * A warning carries enough of the dropped content to find it in the source,
+ * and not a whole fenced block.
+ */
+function truncateForWarning(content: string): string {
+    const flat = content.replace(/\s+/g, ' ').trim();
+    return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
+}
+
 function toAttr(attrs: unknown): P.Attr {
     const a = (attrs ?? {}) as CAttrs;
     const kvs = Object.entries(a.keyValues ?? {});
@@ -540,6 +549,12 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'critic_comment':
             return [P.Span(P.attr(undefined, ['comment-annotation']), textInlines(String(n.text ?? '')))];
         case 'comment':
+            // Pandoc's AST has no comment node, so dropping is the conversion -
+            // but a silent drop is not (markup-carve/pandoc-carve#75). The
+            // warning names the content, so a migration can see what did not
+            // make the trip.
+            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`);
+
             return [];
         case 'smart_punctuation':
             // The resolved glyph, not the author's source run. Pandoc applies
@@ -787,6 +802,12 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             // A sole image on its own line is a block-level node in Carve.
             return [P.Para(inline(ctx, n))];
         case 'comment':
+            // Unlike the definitions below, a dropped comment IS authored
+            // content leaving the document - so it is named rather than
+            // silent (markup-carve/pandoc-carve#75).
+            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`);
+
+            return [];
         case 'abbreviation_def':
         case 'link_reference_definition':
             // Definitions are document metadata, not output blocks. PART 12

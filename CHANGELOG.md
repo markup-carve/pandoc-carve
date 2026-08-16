@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A dropped comment is reported, not silent**
+  (markup-carve/pandoc-carve#75). Pandoc's AST has no comment node, so
+  dropping is the conversion - but the bridge's contract is to report what
+  it could not carry. Block and inline comments now emit a warning naming
+  the dropped content, the same way an unmapped symbol already does.
+
 ### Added
 
 - **A composite figure crosses as pandoc's subfigure model, both ways.** A bare
