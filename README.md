@@ -242,6 +242,13 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 - The frontmatter reader covers the YAML subset frontmatter uses, not YAML.
   Anchors, tags, multi-document streams, block scalars and flow maps are out; a
   line that fits no shape is reported and skipped rather than guessed at.
+- Scalars are typed the way pandoc's own frontmatter reader types them: an
+  unquoted `true`, `yes`, `on` or `y` (and their negatives) is a `MetaBool`, a
+  quoted `"true"` stays text, a null scalar keeps its key as an empty
+  `MetaString`, and a number stays text because `Meta` has no number type. This
+  matters beyond tidiness - a boolean read as text is not a near miss but an
+  inversion, since a pandoc template testing `draft` sees any non-empty string
+  as true.
 - Attribute order inside `{...}` is normalized to `#id .class key=val` on
   round-trip - pandoc's Attr has fixed slots, so the author's original order
   is not representable. Semantics are unchanged.

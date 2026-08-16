@@ -124,12 +124,83 @@ Body.
 });
 
 test('metadata: a line that fits no shape is still reported and skipped', () => {
-  const { doc, warnings } = carveToPandoc('---\ngood: yes\n!!weird\n---\n\nBody.\n');
-  assert.equal(doc.meta.good.c[0].c, 'yes');
+  const { doc, warnings } = carveToPandoc('---\ngood: ok\n!!weird\n---\n\nBody.\n');
+  assert.equal(doc.meta.good.c[0].c, 'ok');
   assert.ok(
     warnings.some((w) => w.includes('line not understood') && w.includes('!!weird')),
     warnings.join(' | '),
   );
+});
+
+/*
+ * A boolean read as a string does not fail loudly, it INVERTS: every pandoc
+ * template and filter tests metadata for truthiness, and `MetaInlines "false"`
+ * is a non-empty value, so `draft: false` written in Carve turned the flag on
+ * once it crossed the bridge. The writer had always emitted `true`/`false`, so
+ * only the reading side was wrong - which is why it survived a round-trip test
+ * that compared Carve source instead of the Meta.
+ */
+const BOOLS = `---
+t1: true
+t2: True
+t3: yes
+t4: on
+t5: y
+f1: false
+f2: FALSE
+f3: no
+f4: off
+quoted: "true"
+nulled: null
+tilde: ~
+n: 42
+flow: [true, no, draft]
+---
+
+Body.
+`;
+
+test('metadata: a YAML boolean is a MetaBool, not the string "true"', () => {
+  const { doc } = carveToPandoc(BOOLS);
+  for (const key of ['t1', 't2', 't3', 't4', 't5']) {
+    assert.deepEqual(doc.meta[key], { t: 'MetaBool', c: true }, key);
+  }
+  for (const key of ['f1', 'f2', 'f3', 'f4']) {
+    assert.deepEqual(doc.meta[key], { t: 'MetaBool', c: false }, key);
+  }
+});
+
+test('metadata: a quoted scalar is never a boolean, and a number stays text', () => {
+  const { doc } = carveToPandoc(BOOLS);
+  assert.deepEqual(doc.meta.quoted, { t: 'MetaInlines', c: [{ t: 'Str', c: 'true' }] });
+  assert.deepEqual(doc.meta.n, { t: 'MetaInlines', c: [{ t: 'Str', c: '42' }] });
+});
+
+test('metadata: a null scalar keeps the key, empty', () => {
+  const { doc } = carveToPandoc(BOOLS);
+  assert.deepEqual(doc.meta.nulled, { t: 'MetaString', c: '' });
+  assert.deepEqual(doc.meta.tilde, { t: 'MetaString', c: '' });
+});
+
+test('metadata: flow-list items are typed one by one', () => {
+  const { doc } = carveToPandoc(BOOLS);
+  assert.deepEqual(doc.meta.flow.c.map((x) => x.t), ['MetaBool', 'MetaBool', 'MetaInlines']);
+  assert.deepEqual(doc.meta.flow.c.slice(0, 2).map((x) => x.c), [true, false]);
+});
+
+test('metadata: the boolean reading matches pandoc\'s own', { skip: !pandoc && 'pandoc not found' }, () => {
+  // The set of spellings YAML resolves as booleans is not obvious - `y` and
+  // `on` are in it - so the reference reader decides, not this repo.
+  const { doc } = carveToPandoc(BOOLS);
+  assert.deepEqual(doc.meta, readMeta(BOOLS));
+});
+
+test('metadata: a MetaBool survives the whole round trip', { skip: !pandoc && 'pandoc not found' }, () => {
+  const meta = readMeta('---\ndraft: false\nready: true\n---\n\nBody.\n');
+  assert.equal(meta.draft.t, 'MetaBool', 'the premise');
+  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
+  assert.ok(carve.includes('draft: false'), carve);
+  assert.deepEqual(carveToPandoc(carve).doc.meta, meta, 'the type comes home, not just the text');
 });
 
 test('metadata: a key with nothing under it is an empty value, not a hang', () => {

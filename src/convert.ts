@@ -1467,6 +1467,25 @@ function unquoteYaml(s: string): string {
     return t;
 }
 
+/**
+ * The boolean and null spellings YAML resolves as such, matching what pandoc's
+ * own frontmatter reader does - it reads the 1.1 set, so `on`, `yes` and a bare
+ * `y` are booleans there too, not strings.
+ *
+ * Matching that set exactly is the point. A `draft: true` arriving as
+ * `MetaInlines "true"` is not a near miss: every pandoc template and filter
+ * tests metadata for truthiness, and a non-empty string is true, so
+ * `draft: false` written in Carve turns the draft flag ON once it crosses the
+ * bridge. The value only has to survive a `MetaBool` on the way out (the writer
+ * has always emitted `true`/`false`) for the round-trip to keep the type.
+ *
+ * A QUOTED scalar is never a boolean, which is why the test runs on the raw
+ * text before {@link unquoteYaml} sees it.
+ */
+const YAML_TRUE = /^(y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON)$/;
+const YAML_FALSE = /^(n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$/;
+const YAML_NULL = /^(~|null|Null|NULL)$/;
+
 function scalarValue(key: string, raw: string): P.MetaValue {
     // `{}` is the only flow map read: an EMPTY one, which is what the writer
     // emits for a `MetaMap` with no entries. A populated flow map is not in the
@@ -1476,10 +1495,17 @@ function scalarValue(key: string, raw: string): P.MetaValue {
         const items = raw
             .slice(1, -1)
             .split(',')
-            .map(unquoteYaml)
-            .filter((s) => s !== '');
-        return P.MetaList(items.map((s) => P.MetaInlines(textInlines(s))));
+            .map((s) => s.trim())
+            .filter((s) => s !== '' && unquoteYaml(s) !== '');
+        // Items are typed by the same rules as a scalar on its own line, so a
+        // `[true, draft]` list keeps the boolean and the word apart.
+        return P.MetaList(items.map((s) => scalarValue('', s)));
     }
+    if (YAML_TRUE.test(raw)) return P.MetaBool(true);
+    if (YAML_FALSE.test(raw)) return P.MetaBool(false);
+    // Pandoc reads a null scalar as the empty string rather than dropping the
+    // key, so the key stays present and empty here too.
+    if (YAML_NULL.test(raw)) return P.MetaString('');
     const value = unquoteYaml(raw);
     // Lists where pandoc conventionally expects lists, inlines elsewhere.
     if (key === 'author' || key === 'authors') {

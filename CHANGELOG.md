@@ -12,6 +12,16 @@
 
 ### Fixed
 
+- **A frontmatter boolean crosses as a `MetaBool`, not as the text "true"**.
+  The reader typed every unquoted scalar as `MetaInlines`, so `draft: false`
+  arrived as a non-empty string - and since every pandoc template and filter
+  tests metadata for truthiness, a non-empty string is true. The flag did not
+  degrade, it inverted. Booleans now resolve with the same spellings pandoc's
+  own frontmatter reader accepts (`true`/`yes`/`on`/`y` and their negatives,
+  in each case), a quoted `"true"` stays text, a null scalar keeps its key as
+  an empty `MetaString`, and flow-list items are typed one by one. A test
+  holds the whole reading against pandoc's own.
+
 - **An ordered-list marker Carve cannot spell is reported.** Pandoc's
   example-list style (`(@)`) became an ordinary decimal list in silence. The
   numbers themselves survive - pandoc resolves its document-wide counter into
