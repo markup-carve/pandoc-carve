@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- **The pinned engine moved to current carve-js main.** Emitted Carve now
+  follows the spec's section 6e table padding: every cell's content is
+  separated from its markers by a space, so a header cell reads `|= A |`
+  instead of `|=A|`. Anything diffing the reverse direction's output against
+  the old unpadded form has to re-baseline.
+
 ### Fixed
 
 - **A dropped comment is reported, not silent**

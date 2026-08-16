@@ -159,7 +159,8 @@ test(
     );
 
     const { carve, warnings } = pandocToCarve(doc);
-    assert.ok(carve.includes('|=Wide column|'), carve);
+    // Padded form per spec section 6e: a space between marker and content.
+    assert.ok(carve.includes('|= Wide column |'), carve);
     assert.equal(warnings.length, 0, warnings.join(' | '));
     assert.ok(!/\d\.\d/.test(carve), `no width reached the source: ${carve}`);
   },
@@ -178,5 +179,7 @@ test('policy: tables leaving the bridge carry ColWidthDefault, alignment aside',
     ['AlignLeft', 'AlignRight'],
   );
   const back = pandocToCarve(doc).carve;
-  assert.ok(back.includes('|=<A|=>B|'), back);
+  // Padded form per spec section 6e: the writer separates every cell's content
+  // from its markers with a space, so the alignment sigils read `|=< A |`.
+  assert.ok(back.includes('|=< A |=> B |'), back);
 });

@@ -248,9 +248,11 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
 - Import fidelity is bounded by `renderCarve` (carve fmt): the bridge hands it
   a byte-exact AST, but known fmt issues (e.g. trailing whitespace inside code
   blocks, carve-js issue 340) surface in the serialized output.
-- The pinned engine bounds what the source path can produce: `^0.1.2` predates
-  the exchange serializer, so `src/ast-json.ts` performs the PART 12 section 7
-  mapping here. A pin that exports `toAstJson` takes over automatically.
+- The pinned engine bounds what the source path can produce. The current git
+  pin exports `toAstJson`, so the engine's own exchange serializer is used;
+  with an older engine (any published release up to `0.1.3`),
+  `src/ast-json.ts` performs the PART 12 section 7 mapping instead, and a pin
+  that exports `toAstJson` takes over automatically.
 - Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
   degraded block forms (code blocks / divs), same as Carve's static mode.
   `list-table` is the exception: opt in with `listTable: true` / `--list-table`
