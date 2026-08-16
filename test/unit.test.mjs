@@ -570,3 +570,22 @@ test("a line block's preserved indentation reaches pandoc as no-break spaces", (
   const [lb] = blocks('::: |\n  indented\n:::');
   assert.deepEqual(lb.c[0], [{ t: 'Str', c: '\u00A0\u00A0indented' }]);
 });
+
+test('a dropped comment is reported, not silent', () => {
+  // Pandoc's AST has no comment node, so dropping is the conversion - but the
+  // bridge's contract is to report what it could not carry (pandoc-carve#75).
+  const block = carveToPandoc('a\n\n%% hidden note\n\nb\n');
+  assert.ok(
+    block.warnings.some((w) => w.includes('comment') && w.includes('hidden note')),
+    `block comment warning missing: ${JSON.stringify(block.warnings)}`,
+  );
+
+  const inline = carveToPandoc('# Title %% tail note\n');
+  assert.ok(
+    inline.warnings.some((w) => w.includes('comment') && w.includes('tail note')),
+    `inline comment warning missing: ${JSON.stringify(inline.warnings)}`,
+  );
+
+  // The content still does not reach the document.
+  assert.ok(!JSON.stringify(block.doc.blocks).includes('hidden note'));
+});
