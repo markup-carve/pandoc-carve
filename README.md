@@ -239,6 +239,15 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   writing Carve source into a YAML value makes the frontmatter carry markup that
   nothing on the reading side parses. Every other `Meta` shape - maps, lists,
   lists of maps, scalars, booleans - round-trips.
+- A `rowGroups` partition (a foot, several body groups, a body's own header
+  rows or row-head columns) survives into the exchange AST, so
+  `pandocToCarveAst` hands it on whole - but PART 9 section 16's pipe table
+  spells only a leading run of header rows, so `pandocToCarve` flattens it into
+  body rows and says so. Use the AST entry point, or the `::: list-table`
+  fallback a block cell already triggers, when that structure has to survive.
+- Column alignment needs a header row to live on (`|=> Name |`). A headerless
+  pandoc table's column alignment is written onto each cell instead, which
+  renders the same; the move is reported.
 - The frontmatter reader covers the YAML subset frontmatter uses, not YAML.
   Anchors, tags, multi-document streams, block scalars and flow maps are out; a
   line that fits no shape is reported and skipped rather than guessed at.

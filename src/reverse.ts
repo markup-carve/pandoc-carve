@@ -770,6 +770,20 @@ function table(
     const headRaw = thead[1] as [Attr, unknown[][]][];
     const footRaw = tfoot[1] as [Attr, unknown[][]][];
 
+    // Carve spells COLUMN alignment on the header cell marker (`|=>Name|`), so
+    // a table with no LEADING header row has nowhere to put it - and pandoc's
+    // grid tables are allowed to be headerless while still carrying alignment.
+    // The alignment is written onto every cell of the column instead, which
+    // renders the same and is the only slot left, and the move is reported
+    // because the column-level fact becomes a per-cell one.
+    //
+    // Only pandoc's `TableHead` counts. A body's INTERMEDIATE header row is a
+    // `|=` row in the middle of the table, and the engine reads that as a row
+    // header (`<th scope="row">`) whose alignment applies to itself alone -
+    // measured, not assumed. Counting it here would leave the surrounding body
+    // cells unaligned and suppress the diagnostic that says so.
+    const hasHeaderRow = headRaw.length > 0;
+
     // The flat `rows` Carve carries, plus the counts that say where pandoc's
     // sections were. A body's intermediate header rows are header rows too,
     // which is why §15 states the head count instead of deriving it from the
@@ -833,7 +847,8 @@ function table(
                 header: isHeader,
                 children: hasBlockCells ? [] : cellInlines(ctx, cellBlocks),
             };
-            const align = ALIGN_BACK[cellAlign.t] ?? (isHeader ? colAligns[col] : '');
+            const align = ALIGN_BACK[cellAlign.t]
+                ?? (isHeader || !hasHeaderRow ? colAligns[col] : '');
             if (align) cell.align = align;
             const cellAttrs = fromAttr(cellAttr);
             if (cellAttrs) cell.attrs = cellAttrs;
@@ -878,13 +893,25 @@ function table(
         });
     }
 
+    if (!hasHeaderRow && colAligns.some((a) => a)) {
+        warn(
+            ctx,
+            'table: column alignment on a table with no header row is written on '
+            + 'each cell instead - Carve spells column alignment on the header '
+            + 'marker (`|=> Name |`), and there is no header to carry it',
+        );
+    }
+
     const node: CNode = { type: 'table', rows };
     // The counts come from the same arrays `rows` was built from, one row
     // pushed per raw row, so §15's sum holds by construction here. It is
     // checked where it can actually fail instead: on a partition that arrived
     // from outside (see readRowGroups).
     const groups: RowGroups = { headRows: headRaw.length, bodies: groupBodies, footRows: footRaw.length };
-    if (carriesMoreThanFlatRows(groups)) node.rowGroups = groups;
+    if (carriesMoreThanFlatRows(groups)) {
+        node.rowGroups = groups;
+        reportUnspellableGroups(ctx, groups);
+    }
     const attrs = fromAttr(a);
     if (attrs) node.attrs = attrs;
     const captionInlines = captionInlinesFor();
@@ -893,6 +920,40 @@ function table(
         ?? captionFromInlines(ctx, capt[0] as PandocNode[] | null);
     if (shortCaption?.length) node.shortCaption = shortCaption;
     return node;
+}
+
+/**
+ * What a `rowGroups` partition says that the PIPE form cannot say back.
+ *
+ * The partition itself is not a degradation - it reaches the exchange AST
+ * intact, and `pandocToCarveAst` hands it on whole. The loss happens one step
+ * later, in the source writer: PART 9 §16's pipe table spells a leading run of
+ * header rows and nothing else, so a foot, a second body group, a body's own
+ * intermediate header rows, its row-head columns and its attributes all come
+ * out as ordinary body rows. PART 12 §15 says so in as many words and asks for
+ * exactly this - "a canonical Carve writer loses it ... conversion APIs with
+ * diagnostics should report that loss".
+ *
+ * The wording follows the `shortCaption` precedent: it names where the value
+ * DOES survive, because on the `pandocToCarveAst` path nothing is lost at all
+ * and a bare "dropped" would be false there. The list-table path reports the
+ * same facts in its own vocabulary; this is the pipe path's half of it, which
+ * was silent.
+ */
+function reportUnspellableGroups(ctx: Ctx, groups: RowGroups): void {
+    const lost: string[] = [];
+    if (groups.footRows > 0) lost.push(`a foot of ${groups.footRows} row(s)`);
+    if (groups.bodies.length > 1) lost.push(`${groups.bodies.length} body groups`);
+    if (groups.bodies.some((b) => b.headRows > 0)) lost.push("a body's intermediate header rows");
+    if (groups.bodies.some((b) => (b.rowHeadColumns ?? 0) > 0)) lost.push('row-head columns');
+    if (groups.bodies.some((b) => b.attrs !== undefined)) lost.push("a body group's attributes");
+    if (!lost.length) return;
+    warn(
+        ctx,
+        `table: ${lost.join(', ')} - preserved in the Carve AST as \`rowGroups\`, `
+        + 'but a pipe table spells only a leading run of header rows, so the '
+        + 'emitted source flattens them into body rows',
+    );
 }
 
 /**

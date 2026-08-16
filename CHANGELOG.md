@@ -12,6 +12,24 @@
 
 ### Fixed
 
+- **The pipe-table writer reports the structure it flattens.** A `rowGroups`
+  partition reaches the exchange AST intact, but the source writer spells only
+  a leading run of header rows - so a foot, a second body group, a body's own
+  intermediate header rows, its row-head columns and its attributes all came
+  out as ordinary body rows, silently. PART 12 section 15 asks for that loss to
+  be reported ("a canonical Carve writer loses it"), and the list-table path
+  already reported its own version of the same facts; the pipe path was the
+  half that said nothing. One warning now names everything the partition says
+  and the source cannot, and says where the value does survive.
+
+- **Column alignment on a headerless table survives the crossing.** Carve
+  spells column alignment on the header cell marker (`|=> Name |`), and the
+  alignment was copied onto header cells only - so for a pandoc grid table with
+  no header row, which is legal and carries alignment all the same, it went
+  nowhere. It is written onto each cell of the column instead, which renders
+  the same, and the move from a column-level fact to a per-cell one is
+  reported.
+
 - **A frontmatter boolean crosses as a `MetaBool`, not as the text "true"**.
   The reader typed every unquoted scalar as `MetaInlines`, so `draft: false`
   arrived as a non-empty string - and since every pandoc template and filter

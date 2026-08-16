@@ -16,7 +16,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveAstToPandoc, pandocToCarveAst } from '../dist/index.js';
+import { carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 // --- Carve AST fixtures -----------------------------------------------------
 
@@ -283,4 +283,108 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
     table.rows.map((r) => r.cells[0].children[0].value),
     ['Region', 'North', 'South region', 'South', 'All'],
   );
+});
+
+/*
+ * The partition reaches the exchange AST intact - that is what the tests above
+ * pin. The SOURCE writer is where it stops: a pipe table spells a leading run
+ * of header rows and nothing else, so a foot, a second body, a body's own
+ * header rows, its row-head columns and its attributes come out as ordinary
+ * body rows. §15 asks for exactly this to be reported rather than dropped
+ * quietly, and the pipe path used to be silent about all five while the
+ * list-table path reported its own version of the same losses.
+ */
+
+test('the pipe writer reports what the partition says and the source cannot', () => {
+  const { warnings } = pandocToCarve(twoBodiesAndAFoot);
+  const said = warnings.filter((w) => w.startsWith('table: '));
+  assert.equal(said.length, 1, `one warning naming everything: ${warnings.join(' | ')}`);
+  for (const part of ['a foot of 1 row(s)', '2 body groups', "a body's intermediate header rows", 'row-head columns', "a body group's attributes"]) {
+    assert.ok(said[0].includes(part), `${part} is named: ${said[0]}`);
+  }
+  assert.ok(said[0].includes('rowGroups'), 'and it says where the value does survive');
+});
+
+test('the AST path says the same thing, because the warning names where it survives', () => {
+  // Both entry points run the same conversion, so the wording has to be true
+  // on the path that loses NOTHING - hence "preserved in the Carve AST".
+  const { ast, warnings } = pandocToCarveAst(twoBodiesAndAFoot);
+  assert.ok(ast.children[0].rowGroups, 'nothing was lost here');
+  assert.ok(warnings.some((w) => w.includes('preserved in the Carve AST')), warnings.join(' | '));
+});
+
+test('control: a flat table warns about nothing', () => {
+  const plain = pandocTable({
+    head: [pRow('Region', 'Total')],
+    bodies: [[['', [], []], 0, [], [pRow('North', '11')]]],
+    foot: [],
+  });
+  assert.deepEqual(pandocToCarve(plain).warnings, []);
+});
+
+/*
+ * Carve spells COLUMN alignment on the header cell marker (`|=> Name |`). A
+ * pandoc grid table may be headerless and still carry alignment, and that used
+ * to vanish without a word: the alignment was copied onto header cells only,
+ * and there were none.
+ */
+
+function alignedTable(withHeader) {
+  const right = { t: 'AlignRight' };
+  const doc = pandocTable({
+    head: withHeader ? [pRow('Region', 'Total')] : [],
+    bodies: [[['', [], []], 0, [], [pRow('North', '11')]]],
+    foot: [],
+  });
+  doc.blocks[0].c[2] = [[right, { t: 'ColWidthDefault' }], [right, { t: 'ColWidthDefault' }]];
+  return doc;
+}
+
+test('column alignment with no header row is written per cell, and the move is reported', () => {
+  const { ast, warnings } = pandocToCarveAst(alignedTable(false));
+  assert.deepEqual(
+    ast.children[0].rows[0].cells.map((c) => c.align),
+    ['right', 'right'],
+    'the alignment survives on the only slot left',
+  );
+  assert.ok(
+    warnings.some((w) => w.includes('no header row') && w.includes('each cell')),
+    warnings.join(' | '),
+  );
+});
+
+test('control: with a header row the alignment stays on the header, unreported', () => {
+  const { ast, warnings } = pandocToCarveAst(alignedTable(true));
+  const [head, body] = ast.children[0].rows;
+  assert.deepEqual(head.cells.map((c) => c.align), ['right', 'right']);
+  assert.deepEqual(
+    body.cells.map((c) => c.align),
+    [undefined, undefined],
+    'a body cell inherits its column and needs no marker of its own',
+  );
+  assert.deepEqual(warnings, []);
+});
+
+test("a body's intermediate header row does not count as the column header", () => {
+  // Measured on the engine: a `|=` row in the MIDDLE renders as
+  // `<th scope="row">` and its alignment applies to that cell alone, while a
+  // LEADING header row puts the alignment on every body cell under it. So a
+  // table whose only header rows are intermediate is headerless for this
+  // purpose, and treating it otherwise would leave the body unaligned with no
+  // diagnostic.
+  const right = { t: 'AlignRight' };
+  const doc = pandocTable({
+    head: [],
+    bodies: [[['', [], []], 0, [pRow('Region', 'Total')], [pRow('North', '11')]]],
+    foot: [],
+  });
+  doc.blocks[0].c[2] = [[right, { t: 'ColWidthDefault' }], [right, { t: 'ColWidthDefault' }]];
+
+  const { ast, warnings } = pandocToCarveAst(doc);
+  assert.deepEqual(
+    ast.children[0].rows.map((r) => r.cells.map((c) => c.align)),
+    [['right', 'right'], ['right', 'right']],
+    'every cell carries it, the intermediate header included',
+  );
+  assert.ok(warnings.some((w) => w.includes('no header row')), warnings.join(' | '));
 });
