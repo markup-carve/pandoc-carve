@@ -2,7 +2,7 @@
  * The shared spec corpus, converted through this package.
  *
  * test/corpus.test.mjs reads test/fixtures - about a dozen files. The spec
- * corpus has 610, and nothing here ran against it. That gap was not theoretical:
+ * corpus has over a thousand documents, and nothing here ran against it. That gap was not theoretical:
  * sweeping the corpus by hand found both defects fixed in #10, including a stack
  * overflow reachable from a two-word document (`# A </#a>`) that had been live
  * on the published package indefinitely, because no fixture contained a cyclic
@@ -68,12 +68,69 @@ const corpus = existsSync(corpusDir)
       .map((file) => ({ name: file, source: readFileSync(join(corpusDir, file), 'utf8') }))
   : [];
 
+/*
+ * How many documents the corpus SHOULD hold, derived rather than written down.
+ *
+ * tests/corpus is generated from the `::: compare` blocks in
+ * spec/resources/examples/{core,extensions,edge-cases}.md, so those pages are
+ * the corpus's own declaration of its size. Counting them leaves no literal
+ * here to go stale: adding an example upstream moves the expectation on the
+ * next submodule bump instead of failing this file.
+ *
+ * The state machine mirrors the generator rather than grepping - a `::: compare`
+ * line inside an already-open block is content, not a second pair, and a block
+ * closes on a bare marker line.
+ */
+const EXAMPLE_PAGES = ['core.md', 'extensions.md', 'edge-cases.md'];
+const COMPARE_OPEN = /^:{3,}\s+compare(\s+\S.*)?$/;
+
+const declaredCorpusSize = () => {
+  const examplesDir = join(repo, 'spec', 'resources', 'examples');
+  let declared = 0;
+  for (const page of EXAMPLE_PAGES) {
+    const path = join(examplesDir, page);
+    assert.ok(
+      existsSync(path),
+      path + ' is missing - the submodule is incomplete, or the spec moved the ' +
+        'corpus source pages again. Without them there is nothing to check the ' +
+        'corpus size against.',
+    );
+    let marker = null;
+    for (const rawLine of readFileSync(path, 'utf8').split('\n')) {
+      const line = rawLine.trim();
+      if (marker !== null) {
+        if (line === marker) marker = null;
+        continue;
+      }
+      if (COMPARE_OPEN.test(line)) {
+        declared += 1;
+        marker = line.match(/^:{3,}/)[0];
+      }
+    }
+  }
+  return declared;
+};
+
 test('the whole corpus is being read, not a sample', () => {
   // The count is the other half of the submodule check: a submodule pinned at a
   // commit with a handful of documents would pass every test below.
+  //
+  // EQUALITY, not a floor. A floor cannot tell a whole corpus from a truncated
+  // or stale one, and that is the failure being guarded against: a satellite has
+  // been found eleven documents behind while every check stayed green. The old
+  // `> 500` bound would still have passed at less than half the corpus.
+  const declared = declaredCorpusSize();
   assert.ok(
-    corpus.length > 500,
-    'expected the full corpus, found ' + corpus.length + ' documents',
+    declared > 0,
+    'the corpus source pages declare no ::: compare blocks at all - that is a ' +
+      'wiring problem, not a corpus of size zero.',
+  );
+  assert.equal(
+    corpus.length,
+    declared,
+    'expected the full corpus: spec/resources/examples declares ' + declared +
+      ' documents, spec/tests/corpus holds ' + corpus.length + '. Every assertion ' +
+      'below would describe a population nobody chose.',
   );
 });
 
