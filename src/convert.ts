@@ -371,6 +371,52 @@ function kids(ctx: Ctx, n: CNode): P.Inline[] {
     return inlines(ctx, n.children as CNode[] | undefined);
 }
 
+/**
+ * A reference link or image whose label nothing defines.
+ *
+ * PART 12 section 3a publishes the resolution BESIDE the authored construct
+ * rather than in place of it: `[a][t]` is a `link` carrying `ref`/`rawRef`
+ * whether or not the document defines `t`, and `href` (`src` for an image) is
+ * empty ONLY where nothing resolved it. So the pair "a reference was written"
+ * and "the destination is empty" is the wire's statement that the reference
+ * did not resolve, and it is the only one - there is no way to author an empty
+ * destination on a definition line (`[t]: <>` defines the literal `<>`).
+ *
+ * Carve renders such a reference as the LITERAL SOURCE, so this returns
+ * `rawRef` as text. Emitting a `Link` with an empty target instead would
+ * invent a node the document does not contain, and downstream it renders as a
+ * broken anchor rather than as the text the reader is meant to see.
+ *
+ * And it warns, because the sibling path does. An unresolved footnote has said
+ * `footnote: missing definition for [^f]` all along; a missing link definition
+ * has no reason to be the quieter of the two, and a conversion that loses the
+ * author's meaning with a clean exit code is the failure this pairs with
+ * (markup-carve/pandoc-carve#91).
+ *
+ * Returns null when the node is not an unresolved reference, so the caller
+ * converts it normally.
+ */
+function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inline[] | null {
+    if (n.ref === undefined) return null;
+    const destination = String((kind === 'link' ? n.href : n.src) ?? '');
+    if (destination !== '') return null;
+    const ref = String(n.ref ?? '');
+    warn(ctx, `${kind}: missing definition for [${ref}] - emitting the literal source`);
+    const raw = String(n.rawRef ?? '');
+    // rawRef is required beside ref, so the fallback is for a tree assembled by
+    // hand: keep the visible text rather than dropping the construct entirely.
+    if (raw === '') return kind === 'link' ? kids(ctx, n) : textInlines(String(n.alt ?? ''));
+    // A reference may be written across lines. Its literal source is prose now,
+    // so the line break is a SoftBreak - a newline left inside a Str would
+    // reach every writer verbatim.
+    const out: P.Inline[] = [];
+    raw.split(/\r?\n/).forEach((line, at) => {
+        if (at > 0) out.push(P.SoftBreak);
+        out.push(...textInlines(line));
+    });
+    return out;
+}
+
 function inline(ctx: Ctx, n: CNode): P.Inline[] {
     switch (n.type) {
         case 'text':
@@ -410,25 +456,31 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 ? [P.Span(toAttr(n.attrs), text)]
                 : text;
         }
-        case 'link':
+        case 'link': {
+            const unresolved = unresolvedReference(ctx, n, 'link');
+            if (unresolved) return unresolved;
             return [
                 P.Link(toAttr(n.attrs), kids(ctx, n), [
                     String(n.href ?? ''),
                     String(n.title ?? ''),
                 ]),
             ];
+        }
         case 'autolink': {
             const href = String(n.href ?? '');
             const cls = href.startsWith('mailto:') ? 'email' : 'uri';
             return [P.Link(P.attr(undefined, [cls]), [P.Str(String(n.text ?? href))], [href, ''])];
         }
-        case 'image':
+        case 'image': {
+            const unresolved = unresolvedReference(ctx, n, 'image');
+            if (unresolved) return unresolved;
             return [
                 P.Image(toAttr(n.attrs), textInlines(String(n.alt ?? '')), [
                     String(n.src ?? ''),
                     String(n.title ?? ''),
                 ]),
             ];
+        }
         case 'caption_number': {
             // The `#` in `^ Figure #: text`. It has no value in the tree - the
             // renderer assigns one - so it was degrading to empty and the
