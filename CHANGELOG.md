@@ -42,90 +42,6 @@
   key can carry block content. This completes metadata: all ten shapes the
   conformance probes cover now cross unchanged in both directions.
 
-### Fixed
-
-- **A citation crosses back unchanged.** `citationNoteNum` left the bridge as a
-  hard-coded 0, the one field standing between a `Cite` and an exact
-  `pandoc -> Carve -> pandoc` round trip. Pandoc's markdown reader does not use
-  0 for a citation in running text: it counts the notes CLOSED so far and
-  stamps that plus one, so a citation before any note carries 1 and one inside
-  a note carries that note's own number. The converter reproduces the counter,
-  pinned against pandoc's reader rather than against numbers written down here.
-
-- **Row-head columns reach the source layer.** `header-cols=N` on a
-  `::: list-table` is exactly pandoc's `RowHeadColumns`, but a table carrying
-  them was written as a pipe table, which cannot say it, and the row headers
-  were flattened to ordinary cells. Such a table now takes the list-table form
-  on the source path - and only when every body group agrees on the count,
-  because `header-cols` is one number for the whole table and a table whose
-  bodies differ would otherwise come back with row headers ADDED to the rows
-  that had none. Inventing a heading is worse than dropping one, so that table
-  keeps the pipe form and the loss stays reported. The AST path is unchanged:
-  `rowGroups` carries the whole partition there and nothing has to be traded.
-
-- **The pinned engine moved to current carve-js main.** Emitted Carve now
-  follows the spec's section 6e table padding: every cell's content is
-  separated from its markers by a space, so a header cell reads `|= A |`
-  instead of `|=A|`. Anything diffing the reverse direction's output against
-  the old unpadded form has to re-baseline.
-
-### Fixed
-
-- **A body cell's alignment marker aligns that cell alone.** Column alignment
-  was read off the first row whatever that row was, so a table whose first row
-  is a body row exported with that row's markers as the ColSpec - and since a
-  pandoc cell carrying `AlignDefault` inherits its ColSpec, every other cell in
-  the column came out aligned in every writer. Measured on the engine,
-  `|>a| b |` styles `a` alone and leaves the cell below it untouched. The
-  column is read only from a head row, and a head cell's marker MOVES to the
-  ColSpec instead of being copied there, which is pandoc's own model and makes
-  the crossing exact in both directions.
-
-- **The pipe-table writer reports the structure it flattens.** A `rowGroups`
-  partition reaches the exchange AST intact, but the source writer spells only
-  a leading run of header rows - so a foot, a second body group, a body's own
-  intermediate header rows, its row-head columns and its attributes all came
-  out as ordinary body rows, silently. PART 12 section 15 asks for that loss to
-  be reported ("a canonical Carve writer loses it"), and the list-table path
-  already reported its own version of the same facts; the pipe path was the
-  half that said nothing. One warning now names everything the partition says
-  and the source cannot, and says where the value does survive.
-
-- **Column alignment on a headerless table survives the crossing.** Carve
-  spells column alignment on the header cell marker (`|=> Name |`), and the
-  alignment was copied onto header cells only - so for a pandoc grid table with
-  no header row, which is legal and carries alignment all the same, it went
-  nowhere. It is written onto each cell of the column instead, which renders
-  the same, and the move from a column-level fact to a per-cell one is
-  reported.
-
-- **A frontmatter boolean crosses as a `MetaBool`, not as the text "true"**.
-  The reader typed every unquoted scalar as `MetaInlines`, so `draft: false`
-  arrived as a non-empty string - and since every pandoc template and filter
-  tests metadata for truthiness, a non-empty string is true. The flag did not
-  degrade, it inverted. Booleans now resolve with the same spellings pandoc's
-  own frontmatter reader accepts (`true`/`yes`/`on`/`y` and their negatives,
-  in each case), a quoted `"true"` stays text, a null scalar keeps its key as
-  an empty `MetaString`, and flow-list items are typed one by one. A test
-  holds the whole reading against pandoc's own.
-
-- **An ordered-list marker Carve cannot spell is reported.** Pandoc's
-  example-list style (`(@)`) became an ordinary decimal list in silence. The
-  numbers themselves survive - pandoc resolves its document-wide counter into
-  the list's `start` before the bridge sees it - but the counter does not, so
-  the lists no longer renumber each other, and the marker becomes `1)`. A `(1)`
-  marker on any other style was likewise emitted as `1)` with the opening
-  parenthesis dropped and nothing said. Both now warn; `1)`, `1.` and the
-  alpha/roman styles are unaffected.
-
-- **A dropped comment is reported, not silent**
-  (markup-carve/pandoc-carve#75). Pandoc's AST has no comment node, so
-  dropping is the conversion - but the bridge's contract is to report what
-  it could not carry. Block and inline comments now emit a warning naming
-  the dropped content, the same way an unmapped symbol already does.
-
-### Added
-
 - **A composite figure crosses as pandoc's subfigure model, both ways.** A bare
   `::: figure` container (PART 9 section 4c) is one figure of ordered panels,
   and pandoc has that natively: the group becomes a `Figure` whose blocks are
@@ -187,9 +103,6 @@
   and a `MetaList` of maps used to be dropped with a warning and are now written
   as nested YAML that pandoc reads back identically.
 
-  `MetaBlocks` keeps its skip-with-warn on purpose: block content in metadata
-  has no honest YAML string form, and the warning is the honest outcome.
-
 - **A pandoc table with block content in a cell imports as `::: list-table`.**
   Real docx and LaTeX tables hold lists and paragraphs in cells; Carve's
   pipe-table cell holds inlines, so there was no form for them. What happened
@@ -240,6 +153,7 @@
   is now spec surface, pinned by `resources/ast-schema.json`, so a document
   parsed by carve-rs, carve-php or carve-go converts exactly like one parsed by
   carve-js. `carveToPandoc` keeps its signature and its output.
+
 - `carveAstToPandoc(ast)` converts an already-serialized Carve AST - an object
   or JSON text - and `carveToCarveAst(source)` produces that exchange format
   from source. On the CLI, `-f carve-json` reads a tree any engine wrote:
@@ -269,7 +183,124 @@
   caps entirely; only the HTML writer happened to preserve it, by writing the
   class back out.
 
+- Initial implementation: `carveToPandoc()` / `carveToPandocJson()` mapping the
+  full Carve AST (every node type the exchange schema defines) to Pandoc's JSON AST (api version 1.23.1),
+  with explicit degradation warnings for lossy constructs.
+
+- `pandoc-carve` CLI: `pandoc-carve doc.crv -t latex -o out.tex` (shells out to
+  a `pandoc` found on PATH; `-t json` emits the Pandoc AST without pandoc).
+
+- Convert options: `listTable` renders `::: list-table` blocks as real Pandoc
+  tables (multi-block cells, header-rows, span markers), `citations` reads
+  `[@key]` as a citation rather than an `@mention` - both on by default -
+  `symbols` resolves `:name:` symbols to text, and `roundtrip` stamps attr
+  wrappers for exact re-import. CLI: `--no-list-table`, `--no-citations`,
+  `--symbols map.json`, `--roundtrip`.
+
+- Fixed 2D table spans (a block covering both rows and columns) over-counting
+  rowSpan on export and being clipped on import - both directions now
+  represent the block exactly.
+
+- Graceful degradation: an unconsumed grouping `[label]` on a fenced div (tab and
+  code-group panels) now renders as a bold caption instead of being dropped, so
+  panels stay distinguishable in LaTeX/Typst/DOCX output - matching the reference
+  `carveToHtml` `div-label` behavior.
+
+- Reverse direction: `pandocToCarve()` converts a Pandoc document to Carve
+  source (serialized by carve's `renderCarve`), and the CLI imports anything
+  pandoc reads: `pandoc-carve report.docx -f docx -o report.crv`. Round-trips
+  (carve -> pandoc AST -> carve) are gated on HTML equivalence in the tests.
+
+- Inline literal support (`` !`...` ``, the `literal_inline` node): mapped to
+  ordinary prose inlines, or to a `Span` when it carries attributes. It is
+  deliberately not mapped to `Code`, which would imply monospace - the exact
+  styling the construct exists to avoid. Without this the node hit the
+  fall-through and vanished entirely, because `plainText()` reads only
+  `value`/`children` and a literal carries `content`; that also silently broke
+  crossrefs to any heading containing one, so `plainText()` now folds the
+  literal's content in. Runs of spaces inside a literal are preserved rather
+  than collapsed to a single `Space`, since the content is verbatim - ordinary
+  prose still collapses as before.
+
 ### Fixed
+
+- **A citation crosses back unchanged.** `citationNoteNum` left the bridge as a
+  hard-coded 0, the one field standing between a `Cite` and an exact
+  `pandoc -> Carve -> pandoc` round trip. Pandoc's markdown reader does not use
+  0 for a citation in running text: it counts the notes CLOSED so far and
+  stamps that plus one, so a citation before any note carries 1 and one inside
+  a note carries that note's own number. The converter reproduces the counter,
+  pinned against pandoc's reader rather than against numbers written down here.
+
+- **Row-head columns reach the source layer.** `header-cols=N` on a
+  `::: list-table` is exactly pandoc's `RowHeadColumns`, but a table carrying
+  them was written as a pipe table, which cannot say it, and the row headers
+  were flattened to ordinary cells. Such a table now takes the list-table form
+  on the source path - and only when every body group agrees on the count,
+  because `header-cols` is one number for the whole table and a table whose
+  bodies differ would otherwise come back with row headers ADDED to the rows
+  that had none. Inventing a heading is worse than dropping one, so that table
+  keeps the pipe form and the loss stays reported. The AST path is unchanged:
+  `rowGroups` carries the whole partition there and nothing has to be traded.
+
+- **The pinned engine moved to current carve-js main.** Emitted Carve now
+  follows the spec's section 6e table padding: every cell's content is
+  separated from its markers by a space, so a header cell reads `|= A |`
+  instead of `|=A|`. Anything diffing the reverse direction's output against
+  the old unpadded form has to re-baseline.
+
+- **A body cell's alignment marker aligns that cell alone.** Column alignment
+  was read off the first row whatever that row was, so a table whose first row
+  is a body row exported with that row's markers as the ColSpec - and since a
+  pandoc cell carrying `AlignDefault` inherits its ColSpec, every other cell in
+  the column came out aligned in every writer. Measured on the engine,
+  `|>a| b |` styles `a` alone and leaves the cell below it untouched. The
+  column is read only from a head row, and a head cell's marker MOVES to the
+  ColSpec instead of being copied there, which is pandoc's own model and makes
+  the crossing exact in both directions.
+
+- **The pipe-table writer reports the structure it flattens.** A `rowGroups`
+  partition reaches the exchange AST intact, but the source writer spells only
+  a leading run of header rows - so a foot, a second body group, a body's own
+  intermediate header rows, its row-head columns and its attributes all came
+  out as ordinary body rows, silently. PART 12 section 15 asks for that loss to
+  be reported ("a canonical Carve writer loses it"), and the list-table path
+  already reported its own version of the same facts; the pipe path was the
+  half that said nothing. One warning now names everything the partition says
+  and the source cannot, and says where the value does survive.
+
+- **Column alignment on a headerless table survives the crossing.** Carve
+  spells column alignment on the header cell marker (`|=> Name |`), and the
+  alignment was copied onto header cells only - so for a pandoc grid table with
+  no header row, which is legal and carries alignment all the same, it went
+  nowhere. It is written onto each cell of the column instead, which renders
+  the same, and the move from a column-level fact to a per-cell one is
+  reported.
+
+- **A frontmatter boolean crosses as a `MetaBool`, not as the text "true"**.
+  The reader typed every unquoted scalar as `MetaInlines`, so `draft: false`
+  arrived as a non-empty string - and since every pandoc template and filter
+  tests metadata for truthiness, a non-empty string is true. The flag did not
+  degrade, it inverted. Booleans now resolve with the same spellings pandoc's
+  own frontmatter reader accepts (`true`/`yes`/`on`/`y` and their negatives,
+  in each case), a quoted `"true"` stays text, a null scalar keeps its key as
+  an empty `MetaString`, and flow-list items are typed one by one. A test
+  holds the whole reading against pandoc's own.
+
+- **An ordered-list marker Carve cannot spell is reported.** Pandoc's
+  example-list style (`(@)`) became an ordinary decimal list in silence. The
+  numbers themselves survive - pandoc resolves its document-wide counter into
+  the list's `start` before the bridge sees it - but the counter does not, so
+  the lists no longer renumber each other, and the marker becomes `1)`. A `(1)`
+  marker on any other style was likewise emitted as `1)` with the opening
+  parenthesis dropped and nothing said. Both now warn; `1)`, `1.` and the
+  alpha/roman styles are unaffected.
+
+- **A dropped comment is reported, not silent**
+  (markup-carve/pandoc-carve#75). Pandoc's AST has no comment node, so
+  dropping is the conversion - but the bridge's contract is to report what
+  it could not carry. Block and inline comments now emit a warning naming
+  the dropped content, the same way an unmapped symbol already does.
 
 - **A pandoc `Figure` wrapping a single `Table` keeps the wrapper's
   attributes.** The two collapse into one Carve `table`, and the Figure's Attr
@@ -278,12 +309,6 @@
   being dropped with the wrapper. They merge now: the outer id wins, classes
   union, key/values merge with the outer taking precedence.
 
-- **A pandoc `Quoted` says that it degrades.** The quotation was rewritten to
-  literal curly quote characters with nothing reported, and the text re-exports
-  as a plain `Str`, so the quote kind and pandoc's locale-aware quoting left the
-  document silently. The characters stay - they are what an author would have
-  typed, and Carve has no quote node - but the conversion now reports the loss,
-  once per document however many quotations it holds.
 - **A single-host `Figure` imports as a `figure`, whatever the host is.** Only
   an image and a table were read back as one; a `Figure` wrapping a quote, a
   code block or a paragraph hit the "general figure content unwrapped" path,
@@ -297,6 +322,7 @@
   attribute slot; that wrapper is unwrapped on the way back and its attributes
   stay on the target, since a `div` is not a legal figure target in the first
   place.
+
 - **Line blocks actually reach `LineBlock` now.** The arm for the `line_block`
   node type has been here since the smart-punctuation change, and no document
   could reach it: the PINNED published engine models `::: |` as a div carrying
@@ -304,18 +330,22 @@
   block a user could write fell through to the Div branch and reached the writers
   as a classed paragraph. Both spellings are handled now, and a STANZA break is
   an empty line entry rather than two stanzas run together.
+
 - **A `LineBlock` on the way IN is a line block, not a flattened paragraph.** The
   reverse direction warned "LineBlock has no Carve form" - it has one, PART 9
   SS23 - and joined the verse with hard breaks. A test pinned that warning.
+
 - **The resolved no-break space stops leaking.** The engines publish U+E000, a
   PRIVATE-USE codepoint, for a no-break space the parser resolved from an escaped
   space or from a line block's preserved indentation (markup-carve/carve#721).
   It was passed straight through, so every writer downstream - docx, LaTeX, HTML -
   rendered a tofu box where a no-break space belonged, with no warning. It now
   maps to U+00A0.
+
 - **No more warning per substitution.** Each of the three hit the `default:`
   arm, which warns, so a document with ordinary prose punctuation produced a
   warning for every quote, dash and ellipsis in it.
+
 - **A crossref to a numbered figure or table resolves to "Figure 1", not the
   raw id.** The pass-1 crossref target map was built from heading ids only, so
   `</#fig-sun>` to a captioned figure or table always missed and fell back to
@@ -324,47 +354,3 @@
   map now also carries every numbered figure/table caption's computed
   "Label N" text, keyed by its own `{#id}`, resolved regardless of whether the
   crossref precedes or follows its target in the source.
-
-
-- Initial implementation: `carveToPandoc()` / `carveToPandocJson()` mapping the
-  full Carve AST (43 node types) to Pandoc's JSON AST (api version 1.23.1),
-  with explicit degradation warnings for lossy constructs.
-- `pandoc-carve` CLI: `pandoc-carve doc.crv -t latex -o out.tex` (shells out to
-  a `pandoc` found on PATH; `-t json` emits the Pandoc AST without pandoc).
-- Convert options: `listTable` renders `::: list-table` blocks as real Pandoc
-  tables (multi-block cells, header-rows, span markers), `symbols` resolves
-  `:name:` symbols to text, `roundtrip` stamps attr wrappers for exact
-  re-import. CLI: `--list-table`, `--symbols map.json`, `--roundtrip`.
-- Fixed 2D table spans (a block covering both rows and columns) over-counting
-  rowSpan on export and being clipped on import - both directions now
-  represent the block exactly.
-- Graceful degradation: an unconsumed grouping `[label]` on a fenced div (tab and
-  code-group panels) now renders as a bold caption instead of being dropped, so
-  panels stay distinguishable in LaTeX/Typst/DOCX output - matching the reference
-  `carveToHtml` `div-label` behavior.
-- Added `examples/` with worked input/output pairs in both directions
-  (Markdown, LaTeX, Typst, RST, plain text, native, JSON), regenerated by
-  `npm run examples:build` and pinned by a golden test. Includes `interactive.crv`
-  (how tabs, code-group, spoiler, mermaid, and math degrade for print formats),
-  `spans.crv` (row/col spans surviving as LaTeX `\multicolumn`/`\multirow`), and
-  import examples from LaTeX, RST, HTML, and DOCX (the DOCX one driven from an
-  in-memory seed so the repo stays all-text).
-- Reverse direction: `pandocToCarve()` converts a Pandoc document to Carve
-  source (serialized by carve's `renderCarve`), and the CLI imports anything
-  pandoc reads: `pandoc-carve report.docx -f docx -o report.crv`. Round-trips
-  (carve -> pandoc AST -> carve) are gated on HTML equivalence in the tests.
-- Inline literal support (`` !`...` ``, the `literal_inline` node): mapped to
-  ordinary prose inlines, or to a `Span` when it carries attributes. It is
-  deliberately not mapped to `Code`, which would imply monospace - the exact
-  styling the construct exists to avoid. Without this the node hit the
-  fall-through and vanished entirely, because `plainText()` reads only
-  `value`/`children` and a literal carries `content`; that also silently broke
-  crossrefs to any heading containing one, so `plainText()` now folds the
-  literal's content in. Runs of spaces inside a literal are preserved rather
-  than collapsed to a single `Space`, since the content is verbatim - ordinary
-  prose still collapses as before.
-- TEMPORARY: `@markup-carve/carve` is pinned to an exact carve-js commit
-  (`3f79966`) rather than a published range. The published 0.1.1 still ships the
-  old kebab-case node vocabulary, while this package has already migrated to the
-  snake_case spec vocabulary - the mismatch left `main` failing 49 of 136 tests.
-  Restore a semver range once carve-js 0.1.2 is published.
