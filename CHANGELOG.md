@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Six silent losses on the way back out of pandoc.** Found by running the
+  whole spec corpus through `carve -> pandoc -> carve` and comparing rendered
+  HTML, which nothing did: 89 of 1143 documents came back rendering
+  differently, with every check green.
+
+  - A node that renders NOTHING where it sits - a link reference definition, an
+    abbreviation definition - had its emptiness wrapped in a Div to carry its
+    attrs, so `[a]: /u {.c}` came back as a visible `<div class="c"></div>`.
+  - A RAGGED table lost cells. The ColSpec list defines a pandoc table's width
+    and was sized from the first row, so `| ~x~ |` above `| a | b |` declared
+    one column and `b` was dropped. The width is the widest row now; padding
+    the short rows is reported.
+  - An autolink lost its attributes in both directions
+    (`<https://example.com>{.ext}`).
+  - ROW HEADERS were lost. A body row opening `|= Mercury |` is pandoc's
+    `RowHeadColumns`, and the count was only ever read from an explicit
+    `rowGroups`. It is derived now - and row-head columns no longer detour
+    through `::: list-table` on the way out, because the pipe table spells them
+    directly.
+  - A COLLAPSED reference to a heading (`[Some Heading][]`, matched on rendered
+    text, case-insensitively) was reported as a missing definition and emitted
+    as literal source, so the link was gone.
+  - A crossref to a NUMBERED CAPTION died on the way back: the caption's `#`
+    placeholder must become a literal number for pandoc, after which the
+    caption is no longer numbered and `</#fig-sun>` resolved to nothing. It is
+    written as a plain link to the same id, which renders identically and is
+    stable. Crossrefs to headings still round-trip as `</#id>`.
+
+  Corpus divergence 89 -> 63. The remainder is pinned as a ledger by the new
+  round-trip gate, and may only shrink.
+
 ## 0.1.0 - 2026-08-17
 
 ### Changed
