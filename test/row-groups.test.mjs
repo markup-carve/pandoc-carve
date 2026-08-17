@@ -323,46 +323,70 @@ test('the pipe writer reports what the partition says and the source cannot', ()
   assert.ok(said[0].includes('rowGroups'), 'and it says where the value does survive');
 });
 
-/*
- * ROW-HEAD COLUMNS ARE THE ONE PART OF A PARTITION THE SOURCE CAN STILL KEEP.
- *
- * `header-cols=N` (extensions.md §5.1) IS pandoc's `RowHeadColumns`, so a table
- * carrying them leaves the pipe form for a list-table and comes back with them
- * intact. It is a strict gain: whatever else the partition holds - a foot, a
- * second body - has no pipe spelling EITHER, so nothing is traded away, and the
- * list-table path names those losses in its own vocabulary.
- *
- * The AST path does the opposite and stays a `table`: there `rowGroups` carries
- * the whole partition, and a list-table would throw the rest of it away to save
- * a field that was never at risk.
- */
+/** Row heads, one body, no foot: the shape the pipe table spells completely. */
+const rowHeadsOnly = pandocTable({
+  head: [pRow('Region', 'Total')],
+  bodies: [[['', [], []], 1, [], [pRow('North', '11')]]],
+  foot: [],
+});
 
-/** One body, so the bodies trivially agree on their row-head column count. */
-const oneBodyRowHeadsAndAFoot = pandocTable({
+/** The same, plus a foot - which a pipe table cannot spell (a separate gap). */
+const rowHeadsAndAFoot = pandocTable({
   head: [pRow('Region', 'Total')],
   bodies: [[['', [], []], 1, [], [pRow('North', '11')]]],
   foot: [pRow('All', '33')],
 });
 
-test('row-head columns leave the pipe form for a list-table that can spell them', () => {
-  const { carve, warnings } = pandocToCarve(oneBodyRowHeadsAndAFoot);
-  assert.match(carve, /^\{header-rows=1 header-cols=1\}\n::: list-table "Quarterly"\n/);
-  assert.ok(
-    warnings.some((w) => w.startsWith('table: row-head columns')),
-    `the switch is reported: ${warnings.join(' | ')}`,
-  );
-  assert.ok(
-    !warnings.some((w) => w.includes('row-head columns - preserved in the Carve AST')),
-    'and it is no longer reported as flattened',
-  );
-  // What the list-table still cannot spell is named in its own vocabulary.
-  assert.ok(
-    warnings.some((w) => w.startsWith('list-table: ') && w.includes('1 foot row(s)')),
-    `the foot is still named: ${warnings.join(' | ')}`,
-  );
-  // And the row headers make the trip back.
-  const back = carveToPandoc(carve).doc.blocks[0];
-  assert.equal(back.c[4][0][1], 1, 'RowHeadColumns survives');
+/*
+ * ROW-HEAD COLUMNS ARE SPELLED BY THE PIPE TABLE ITSELF.
+ *
+ * `RowHeadColumns` says the leading N cells of every body row are row headers,
+ * and a pipe table says that per cell: `|= Mercury | 4,879.4 |` is a row header
+ * (`<th scope="row">`), measured on the engine. This briefly went out through a
+ * `::: list-table {header-cols=N}` instead, on the belief that the pipe form
+ * could not spell it - more markup, an extension the reader has to enable, and
+ * one number for the whole table where the cells can each say it.
+ *
+ * Marking the cells round-trips, because the forward direction derives the
+ * count back from exactly that leading run.
+ */
+
+test('row-head columns are marked on the cells and stay a pipe table', () => {
+  const { carve } = pandocToCarve(rowHeadsOnly);
+  assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
+  assert.equal(carve, '|= Region |= Total |\n|= North | 11 |\n^ Quarterly\n');
+});
+
+test('and pandoc gets its RowHeadColumns back from those cells', () => {
+  const { carve } = pandocToCarve(rowHeadsOnly);
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 1);
+});
+
+test('a foot still collapses into the body, and that is what loses the count', () => {
+  // Not a row-head defect: a pipe table cannot spell a foot at all, so the foot
+  // row re-reads as an ordinary body row - one with no row-head cells - and the
+  // count derived from the leading run every body row agrees on is then zero.
+  // The loss is reported, and markup-carve/carve#1337 tracks the missing
+  // spelling.
+  const { carve, warnings } = pandocToCarve(rowHeadsAndAFoot);
+  assert.match(carve, /^\|= Region \|= Total \|\n\|= North \| 11 \|\n\| All \| 33 \|/, carve);
+  assert.ok(warnings.some((w) => w.includes('foot')), warnings.join(' | '));
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 0);
+});
+
+test('a row-head cell does not carry the column alignment', () => {
+  // A header ROW's cells carry the column; a row-head cell is not a header row,
+  // so its marker aligns itself alone - which is what the engine does.
+  const doc = pandocTable({
+    head: [],
+    bodies: [[['', [], []], 1, [], [pRow('a', 'b')]]],
+    foot: [],
+  });
+  doc.blocks[0].c[2] = [[{ t: 'AlignRight' }, { t: 'ColWidthDefault' }],
+                        [{ t: 'AlignRight' }, { t: 'ColWidthDefault' }]];
+  const { carve } = pandocToCarve(doc);
+  assert.ok(!carve.includes('list-table'), carve);
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 1, carve);
 });
 
 test('the AST path keeps the table node, because rowGroups loses nothing there', () => {

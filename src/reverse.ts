@@ -319,7 +319,15 @@ function link(ctx: Ctx, c: never): CNode[] {
     const [a, xs, [href, title]] = c as [Attr, PandocNode[], [string, string]];
     const [, classes] = a;
     if (classes.includes('uri') || classes.includes('email')) {
-        return [{ type: 'autolink', href, text: stringify(xs) }];
+        const node: CNode = { type: 'autolink', href, text: stringify(xs) };
+        // `uri`/`email` is the class the forward direction SYNTHESIZES to say
+        // what kind of link this is, so it is not the author's and does not
+        // come back. Anything else on the Attr is the author's - an autolink
+        // takes a trailing attribute like any other inline - and used to be
+        // dropped here without a word.
+        const rest = fromAttr([a[0], classes.filter((c) => c !== 'uri' && c !== 'email'), a[2]]);
+        if (rest) node.attrs = rest;
+        return [node];
     }
     if (classes.includes('crossref')) {
         return [{ type: 'heading_ref', target: href.replace(/^#/, '') }];
@@ -830,12 +838,25 @@ function table(
     // leading run.
     const allRaw: [Attr, unknown[][]][] = [...headRaw];
     const isHeaderRow: boolean[] = headRaw.map(() => true);
+    // How many LEADING cells of each row are row headers.
+    //
+    // This is pandoc's `RowHeadColumns`, and the pipe table spells it directly:
+    // a body row opening `|= Mercury |` is a row header, `<th scope="row">`,
+    // measured on the engine. It used to be treated as unspellable, so such a
+    // table left the pipe form for a `::: list-table {header-cols=N}` - more
+    // markup, an extension the reader has to enable, and one number for the
+    // whole table where the cells can each say it. Marking the cells keeps the
+    // readable form and round-trips, because the forward direction derives the
+    // count back from exactly this run.
+    const rowHeadCols: number[] = headRaw.map(() => 0);
     const groupBodies: RowGroupBody[] = [];
     for (const body of tbodies) {
         const bodyHead = body[2] as [Attr, unknown[][]][];
         const bodyRows = body[3] as [Attr, unknown[][]][];
         allRaw.push(...bodyHead, ...bodyRows);
         isHeaderRow.push(...bodyHead.map(() => true), ...bodyRows.map(() => false));
+        const heads = typeof body[1] === 'number' && body[1] > 0 ? body[1] : 0;
+        rowHeadCols.push(...bodyHead.map(() => 0), ...bodyRows.map(() => heads));
         const group: RowGroupBody = { headRows: bodyHead.length, bodyRows: bodyRows.length };
         const rowHeadColumns = body[1];
         if (typeof rowHeadColumns === 'number' && rowHeadColumns > 0) {
@@ -847,6 +868,7 @@ function table(
     }
     allRaw.push(...footRaw);
     isHeaderRow.push(...footRaw.map(() => false));
+    rowHeadCols.push(...footRaw.map(() => 0));
 
     // Occupancy grid: pending[r][c] = continuation marker owed at that position.
     // Decided BEFORE the grid walk: the pipe path flattens as it goes and warns
@@ -857,28 +879,12 @@ function table(
             const cellBlocks = (raw as [Attr, PandocNode, number, number, PandocNode[]])[4];
             return Array.isArray(cellBlocks) && !isInlineShaped(cellBlocks);
         }));
-    // ROW-HEAD COLUMNS are the second reason to leave the pipe form, and the
-    // only one that is a straight gain: `header-cols=N` (extensions.md §5.1) IS
-    // pandoc's `RowHeadColumns`, so the list-table spells exactly what the pipe
-    // table drops. The other things `rowGroups` can carry - a foot, a second
-    // body, a body's intermediate header rows - have no list-table spelling
-    // either, so a table that has only those keeps the readable pipe form and
-    // `reportUnspellableGroups` names the loss instead.
-    //
-    // ONLY WHEN THE BODIES AGREE. `header-cols` is one number for the whole
-    // table, so a table whose bodies differ - and `1` beside a plain `0` is the
-    // ordinary way they differ - would come back with row headers ADDED to the
-    // bodies that had none. Widening the markup is worse than the flattening it
-    // was meant to avoid: dropping a row header renders a `td` where a `th`
-    // belonged, while inventing one asserts a heading the source never made.
-    // Such a table keeps the pipe form, where the loss is only a loss and is
-    // reported. A table forced onto the list-table path by its block cells has
-    // no such choice, and `listTable` reports the widening there instead.
-    const rowHeadCounts = new Set(groupBodies.map((b) => b.rowHeadColumns ?? 0));
-    const hasRowHeadColumns = ctx.target === 'source'
-        && rowHeadCounts.size === 1
-        && (groupBodies[0]?.rowHeadColumns ?? 0) > 0;
-    const useListTable = hasBlockCells || hasRowHeadColumns;
+    // Row-head columns no longer send a table to the list-table form: the pipe
+    // table marks those cells directly (see `rowHeadCols` above), which is
+    // readable, needs no extension, and round-trips. Block cells remain the one
+    // reason to leave, because a Carve `table_cell` holds INLINES and there is
+    // no pipe form for a cell holding blocks at all.
+    const useListTable = hasBlockCells;
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -888,35 +894,41 @@ function table(
     const cellBlocksAt: (PandocNode[] | undefined)[][] = allRaw.map(() => []);
 
     for (let r = 0; r < allRaw.length; r++) {
-        const isHeader = isHeaderRow[r] === true;
+        // A row is header cells throughout when it is a header ROW, and for its
+        // leading run when the body declared row-head columns.
+        const headTo = isHeaderRow[r] === true ? nCols : (rowHeadCols[r] ?? 0);
         const cells: CNode[] = [];
         const rawCells = allRaw[r]![1];
         let rawIdx = 0;
         for (let col = 0; col < nCols; col++) {
             if (pending[r]![col]) {
-                cells.push({ type: 'table_cell', header: isHeader, children: [], span: 'rowspan' });
+                cells.push({ type: 'table_cell', header: col < headTo, children: [], span: 'rowspan' });
                 continue;
             }
             const raw = rawCells[rawIdx++] as [Attr, PandocNode, number, number, PandocNode[]] | undefined;
             if (!raw) {
-                cells.push({ type: 'table_cell', header: isHeader, children: [] });
+                cells.push({ type: 'table_cell', header: col < headTo, children: [] });
                 continue;
             }
             const [cellAttr, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
             cellBlocksAt[r]![col] = cellBlocks;
             const cell: CNode = {
                 type: 'table_cell',
-                header: isHeader,
+                header: col < headTo,
                 children: useListTable ? [] : cellInlines(ctx, cellBlocks),
             };
+            // The column's alignment is carried by a HEADER ROW's cells, or by
+            // every cell when there is no header row. A row-head cell is not a
+            // header row, so it does not carry the column - its own marker
+            // aligns itself alone, which is what the engine does.
             const align = ALIGN_BACK[cellAlign.t]
-                ?? (isHeader || !hasHeaderRow ? colAligns[col] : '');
+                ?? (isHeaderRow[r] === true || !hasHeaderRow ? colAligns[col] : '');
             if (align) cell.align = align;
             const cellAttrs = fromAttr(cellAttr);
             if (cellAttrs) cell.attrs = cellAttrs;
             cells.push(cell);
             for (let j = 1; j < colSpan && col + j < nCols; j++) {
-                cells.push({ type: 'table_cell', header: isHeader, children: [], span: 'colspan' });
+                cells.push({ type: 'table_cell', header: col + j < headTo, children: [], span: 'colspan' });
             }
             // A 2D block gets a rowspan continuation at EVERY covered column
             // of the lower rows - that is how Carve's grid expresses it.

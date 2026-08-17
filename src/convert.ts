@@ -83,6 +83,39 @@ interface Ctx {
      * "Label N" text (id from its own `{#id}`).
      */
     crossrefTargets: Map<string, CNode[]>;
+    /**
+     * A heading's RENDERED text, folded to lower case, to its id.
+     *
+     * A COLLAPSED reference reaches a heading by that text - `[Some Heading][]`
+     * links to it with no definition anywhere, matched case-insensitively -
+     * which is resolution the engine performs after the parse, so the node the
+     * bridge receives still carries an empty `href`. Without this map every one
+     * of them was reported as a missing definition and emitted as literal
+     * source, so the link was simply gone.
+     *
+     * The FULL form is deliberately not here: `[text][Some Heading]` does NOT
+     * reach a heading, measured on the engine - it needs a definition like any
+     * other reference.
+     */
+    headingIdByText: Map<string, string>;
+    /**
+     * The crossref targets that are NUMBERED CAPTIONS rather than headings.
+     *
+     * `</#id>` resolves against both, and only one of them survives the
+     * crossing. A heading resolves by id, which is stable. A numbered caption
+     * resolves because it holds a `#` PLACEHOLDER - and pandoc has no
+     * placeholder, so the caption must go out with a literal number, after
+     * which it is an ordinary caption and the crossref pointing at it resolves
+     * to nothing. Re-reading `</#fig-sun>` therefore rendered the crossref as
+     * its own source text, with the link gone.
+     *
+     * Such a crossref is written as a plain link to the same id instead. It
+     * renders identically - the number is already resolved into the text - and
+     * it is stable, because nothing about a plain link depends on the target
+     * still being numbered. See markup-carve/carve#758 for the wider question
+     * of resolution results crossing a boundary.
+     */
+    captionTargets: Set<string>;
     /** true while emitting blocks of a tight list item */
     tight: boolean;
     /**
@@ -523,6 +556,24 @@ function kids(ctx: Ctx, n: CNode): P.Inline[] {
  * Returns null when the node is not an unresolved reference, so the caller
  * converts it normally.
  */
+/**
+ * The heading a COLLAPSED reference reaches, or null.
+ *
+ * `[Some Heading][]` with no definition anywhere links to the heading whose
+ * RENDERED text matches, case-insensitively - so `[plain one][]` reaches
+ * `# Plain One`. The engine resolves this after the parse, which is why the
+ * node still carries an empty `href` here.
+ *
+ * Only the collapsed form. `[text][Some Heading]` does not reach a heading,
+ * measured on the engine: it renders as its literal source. Detected on
+ * `rawRef` ending in `][]`, which is what makes the form collapsed.
+ */
+function collapsedHeadingRef(ctx: Ctx, n: CNode): string | undefined {
+    if (!String(n.rawRef ?? '').endsWith('][]')) return undefined;
+    const text = plainText((n.children as CNode[] | undefined) ?? []).trim().toLowerCase();
+    return text ? ctx.headingIdByText.get(text) : undefined;
+}
+
 function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inline[] | null {
     if (n.ref === undefined) return null;
     const destination = String((kind === 'link' ? n.href : n.src) ?? '');
@@ -584,6 +635,12 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 : text;
         }
         case 'link': {
+            // A collapsed reference to a heading is RESOLVED, not missing, so
+            // it is tried before the missing-definition path reports one.
+            const heading = String(n.href ?? '') === '' ? collapsedHeadingRef(ctx, n) : undefined;
+            if (heading !== undefined) {
+                return [P.Link(toAttr(n.attrs), kids(ctx, n), ['#' + heading, ''])];
+            }
             const unresolved = unresolvedReference(ctx, n, 'link');
             if (unresolved) return unresolved;
             return [
@@ -596,7 +653,18 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'autolink': {
             const href = String(n.href ?? '');
             const cls = href.startsWith('mailto:') ? 'email' : 'uri';
-            return [P.Link(P.attr(undefined, [cls]), [P.Str(String(n.text ?? href))], [href, ''])];
+            // An autolink takes a trailing attribute like any other inline
+            // (`<https://example.com>{.ext}`), and pandoc's Link has the slot
+            // for it, but only the synthesized `uri`/`email` class was written -
+            // so the author's id, classes and key-values left the document with
+            // nothing reported. They join the synthesized class rather than
+            // replace it: the class says what KIND of link this is, and a
+            // consumer keying on it should not lose that because the author
+            // added one of their own.
+            const [id, classes, kvs] = toAttr(n.attrs);
+            return [
+                P.Link([id, [cls, ...classes], kvs], [P.Str(String(n.text ?? href))], [href, '']),
+            ];
         }
         case 'image': {
             const unresolved = unresolvedReference(ctx, n, 'image');
@@ -634,10 +702,15 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 ctx.crossrefTargets.get(target.toLowerCase()) ??
                 findCaseInsensitive(ctx.crossrefTargets, target);
             if (found) {
+                // A caption target cannot come back as a crossref (see
+                // `captionTargets`), so it goes out as a plain link.
+                const classes = ctx.captionTargets.has(target.toLowerCase())
+                    ? []
+                    : ['crossref'];
                 ctx.inCrossref = true;
                 try {
                     return [
-                        P.Link(P.attr(undefined, ['crossref']), inlines(ctx, found), [
+                        P.Link(P.attr(undefined, classes), inlines(ctx, found), [
                             `#${target}`,
                             '',
                         ]),
@@ -904,6 +977,14 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
     // A block-attribute line can attach attrs to ANY block. Pandoc's Para,
     // BlockQuote, lists etc. have no Attr slot - preserve via a Div wrapper.
     const a = n.attrs as CAttrs | undefined;
+    // NOTHING IS NOT WRAPPED. A node that renders nothing where it sits - a
+    // link reference definition, an abbreviation definition - converts to no
+    // blocks, and wrapping that in a Div to carry its attrs put a visible empty
+    // element into every writer's output where Carve renders none:
+    // `[a]: /u {.c}` came back as `<div class="c"></div>`. The attrs are not
+    // lost by skipping it; they are already on whatever the definition feeds,
+    // which is where they render.
+    if (!result.length) return result;
     if (!ATTR_CARRYING.has(n.type) && hasAttrs(a)) {
         // In roundtrip mode the carve-block marker lets the reverse direction
         // restore the attrs onto the inner block instead of keeping a wrapper.
@@ -1246,9 +1327,29 @@ function table(
     // that was never in the source.
     const firstRowIsHead = headCount > 0;
     const firstRow = rows[0] ?? [];
-    const colAligns: P.Alignment[] = firstRow.map(
-        (c) => (firstRowIsHead ? ALIGN[c.align ?? ''] ?? 'AlignDefault' : 'AlignDefault'),
-    );
+    // THE COLUMN COUNT IS THE WIDEST ROW, NOT THE FIRST. A Carve table is
+    // RAGGED - PART 9 §16 keeps each row's own cell count - while a pandoc
+    // table is rectangular and its ColSpec list DEFINES the width. Sizing the
+    // list from the first row therefore emitted a table whose later rows have
+    // cells past the last column, which is not a shape pandoc's own readers
+    // produce: `| ~x~ |` above `| a | b |` declared one column, and `b` was
+    // dropped on the way back with nothing reported. The alignment of a column
+    // no first-row cell covers is simply unset.
+    const width = Math.max(0, ...rows.map((row) => row.length));
+    if (rows.some((row) => row.length < width)) {
+        // Padding is the conversion, not a defect - but it is a change the
+        // author can see, so it is reported like every other one.
+        warn(
+            ctx,
+            `table: ${rows.filter((row) => row.length < width).length} row(s) shorter than the `
+            + `widest (${width} cells) are padded with empty cells - a pandoc table is `
+            + 'rectangular, and PART 9 §16 keeps each row\'s own cell count',
+        );
+    }
+    const colAligns: P.Alignment[] = Array.from({ length: width }, (_, c) => {
+        const cell = firstRow[c];
+        return firstRowIsHead && cell ? ALIGN[cell.align ?? ''] ?? 'AlignDefault' : 'AlignDefault';
+    });
 
     // origin[r][c] -> the origin record covering grid position (r, c).
     interface Origin {
@@ -1360,7 +1461,26 @@ function table(
         footRows = toRows(at, at + groups.footRows);
     } else {
         // The implicit structure: everything after the head is one body.
-        bodies = [{ bodyRows: toRows(headCount, rows.length) }];
+        const implicit: P.TableBody = { bodyRows: toRows(headCount, rows.length) };
+        // ROW HEADERS ARE DERIVED WHEN NOTHING DECLARED THEM. A body row may
+        // open with header cells (`|= Mercury | 4,879.4 |`), which the engine
+        // renders as `<th scope="row">`. Pandoc says the same thing with
+        // `RowHeadColumns`, a COUNT on the body - and the count was only ever
+        // read from an explicit `rowGroups`, so a table that simply marked its
+        // first cells came out as ordinary `<td>` and lost the row headers.
+        // Derived from the leading run every body row agrees on, because that
+        // is what one number for the whole body can say.
+        const bodyRows = rows.slice(headCount);
+        if (bodyRows.length) {
+            let lead = width;
+            for (const row of bodyRows) {
+                let n = 0;
+                while (n < row.length && row[n]!.header === true) n++;
+                lead = Math.min(lead, n);
+            }
+            if (lead > 0) implicit.rowHeadColumns = lead;
+        }
+        bodies = [implicit];
     }
 
     return P.Table(
@@ -1880,6 +2000,8 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         warnings: [],
         footnoteDefs,
         crossrefTargets: new Map(),
+        headingIdByText: new Map(),
+        captionTargets: new Set(),
         tight: false,
         inCrossref: false,
         captionCounts: new Map(),
@@ -1962,6 +2084,9 @@ function collectCrossrefTargets(
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
+            const text = plainText(children).trim().toLowerCase();
+            // First heading wins, the same way the id map resolves a duplicate.
+            if (id && text && !ctx.headingIdByText.has(text)) ctx.headingIdByText.set(text, id);
         } else if (!inPanel && (n.type === 'figure' || n.type === 'table')) {
             // Every figure counts, whatever it wraps. A quote used to be
             // excluded here, because §4a made a captioned quote an attribution
@@ -1975,6 +2100,7 @@ function collectCrossrefTargets(
                 const a = (n.attrs ?? {}) as CAttrs;
                 if (a.id && !ctx.crossrefTargets.has(a.id)) {
                     ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${label} ${next}` }]);
+                    ctx.captionTargets.add(a.id.toLowerCase());
                 }
             }
         }
@@ -2026,6 +2152,7 @@ function figureGroupTargets(
         const a = (n.attrs ?? {}) as CAttrs;
         if (a.id && !ctx.crossrefTargets.has(a.id)) {
             ctx.crossrefTargets.set(a.id, [{ type: 'text', value: resolved }]);
+            ctx.captionTargets.add(a.id.toLowerCase());
         }
     }
 
