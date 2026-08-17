@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-08-17
+
 ### Changed
 
 - **Reading Carve now enables what writing Carve emits.** `listTable` and the
