@@ -83,6 +83,39 @@ interface Ctx {
      * "Label N" text (id from its own `{#id}`).
      */
     crossrefTargets: Map<string, CNode[]>;
+    /**
+     * A heading's RENDERED text, folded to lower case, to its id.
+     *
+     * A COLLAPSED reference reaches a heading by that text - `[Some Heading][]`
+     * links to it with no definition anywhere, matched case-insensitively -
+     * which is resolution the engine performs after the parse, so the node the
+     * bridge receives still carries an empty `href`. Without this map every one
+     * of them was reported as a missing definition and emitted as literal
+     * source, so the link was simply gone.
+     *
+     * The FULL form is deliberately not here: `[text][Some Heading]` does NOT
+     * reach a heading, measured on the engine - it needs a definition like any
+     * other reference.
+     */
+    headingIdByText: Map<string, string>;
+    /**
+     * The crossref targets that are NUMBERED CAPTIONS rather than headings.
+     *
+     * `</#id>` resolves against both, and only one of them survives the
+     * crossing. A heading resolves by id, which is stable. A numbered caption
+     * resolves because it holds a `#` PLACEHOLDER - and pandoc has no
+     * placeholder, so the caption must go out with a literal number, after
+     * which it is an ordinary caption and the crossref pointing at it resolves
+     * to nothing. Re-reading `</#fig-sun>` therefore rendered the crossref as
+     * its own source text, with the link gone.
+     *
+     * Such a crossref is written as a plain link to the same id instead. It
+     * renders identically - the number is already resolved into the text - and
+     * it is stable, because nothing about a plain link depends on the target
+     * still being numbered. See markup-carve/carve#758 for the wider question
+     * of resolution results crossing a boundary.
+     */
+    captionTargets: Set<string>;
     /** true while emitting blocks of a tight list item */
     tight: boolean;
     /**
@@ -523,6 +556,24 @@ function kids(ctx: Ctx, n: CNode): P.Inline[] {
  * Returns null when the node is not an unresolved reference, so the caller
  * converts it normally.
  */
+/**
+ * The heading a COLLAPSED reference reaches, or null.
+ *
+ * `[Some Heading][]` with no definition anywhere links to the heading whose
+ * RENDERED text matches, case-insensitively - so `[plain one][]` reaches
+ * `# Plain One`. The engine resolves this after the parse, which is why the
+ * node still carries an empty `href` here.
+ *
+ * Only the collapsed form. `[text][Some Heading]` does not reach a heading,
+ * measured on the engine: it renders as its literal source. Detected on
+ * `rawRef` ending in `][]`, which is what makes the form collapsed.
+ */
+function collapsedHeadingRef(ctx: Ctx, n: CNode): string | undefined {
+    if (!String(n.rawRef ?? '').endsWith('][]')) return undefined;
+    const text = plainText((n.children as CNode[] | undefined) ?? []).trim().toLowerCase();
+    return text ? ctx.headingIdByText.get(text) : undefined;
+}
+
 function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inline[] | null {
     if (n.ref === undefined) return null;
     const destination = String((kind === 'link' ? n.href : n.src) ?? '');
@@ -584,6 +635,12 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 : text;
         }
         case 'link': {
+            // A collapsed reference to a heading is RESOLVED, not missing, so
+            // it is tried before the missing-definition path reports one.
+            const heading = String(n.href ?? '') === '' ? collapsedHeadingRef(ctx, n) : undefined;
+            if (heading !== undefined) {
+                return [P.Link(toAttr(n.attrs), kids(ctx, n), ['#' + heading, ''])];
+            }
             const unresolved = unresolvedReference(ctx, n, 'link');
             if (unresolved) return unresolved;
             return [
@@ -645,10 +702,15 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 ctx.crossrefTargets.get(target.toLowerCase()) ??
                 findCaseInsensitive(ctx.crossrefTargets, target);
             if (found) {
+                // A caption target cannot come back as a crossref (see
+                // `captionTargets`), so it goes out as a plain link.
+                const classes = ctx.captionTargets.has(target.toLowerCase())
+                    ? []
+                    : ['crossref'];
                 ctx.inCrossref = true;
                 try {
                     return [
-                        P.Link(P.attr(undefined, ['crossref']), inlines(ctx, found), [
+                        P.Link(P.attr(undefined, classes), inlines(ctx, found), [
                             `#${target}`,
                             '',
                         ]),
@@ -1938,6 +2000,8 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         warnings: [],
         footnoteDefs,
         crossrefTargets: new Map(),
+        headingIdByText: new Map(),
+        captionTargets: new Set(),
         tight: false,
         inCrossref: false,
         captionCounts: new Map(),
@@ -2020,6 +2084,9 @@ function collectCrossrefTargets(
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
+            const text = plainText(children).trim().toLowerCase();
+            // First heading wins, the same way the id map resolves a duplicate.
+            if (id && text && !ctx.headingIdByText.has(text)) ctx.headingIdByText.set(text, id);
         } else if (!inPanel && (n.type === 'figure' || n.type === 'table')) {
             // Every figure counts, whatever it wraps. A quote used to be
             // excluded here, because §4a made a captioned quote an attribution
@@ -2033,6 +2100,7 @@ function collectCrossrefTargets(
                 const a = (n.attrs ?? {}) as CAttrs;
                 if (a.id && !ctx.crossrefTargets.has(a.id)) {
                     ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${label} ${next}` }]);
+                    ctx.captionTargets.add(a.id.toLowerCase());
                 }
             }
         }
@@ -2084,6 +2152,7 @@ function figureGroupTargets(
         const a = (n.attrs ?? {}) as CAttrs;
         if (a.id && !ctx.crossrefTargets.has(a.id)) {
             ctx.crossrefTargets.set(a.id, [{ type: 'text', value: resolved }]);
+            ctx.captionTargets.add(a.id.toLowerCase());
         }
     }
 
