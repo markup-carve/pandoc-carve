@@ -54,7 +54,7 @@ export function pandocIsRequired() {
 
 /** Locate a pandoc executable: $PANDOC, PATH, or the local test fallback. */
 export function findPandoc() {
-  const candidates = [process.env.PANDOC, 'pandoc', '/tmp/pandoc-3.5/bin/pandoc'].filter(Boolean);
+  const candidates = [process.env.PANDOC, 'pandoc', '/tmp/pandoc-3.10.2/bin/pandoc'].filter(Boolean);
   for (const candidate of candidates) {
     try {
       execFileSync(candidate, ['--version'], { stdio: 'pipe' });

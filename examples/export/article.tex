@@ -39,6 +39,7 @@ this.\footnote{Footnotes become Pandoc \texttt{Note} nodes and render
 
 \subsection{A table}
 
+{\def\LTcaptype{none} % do not increment counter
 \begin{longtable}[]{@{}lll@{}}
 \toprule\noalign{}
 Format & Binary? & Text golden? \\
@@ -50,6 +51,7 @@ LaTeX & no & yes \\
 Typst & no & yes \\
 DOCX & yes & no \\
 \end{longtable}
+}
 
 \subsection{Math and raw passthrough}
 

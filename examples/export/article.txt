@@ -10,10 +10,10 @@ Carve swaps the Markdown emphasis delimiters: /italic/ is emphasis and
 
 Lists
 
--   First item
--   Second item, with emphasis
-    -   A nested item
--   Third item
+- First item
+- Second item, with emphasis
+  - A nested item
+- Third item
 
 1.  Ordered one
 2.  Ordered two

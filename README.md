@@ -26,7 +26,7 @@ npm install @markup-carve/pandoc-carve
 ```
 
 The CLI shells out to a `pandoc` executable on your PATH (3.x; tested against
-3.5). Pandoc is not bundled - install it from [pandoc.org](https://pandoc.org)
+3.10.2). Pandoc is not bundled - install it from [pandoc.org](https://pandoc.org)
 or your package manager. Emitting plain JSON (`-t json`) needs no pandoc at all.
 
 ## CLI

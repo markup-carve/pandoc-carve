@@ -8,10 +8,29 @@ omitted), so the merged regions survive into LaTeX
 `\multicolumn`/`\multirow`, DOCX merged cells, Typst, and the rest - not
 just HTML.
 
-| Region | 2024 | 2025 |
-|--------|------|------|
-| North  | 100  |      |
-| South  | 40   | 60   |
-|        | 30   | 50   |
-
-Sales by region (North 2024 spans both years; South spans two rows)
+<table>
+<caption>Sales by region (North 2024 spans both years; South spans two
+rows)</caption>
+<thead>
+<tr>
+<th>Region</th>
+<th>2024</th>
+<th>2025</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>North</td>
+<td colspan="2">100</td>
+</tr>
+<tr>
+<td rowspan="2">South</td>
+<td>40</td>
+<td>60</td>
+</tr>
+<tr>
+<td>30</td>
+<td>50</td>
+</tr>
+</tbody>
+</table>

@@ -37,7 +37,7 @@ Inline math: $e^(i pi) + 1 = 0$.
 
 A target-routed raw span reaches only the LaTeX writer and is dropped by
 every other format: . This is the pandoc-Markdown raw-span semantics
-that Carve’s `{=format}` syntax was born from.
+that Carve's `{=format}` syntax was born from.
 
 #quote(block: true)[
 A blockquote closes the tour. Every node above maps to a Pandoc AST
