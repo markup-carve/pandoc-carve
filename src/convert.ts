@@ -835,6 +835,38 @@ function citationSuffix(ctx: Ctx, item: CCitation): P.Inline[] {
     return [];
 }
 
+/**
+ * A `[@key]: entry` bibliography line (PART 12 section 18) as citeproc's own
+ * bibliography entry: `Div ("ref-<key>", ["csl-entry"], ...)`.
+ *
+ * There was no arm for this node at all, so a definition fell to the generic
+ * "unknown node type" path and left as a paragraph of its text - the entry
+ * printed in the body of the document, where Carve renders nothing, and the
+ * key that binds it to its citations was dropped on the floor.
+ *
+ * `csl-entry` under `ref-<key>` is not a shape invented here. It is what
+ * `pandoc --citeproc` writes for a resolved bibliography entry and what
+ * pandoc's markdown reader reads back, so the mapping lands in the vocabulary
+ * the rest of the pandoc ecosystem already keys on: a filter or template that
+ * styles a bibliography finds one.
+ *
+ * The `{author= year=}` metadata rides along as the Div's key-values. Pandoc
+ * has no slot for it - citeproc takes those from the CSL data, not from the
+ * document - but dropping a field the node carries is the thing this bridge
+ * does not do, and an attribute pandoc preserves costs nothing to keep.
+ */
+function citationDefinition(ctx: Ctx, n: CNode): P.Block {
+    const key = String(n.key ?? '');
+    const [id, classes, kvs] = toAttr(n.attrs);
+    const entry = inlines(ctx, n.children as CNode[] | undefined);
+    return P.Div(
+        [id || (key ? `ref-${key}` : ''), ['csl-entry', ...classes], kvs],
+        // Section 18 allows an empty entry, and an empty `Para` is not a shape
+        // pandoc's own readers produce.
+        entry.length ? [P.Para(entry)] : [],
+    );
+}
+
 function findCaseInsensitive(map: Map<string, CNode[]>, target: string): CNode[] | undefined {
     const lower = target.toLowerCase();
     for (const [k, v] of map) {
@@ -861,6 +893,10 @@ const ATTR_CARRYING = new Set([
     'figure_group',
     'div',
     'admonition',
+    // Its Div IS the entry, and its attrs are the `{author= year=}` block that
+    // belongs on it. Left out, the wrapper below adds a SECOND Div carrying the
+    // same key-values around the one that already has them.
+    'citation_definition',
 ]);
 
 function block(ctx: Ctx, n: CNode): P.Block[] {
@@ -938,6 +974,8 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         }
         case 'raw_block':
             return [P.RawBlock(String(n.format ?? ''), String(n.content ?? ''))];
+        case 'citation_definition':
+            return [citationDefinition(ctx, n)];
         case 'thematic_break':
             return [P.HorizontalRule];
         case 'list':

@@ -384,3 +384,74 @@ test('citations: a citation survives pandoc -> Carve -> pandoc unchanged', { ski
   const back = carveToPandoc(carve).doc;
   assert.deepEqual(back.blocks, doc.blocks);
 });
+
+/*
+ * A `[@key]: entry` DEFINITION (PART 12 section 18).
+ *
+ * The forward direction had no arm for the node, so it fell to the generic
+ * "unknown node type" path: the entry left as a paragraph of its text, which
+ * PRINTS in the body of the document where Carve renders nothing, and the key
+ * binding it to its citations was dropped. The generic path is a fallback for
+ * nodes nobody mapped - a node the exchange schema defines is not one of them.
+ */
+
+const definition = (key, text, attrs) => ({
+  type: 'citation_definition',
+  key,
+  ...(attrs ? { attrs } : {}),
+  children: text ? [{ type: 'text', value: text }] : [],
+});
+
+const doc = (...children) => ({ type: 'document', children });
+
+test('citations: a definition becomes citeproc\'s own bibliography entry', () => {
+  const { doc: out, warnings } = carveAstToPandoc(doc(definition('doe1990', 'Doe, J. 1990.')));
+  assert.deepEqual(warnings, [], 'a node the schema defines is not "unknown"');
+  const [div] = out.blocks;
+  assert.equal(div.t, 'Div');
+  assert.deepEqual(div.c[0], ['ref-doe1990', ['csl-entry'], []]);
+  assert.equal(div.c[1][0].t, 'Para');
+  assert.equal(div.c[1][0].c[0].c, 'Doe,');
+});
+
+test('citations: the definition keeps the key that binds it to its citations', () => {
+  // The failure that matters: the id is what a `Cite` for the same key resolves
+  // against, and it used to be gone entirely.
+  const { doc: out } = carveAstToPandoc(doc(definition('smith2020', 'S.')));
+  assert.equal(out.blocks[0].c[0][0], 'ref-smith2020');
+});
+
+test('citations: the {author= year=} metadata rides along', () => {
+  const attrs = { keyValues: { author: 'Doe', year: '1990' }, order: ['key'] };
+  const { doc: out } = carveAstToPandoc(doc(definition('doe1990', 'D.', attrs)));
+  assert.deepEqual(out.blocks[0].c[0][2], [['author', 'Doe'], ['year', '1990']]);
+});
+
+test('citations: the entry is wrapped once, not twice', () => {
+  // `citation_definition` carries its own Attr, so it must be exempt from the
+  // generic attr-wrapper Div - which otherwise put a second Div carrying the
+  // same key-values around the one that already had them.
+  const attrs = { keyValues: { author: 'Doe' }, order: ['key'] };
+  const [div] = carveAstToPandoc(doc(definition('doe1990', 'D.', attrs))).doc.blocks;
+  assert.equal(div.c[1].length, 1, 'one child block');
+  assert.equal(div.c[1][0].t, 'Para', 'and it is the entry, not another Div');
+});
+
+test('citations: an empty entry is an empty Div, not an empty Para', () => {
+  // Section 18 allows the empty entry, and pandoc's own readers never produce
+  // a `Para` with no inlines.
+  const [div] = carveAstToPandoc(doc(definition('bare', ''))).doc.blocks;
+  assert.deepEqual(div.c[1], []);
+});
+
+test('citations: the entry survives pandoc\'s own writer and reader', { skip: !pandoc && 'pandoc not found' }, () => {
+  // The claim being checked is that `csl-entry` is pandoc's vocabulary, not a
+  // shape invented here - so pandoc has to recognize it coming back.
+  const { doc: out } = carveAstToPandoc(doc(definition('doe1990', 'Doe, J. 1990.')));
+  const md = execFileSync(pandoc, ['-f', 'json', '-t', 'markdown'], {
+    input: JSON.stringify(out), encoding: 'utf8',
+  });
+  assert.match(md, /^::: \{#ref-doe1990 \.csl-entry\}$/m);
+  const back = JSON.parse(pandocRead(pandoc, md));
+  assert.deepEqual(back.blocks, out.blocks);
+});

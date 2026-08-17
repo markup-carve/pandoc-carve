@@ -224,6 +224,16 @@
 
 ### Fixed
 
+- **A `[@key]:` bibliography definition reaches pandoc as a bibliography
+  entry.** The forward direction had no arm for `citation_definition` (PART 12
+  section 18), so it fell to the generic "unknown node type" fallback and left
+  as a paragraph of its text: the entry PRINTED in the body of the document,
+  where Carve renders nothing, and the key binding it to its citations was
+  dropped. It now becomes `Div ("ref-<key>", ["csl-entry"], ...)` - what
+  `pandoc --citeproc` writes for a resolved entry and what pandoc's markdown
+  reader reads back - so a filter or template that styles a bibliography finds
+  one. The `{author= year=}` metadata rides along as the Div's key-values.
+
 - **A citation crosses back unchanged.** `citationNoteNum` left the bridge as a
   hard-coded 0, the one field standing between a `Cite` and an exact
   `pandoc -> Carve -> pandoc` round trip. Pandoc's markdown reader does not use
