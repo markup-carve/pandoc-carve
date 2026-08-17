@@ -99,8 +99,24 @@ test('metadata: the emitted frontmatter is read the same way by pandoc', { skip:
   assert.deepEqual(readMeta(yaml), meta);
 });
 
-test('metadata: MetaBlocks is skipped with a warning, which is policy', { skip: !pandoc && 'pandoc not found' }, () => {
-  const source = `---
+/*
+ * BLOCK CONTENT IN METADATA (`abstract: |`).
+ *
+ * D5(b) recorded this as a deliberate skip on the reasoning that block content
+ * "has no honest YAML string form": flattening it to one scalar loses the
+ * paragraph structure, and writing Carve source into a YAML value "makes the
+ * frontmatter carry markup that nothing on the reading side parses".
+ *
+ * The first half was never the only option and the second is now false. A YAML
+ * LITERAL BLOCK SCALAR keeps every line and every blank line between them, so
+ * the paragraph structure arrives intact rather than flattened, and `parseMeta`
+ * reads the scalar back through the same parser. This is not a novel bargain:
+ * it is exactly the one pandoc's own markdown writer and reader strike, which
+ * is why pandoc is the oracle in these tests rather than an assertion on a
+ * shape chosen here.
+ */
+
+const ABSTRACT = `---
 abstract: |
   Para one.
 
@@ -111,16 +127,68 @@ keywords:
 
 Body.
 `;
-  const meta = readMeta(source);
+
+test('metadata: block content is written as the literal scalar pandoc writes', { skip: !pandoc && 'pandoc not found' }, () => {
+  const meta = readMeta(ABSTRACT);
   assert.equal(meta.abstract.t, 'MetaBlocks', 'the premise');
 
   const { carve, warnings } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  assert.ok(
-    warnings.some((w) => w.includes('abstract') && w.includes('MetaBlocks')),
-    warnings.join(' | '),
-  );
-  assert.ok(!carve.includes('abstract'), 'no half-serialized value is written');
+  assert.deepEqual(warnings, [], 'nothing is lost, so nothing is reported');
+  assert.ok(carve.includes('abstract: |\n  Para one.\n\n  Para two.\n'), carve);
   assert.ok(carve.includes('keywords: [a]'), 'the rest of the metadata is unaffected');
+});
+
+test('metadata: and pandoc reads that value back as the same MetaBlocks', { skip: !pandoc && 'pandoc not found' }, () => {
+  const meta = readMeta(ABSTRACT);
+  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
+  // Pandoc's own reader on the emitted frontmatter: the bridge's claim is that
+  // this is pandoc's spelling, so pandoc is what checks it.
+  assert.deepEqual(readMeta(carve.replace(/^---yaml\n/, '---\n')), meta);
+});
+
+test('metadata: block content survives the bridge in both directions', { skip: !pandoc && 'pandoc not found' }, () => {
+  const meta = readMeta(ABSTRACT);
+  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
+  const back = carveToPandoc(carve).doc.meta;
+  assert.equal(back.abstract.t, 'MetaBlocks');
+  assert.deepEqual(back.abstract, meta.abstract, 'both paragraphs, still two of them');
+});
+
+test('metadata: markup inside the scalar is parsed, not carried as text', () => {
+  const src = '---yaml\nabstract: |\n  A /stressed/ word.\n---\n\nBody.\n';
+  const { doc, warnings } = carveToPandoc(src);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(doc.meta.abstract, {
+    t: 'MetaBlocks',
+    c: [{
+      t: 'Para',
+      c: [
+        { t: 'Str', c: 'A' }, { t: 'Space' },
+        { t: 'Emph', c: [{ t: 'Str', c: 'stressed' }] },
+        { t: 'Space' }, { t: 'Str', c: 'word.' },
+      ],
+    }],
+  });
+});
+
+test('metadata: a block scalar is read by its FORM, not by its key name', () => {
+  // Pandoc makes `MetaBlocks` from the literal scalar whatever the key is
+  // called, so there is no `abstract` special case on either side.
+  const { doc } = carveToPandoc('---yaml\nsummary: |\n  One.\n\n  Two.\nplain: text\n---\n\nB.\n');
+  assert.equal(doc.meta.summary.t, 'MetaBlocks');
+  assert.equal(doc.meta.summary.c.length, 2, 'two paragraphs');
+  assert.equal(doc.meta.plain.t, 'MetaInlines', 'a plain scalar is untouched');
+});
+
+test('metadata: a block scalar nested under a key keeps its own indentation', () => {
+  const { doc, warnings } = carveToPandoc(
+    '---yaml\nrefs:\n  note: |\n    Deep one.\n\n    Deep two.\n  flat: v\n---\n\nB.\n',
+  );
+  assert.deepEqual(warnings, []);
+  const note = doc.meta.refs.c.note;
+  assert.equal(note.t, 'MetaBlocks');
+  assert.equal(note.c.length, 2);
+  assert.equal(doc.meta.refs.c.flat.c[0].c, 'v', 'the sibling key still reads');
 });
 
 test('metadata: a line that fits no shape is still reported and skipped', () => {

@@ -82,7 +82,7 @@ The diagram source is never lost - it stays a fenced code block that a
 Markdown host can re-render, and a build step can pre-render to an image
 for PDF.
 
-``` mermaid
+```
 graph TD; A[Carve] --> B[Pandoc]; B --> C[LaTeX];
 ```
 

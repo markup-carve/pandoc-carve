@@ -43,7 +43,7 @@ export default { port: 3000 };
 
 ]
 == Spoiler
-A quoted title survives as a caption; the “hide until revealed”
+A quoted title survives as a caption; the "hide until revealed"
 interaction is meaningless offline, so the body is simply shown.
 
 #block[
@@ -69,4 +69,4 @@ graph TD; A[Carve] --> B[Pandoc]; B --> C[LaTeX];
 ```
 
 Inline math keeps its source too:
-$sum_(i = 1)^n i = frac(n (n + 1), 2)$.
+$sum_(i = 1)^n i = frac(n\(n + 1\), 2)$.

@@ -48,8 +48,27 @@ export interface ConvertOptions {
      * Convert `::: list-table` blocks to real Pandoc tables (the listTable
      * extension's semantics) instead of the degraded Div-of-lists form.
      * Pandoc cells hold full blocks, so nothing is flattened.
+     *
+     * ON by default, because the REVERSE direction writes a list-table
+     * unprompted: `pandocToCarve` reaches for it whenever a pandoc table has a
+     * cell holding blocks or row-head columns, which a pipe table cannot spell.
+     * With this off, that table came back as a `Div` of nested lists - the
+     * bridge lost, on the way in, a construct it had itself chosen on the way
+     * out. Set it false to get the literal `Div` a processor without the
+     * extension enabled would render.
      */
     listTable?: boolean;
+    /**
+     * Parse Carve source to the exchange AST's `children`, for the one place a
+     * conversion has to read source rather than a tree: block content in
+     * metadata (`abstract: |`), whose value is Carve markup inside a YAML
+     * string.
+     *
+     * Supplied as a hook rather than imported, because this module converts a
+     * SERIALIZED AST from any engine and has no engine of its own. Without it
+     * a block scalar is reported and skipped, which is what it always did.
+     */
+    parseBlocks?: (source: string) => unknown[];
 }
 
 interface Ctx {
@@ -104,6 +123,22 @@ interface Ctx {
     roundtrip: boolean;
     symbols: Record<string, string>;
     listTable: boolean;
+    /**
+     * Notes closed so far, which is what pandoc's `citationNoteNum` counts.
+     *
+     * Pandoc's markdown reader stamps every `Cite` with the note number in
+     * force where it stands: a citation in running text before any note gets 1,
+     * one standing after two notes gets 3, and one INSIDE a note gets that
+     * note's own number - the counter moves when the note CLOSES, not when it
+     * opens. Reproducing that here is what makes a citation survive
+     * pandoc -> Carve -> pandoc unchanged; the field is pandoc's own
+     * bookkeeping, not authored content, so there is nothing in the Carve AST
+     * to carry and nothing to add to it.
+     */
+    noteCount: number;
+    parseBlocks: ((source: string) => unknown[]) | undefined;
+    /** Literal block scalars lifted out of the frontmatter, by sentinel. */
+    blockScalars: Map<string, string>;
 }
 
 function warn(ctx: Ctx, msg: string): void {
@@ -335,8 +370,100 @@ function inlineText(n: CNode | undefined): string {
 function inlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] {
     if (!nodes) return [];
     const out: P.Inline[] = [];
-    for (const n of nodes) out.push(...inline(ctx, n));
+    for (const n of pairQuotes(nodes)) out.push(...inline(ctx, n));
     return joinAdjacentStr(out);
+}
+
+/**
+ * The synthetic node a matched pair of quote marks becomes, between
+ * {@link pairQuotes} and the `Quoted` it converts to. Not a Carve type and
+ * never serialized - the name is deliberately unspellable so it cannot collide
+ * with a node type an engine might add.
+ */
+const QUOTED = '__pandocQuoted';
+
+const QUOTE_OPENS: Record<string, P.QuoteType> = {
+    left_double_quote: 'DoubleQuote',
+    left_single_quote: 'SingleQuote',
+};
+const QUOTE_CLOSES: Record<string, P.QuoteType> = {
+    right_double_quote: 'DoubleQuote',
+    right_single_quote: 'SingleQuote',
+};
+
+const quoteRole = (n: CNode): [P.QuoteType, 'open' | 'close'] | null => {
+    if (n?.type !== 'smart_punctuation') return null;
+    const kind = String(n.kind ?? '');
+    const open = QUOTE_OPENS[kind];
+    if (open) return [open, 'open'];
+    const close = QUOTE_CLOSES[kind];
+    return close ? [close, 'close'] : null;
+};
+
+/**
+ * Rebuild pandoc's WRAPPING quotation from Carve's two standalone marks.
+ *
+ * Carve's parser resolves `"` and `'` to `smart_punctuation` nodes carrying
+ * the kind (`left_double_quote`, `right_single_quote`, ...), which is strictly
+ * more information than the glyph - and exactly the information pandoc's
+ * `Quoted` needs. Without this a quotation crossed the bridge as three
+ * separate pieces and came back as `Str "“alpha”"`, so a document quoting
+ * anything could not survive pandoc -> Carve -> pandoc.
+ *
+ * WHAT IS DELIBERATELY NOT PAIRED. Only marks that are SIBLINGS pair, and only
+ * a close against a still-open mark of the same kind:
+ *
+ *  - An APOSTROPHE (`it's`) resolves to a lone `right_single_quote` with no
+ *    opener. It stays a mark, which is the whole reason the match runs from
+ *    the closing side against a stack rather than pairing greedily.
+ *  - An UNCLOSED `"` stays a mark too - a `Quoted` running to the end of the
+ *    paragraph would assert a quotation the author never closed.
+ *  - A quotation crossing an emphasis boundary (`"a /b" c/`) puts its two
+ *    marks in different sibling arrays, where neither can see the other, and
+ *    both stay marks.
+ *
+ * In all three the glyph still renders; the node just is not promoted.
+ */
+function pairQuotes(nodes: CNode[]): CNode[] {
+    const closerOf = new Map<number, number>();
+    const kindOf = new Map<number, P.QuoteType>();
+    const open: { at: number; kind: P.QuoteType }[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+        const role = quoteRole(nodes[i]!);
+        if (!role) continue;
+        const [kind, side] = role;
+        if (side === 'open') {
+            open.push({ at: i, kind });
+            continue;
+        }
+        // The NEAREST unclosed opener of the same kind, so nesting works and a
+        // stray closer of the other kind cannot consume it.
+        for (let j = open.length - 1; j >= 0; j--) {
+            if (open[j]!.kind !== kind) continue;
+            closerOf.set(open[j]!.at, i);
+            kindOf.set(open[j]!.at, kind);
+            open.length = j;
+            break;
+        }
+    }
+    if (closerOf.size === 0) return nodes;
+
+    // The pairs nest by construction, so one recursive walk builds the tree.
+    const build = (from: number, to: number): CNode[] => {
+        const out: CNode[] = [];
+        for (let i = from; i < to;) {
+            const close = closerOf.get(i);
+            if (close !== undefined && close < to) {
+                out.push({ type: QUOTED, quote: kindOf.get(i), children: build(i + 1, close) });
+                i = close + 1;
+                continue;
+            }
+            out.push(nodes[i]!);
+            i++;
+        }
+        return out;
+    };
+    return build(0, nodes.length);
 }
 
 /**
@@ -529,8 +656,13 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         // this switch never has to know it existed.
         case 'footnote_ref':
         case 'inline_footnote': {
+            // The note's own content is converted BEFORE the counter moves, so
+            // a citation inside the note carries that note's number rather than
+            // the next one - which is what pandoc's markdown reader produces.
             if (Array.isArray(n.inline)) {
-                return [P.Note([P.Para(inlines(ctx, n.inline as CNode[]))])];
+                const note = P.Note([P.Para(inlines(ctx, n.inline as CNode[]))]);
+                ctx.noteCount++;
+                return [note];
             }
             const id = String(n.id ?? '');
             const def = ctx.footnoteDefs[id];
@@ -538,7 +670,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 warn(ctx, `footnote: missing definition for [^${id}]`);
                 return [P.Superscript([P.Str(id)])];
             }
-            return [P.Note(blocks(ctx, def))];
+            const note = P.Note(blocks(ctx, def));
+            ctx.noteCount++;
+            return [note];
         }
         case 'math':
             return [
@@ -608,6 +742,13 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`);
 
             return [];
+        case QUOTED:
+            return [
+                P.Quoted(
+                    (n.quote as P.QuoteType | undefined) ?? 'DoubleQuote',
+                    inlines(ctx, n.children as CNode[]),
+                ),
+            ];
         case 'smart_punctuation':
             // The resolved glyph, not the author's source run. Pandoc applies
             // its own smart punctuation when READING markdown, not when
@@ -677,6 +818,7 @@ function citationGroup(ctx: Ctx, n: CNode): P.Inline {
             mode,
             item.prefix?.length ? inlines(ctx, item.prefix) : [],
             citationSuffix(ctx, item),
+            ctx.noteCount + 1,
         );
     });
     return P.Cite(citations, textInlines(String(n.raw ?? '')));
@@ -1435,7 +1577,11 @@ function parseMeta(ctx: Ctx, frontmatter: unknown): Record<string, P.MetaValue> 
         return {};
     }
     const lines: YamlLine[] = [];
-    for (const raw of fm.content.split('\n')) {
+    // Block scalars come out FIRST, while the blank lines inside them are still
+    // there: the line reader below drops blank lines (they carry no structure
+    // in a mapping), and a blank line inside a literal scalar is a paragraph
+    // break. Each becomes one sentinel scalar the ordinary reader can carry.
+    for (const raw of liftBlockScalars(ctx, fm.content).split('\n')) {
         if (!raw.trim() || raw.trim().startsWith('#')) continue;
         lines.push({ indent: raw.length - raw.trimStart().length, text: raw.trim() });
     }
@@ -1448,6 +1594,87 @@ function parseMeta(ctx: Ctx, frontmatter: unknown): Record<string, P.MetaValue> 
         reader.at++;
     }
     return map;
+}
+
+/**
+ * A `key: |` line and the lines indented under it, replaced by one sentinel.
+ *
+ * The literal block scalar is the ONE YAML form that carries block content,
+ * and it is the form pandoc's own markdown writer emits for `MetaBlocks` and
+ * its reader turns back into `MetaBlocks` - key-agnostically, so `abstract`
+ * gets no special case here either. Lifting it out before the line reader runs
+ * keeps two things that would otherwise fight: the reader drops blank lines,
+ * and a blank line inside the scalar is a paragraph break.
+ *
+ * Only the plain `|` is read. `|-`, `|+`, `>` and an explicit indentation
+ * indicator are not what the writer emits, and this file's rule for the rest of
+ * YAML applies to them too: a line that does not fit a known shape is reported
+ * and skipped, never guessed at.
+ */
+const BLOCK_SCALAR_OPEN = /^(\s*)("[^"]*"|'[^']*'|[^:"'#][^:]*|[^:"'#]):[ \t]*\|[ \t]*$/;
+
+function liftBlockScalars(ctx: Ctx, content: string): string {
+    if (!content.includes('|')) return content;
+    const lines = content.split('\n');
+    const out: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+        const open = BLOCK_SCALAR_OPEN.exec(lines[i]!);
+        if (!open) {
+            out.push(lines[i]!);
+            continue;
+        }
+        const keyIndent = open[1]!.length;
+        const body: string[] = [];
+        let j = i + 1;
+        for (; j < lines.length; j++) {
+            const line = lines[j]!;
+            const deeper = line.trim() !== '' && line.length - line.trimStart().length > keyIndent;
+            if (!deeper && line.trim() !== '') break;
+            body.push(line);
+        }
+        // Trailing blank lines belong to whatever follows, not to the scalar.
+        while (body.length && body[body.length - 1]!.trim() === '') body.pop();
+        if (!body.length) {
+            out.push(lines[i]!);
+            continue;
+        }
+        const strip = Math.min(
+            ...body.filter((l) => l.trim() !== '').map((l) => l.length - l.trimStart().length),
+        );
+        // A NUL cannot occur in the frontmatter of a real document and is
+        // not whitespace, so the sentinel survives the reader's `trim()`
+        // and can never be confused with a scalar the author wrote.
+        const sentinel = `\u0000block${ctx.blockScalars.size}\u0000`;
+        ctx.blockScalars.set(sentinel, body.map((l) => l.slice(strip)).join('\n') + '\n');
+        out.push(`${open[1]}${open[2]}: ${sentinel}`);
+        i = j - 1;
+    }
+    return out.join('\n');
+}
+
+/**
+ * The Carve markup inside a literal block scalar, as `MetaBlocks`.
+ *
+ * This is the half of the round trip that used to be missing, and its absence
+ * was the whole argument for dropping `MetaBlocks` on the way out: the value
+ * "makes the frontmatter carry markup that nothing on the reading side
+ * parses". Something does now, so the value survives both ways - the same
+ * bargain pandoc's own markdown reader and writer strike over `abstract: |`.
+ */
+function blockScalarValue(ctx: Ctx, key: string, source: string): P.MetaValue {
+    if (!ctx.parseBlocks) {
+        // The AST entry points supply the parser; a caller reaching `convert`
+        // directly has no engine to lend, and the old skip is still the honest
+        // answer there.
+        warn(
+            ctx,
+            `frontmatter: block content under "${key}" needs a Carve parser to read - `
+            + 'use carveToPandoc / carveAstToPandoc, which supply one; skipped',
+        );
+        return P.MetaInlines([]);
+    }
+    const children = ctx.parseBlocks(source) as CNode[];
+    return P.MetaBlocks(blocks(ctx, children));
 }
 
 interface YamlLine {
@@ -1479,7 +1706,7 @@ function readMapping(r: YamlReader, indent: number): Record<string, P.MetaValue>
         const key = unquoteYaml(m[1]!);
         const inline = (m[2] ?? '').trim();
         r.at++;
-        out[key] = inline !== '' ? scalarValue(key, inline) : readChild(r, indent, key);
+        out[key] = inline !== '' ? scalarValue(r.ctx, key, inline) : readChild(r, indent, key);
     }
     return out;
 }
@@ -1506,7 +1733,7 @@ function readSequence(r: YamlReader, indent: number): P.MetaValue[] {
             continue;
         }
         r.at++;
-        out.push(scalarValue('', rest));
+        out.push(scalarValue(r.ctx, '', rest));
     }
     return out;
 }
@@ -1559,7 +1786,9 @@ const YAML_TRUE = /^(y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON)$/;
 const YAML_FALSE = /^(n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$/;
 const YAML_NULL = /^(~|null|Null|NULL)$/;
 
-function scalarValue(key: string, raw: string): P.MetaValue {
+function scalarValue(ctx: Ctx, key: string, raw: string): P.MetaValue {
+    const blockScalar = ctx.blockScalars.get(raw);
+    if (blockScalar !== undefined) return blockScalarValue(ctx, key, blockScalar);
     // `{}` is the only flow map read: an EMPTY one, which is what the writer
     // emits for a `MetaMap` with no entries. A populated flow map is not in the
     // subset and falls through to being read as a string, same as before.
@@ -1572,7 +1801,7 @@ function scalarValue(key: string, raw: string): P.MetaValue {
             .filter((s) => s !== '' && unquoteYaml(s) !== '');
         // Items are typed by the same rules as a scalar on its own line, so a
         // `[true, draft]` list keeps the boolean and the word apart.
-        return P.MetaList(items.map((s) => scalarValue('', s)));
+        return P.MetaList(items.map((s) => scalarValue(ctx, '', s)));
     }
     if (YAML_TRUE.test(raw)) return P.MetaBool(true);
     if (YAML_FALSE.test(raw)) return P.MetaBool(false);
@@ -1620,7 +1849,10 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         inPanel: false,
         roundtrip: options.roundtrip ?? false,
         symbols: options.symbols ?? {},
-        listTable: options.listTable ?? false,
+        listTable: options.listTable ?? true,
+        noteCount: 0,
+        parseBlocks: options.parseBlocks,
+        blockScalars: new Map(),
     };
 
     // Pass 1: collect crossref targets - heading ids (explicit, plus computed

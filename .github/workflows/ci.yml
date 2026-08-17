@@ -23,7 +23,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Install pandoc
         run: |
-          curl -sSL -o /tmp/pandoc.deb https://github.com/jgm/pandoc/releases/download/3.5/pandoc-3.5-1-amd64.deb
+          curl -sSL -o /tmp/pandoc.deb https://github.com/jgm/pandoc/releases/download/3.10.2/pandoc-3.10.2-1-amd64.deb
           sudo dpkg -i /tmp/pandoc.deb
           pandoc --version | head -1
       - run: npm ci

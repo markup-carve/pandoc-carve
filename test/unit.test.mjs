@@ -336,13 +336,13 @@ test('symbols option resolves :name:, unmapped still degrades', () => {
   assert.ok(r.warnings.some((w) => w.includes('ghost')), 'warning for unmapped');
 });
 
-test('listTable option converts ::: list-table to a real Table', () => {
+test('listTable converts ::: list-table to a real Table, and opts out to a Div', () => {
   const src = '{header-rows=1}\n::: list-table "Cap"\n- - A\n  - B\n- - EMEA\n  - Strong.\n\n    Second para.\n- - APAC\n  - <\n:::';
-  // default: degraded Div
-  const [div] = blocks(src);
+  // opt-out: the degraded Div a processor without the extension renders
+  const [div] = carveToPandoc(src, { listTable: false }).doc.blocks;
   assert.equal(div.t, 'Div');
-  // opt-in: real table with head row, caption, colspan, block cells
-  const [t] = carveToPandoc(src, { listTable: true }).doc.blocks;
+  // default: real table with head row, caption, colspan, block cells
+  const [t] = blocks(src);
   assert.equal(t.t, 'Table');
   assert.equal(t.c[1][1][0].c[0].c, 'Cap');
   assert.equal(t.c[3][1].length, 1, 'one header row');

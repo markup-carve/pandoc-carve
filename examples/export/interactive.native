@@ -333,11 +333,14 @@
     , Space
     , Str "the"
     , Space
-    , Str "\8220hide"
-    , Space
-    , Str "until"
-    , Space
-    , Str "revealed\8221"
+    , Quoted
+        DoubleQuote
+        [ Str "hide"
+        , Space
+        , Str "until"
+        , Space
+        , Str "revealed"
+        ]
     , Space
     , Str "interaction"
     , Space

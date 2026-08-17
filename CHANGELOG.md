@@ -4,6 +4,65 @@
 
 ### Changed
 
+- **Reading Carve now enables what writing Carve emits.** `listTable` and the
+  citations extension default ON, and `carveToPandoc` takes the parse options
+  (`citations`, `extensions`) it never had. The bridge was choosing constructs
+  on the way out that it could not recognize on the way back, which is
+  round-trip loss it inflicted on itself and could not see: a table it wrote as
+  `::: list-table` returned as a `Div` of nested lists, and - worse, because it
+  changes meaning rather than shape - `[@doe1990]` came back as `[`, a
+  `.mention` span, `]`, so every key of an imported bibliography silently
+  became a mention. Pass `listTable: false` / `citations: false` (CLI:
+  `--no-list-table`, `--no-citations`) for what a processor with neither
+  extension enabled would render.
+
+### Added
+
+- **A quotation survives the crossing.** Pandoc's `Quoted` used to be written
+  as literal curly glyphs, and a literal `“` in the source is ordinary text to
+  the parser, so a quotation came back as `Str "“alpha”"` and any document that
+  quoted anything could not round-trip. The note explaining that as policy was
+  wrong about its own premise: Carve does have a node here - `"` and `'`
+  resolve to `smart_punctuation` carrying the mark's KIND - so the marks are
+  written as the `"` an author types and the pair rebuilds pandoc's wrapping
+  `Quoted`. It is unambiguous because the writer already escapes a quote
+  character that is ordinary text (`it\'s`). An apostrophe, an unclosed mark
+  and a quotation crossing an emphasis boundary are deliberately NOT promoted.
+  Downstream this is what makes quoting locale-correct: the LaTeX and Typst
+  writers now emit their own quote form instead of frozen English glyphs.
+
+- **Block content in metadata round-trips.** `MetaBlocks` (`abstract: |`) was
+  skipped with a warning, on the reasoning that writing Carve source into a
+  YAML value "makes the frontmatter carry markup that nothing on the reading
+  side parses". Something does now: the value is written as a YAML literal
+  block scalar - the same spelling pandoc's own markdown writer emits and its
+  reader turns back into `MetaBlocks` - and read back through the same parser.
+  The scalar keeps every line and every blank line, so paragraph structure
+  survives rather than flattening. Read by the FORM, not the key name, so any
+  key can carry block content. This completes metadata: all ten shapes the
+  conformance probes cover now cross unchanged in both directions.
+
+### Fixed
+
+- **A citation crosses back unchanged.** `citationNoteNum` left the bridge as a
+  hard-coded 0, the one field standing between a `Cite` and an exact
+  `pandoc -> Carve -> pandoc` round trip. Pandoc's markdown reader does not use
+  0 for a citation in running text: it counts the notes CLOSED so far and
+  stamps that plus one, so a citation before any note carries 1 and one inside
+  a note carries that note's own number. The converter reproduces the counter,
+  pinned against pandoc's reader rather than against numbers written down here.
+
+- **Row-head columns reach the source layer.** `header-cols=N` on a
+  `::: list-table` is exactly pandoc's `RowHeadColumns`, but a table carrying
+  them was written as a pipe table, which cannot say it, and the row headers
+  were flattened to ordinary cells. Such a table now takes the list-table form
+  on the source path - and only when every body group agrees on the count,
+  because `header-cols` is one number for the whole table and a table whose
+  bodies differ would otherwise come back with row headers ADDED to the rows
+  that had none. Inventing a heading is worse than dropping one, so that table
+  keeps the pipe form and the loss stays reported. The AST path is unchanged:
+  `rowGroups` carries the whole partition there and nothing has to be traded.
+
 - **The pinned engine moved to current carve-js main.** Emitted Carve now
   follows the spec's section 6e table padding: every cell's content is
   separated from its markers by a space, so a header cell reads `|= A |`
