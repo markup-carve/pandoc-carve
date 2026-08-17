@@ -9,7 +9,7 @@
  * carve -> pandoc -> carve round-trips clean.
  */
 
-import { parse as parseCarve } from '@markup-carve/carve';
+import { parse as parseCarve, renderCarve } from '@markup-carve/carve';
 import type { PandocDoc, PandocNode, Attr } from './pandoc.js';
 import type { RowGroupBody, RowGroups } from './row-groups.js';
 
@@ -54,6 +54,20 @@ export interface ReverseResult {
 interface Ctx {
     warnings: string[];
     footnoteDefs: Record<string, CNode[]>;
+    /**
+     * Where this tree is headed, which is the difference between a field the
+     * consumer keeps and a field the source writer is about to drop.
+     *
+     * `pandocToCarveAst` hands the exchange AST on whole, so an interchange-only
+     * field like `rowGroups` survives and nothing has to be traded for it.
+     * `pandocToCarve` runs the same tree through `renderCarve`, where PART 9
+     * §16's pipe table spells a leading run of header rows and nothing else. A
+     * shape worth choosing on one path is therefore a REGRESSION on the other,
+     * and the one place that bites is row-head columns: on the source path a
+     * `::: list-table {header-cols=N}` keeps them, and on the AST path it would
+     * throw away the foot and body partition that `rowGroups` was holding fine.
+     */
+    target: 'source' | 'ast';
     noteCounter: number;
     /** abbr -> expansion, collected so renderCarve gets the `*[abbr]:` defs */
     abbrevDefs: Map<string, string>;
@@ -128,6 +142,28 @@ function mergeCAttrs(inner: CAttrs | undefined, outer: CAttrs | undefined): CAtt
 
 const text = (value: string): CNode => ({ type: 'text', value });
 
+/** Glyph and authored source of each quote mark, keyed by its resolved kind. */
+const QUOTE_MARKS: Record<string, { value: string; glyph: string }> = {
+    left_double_quote: { value: '"', glyph: '“' },
+    right_double_quote: { value: '"', glyph: '”' },
+    left_single_quote: { value: "'", glyph: '‘' },
+    right_single_quote: { value: "'", glyph: '’' },
+};
+
+/**
+ * One resolved quote mark.
+ *
+ * `value` is what an author typed and what `renderCarve` writes, so the source
+ * carries a plain `"`; `glyph` is what the parser resolved it to, so a consumer
+ * reading the AST alone still gets the curly character. Both fields are what
+ * the engine's own parse of `"` produces, which is what makes the emitted
+ * source re-parse to an identical node.
+ */
+function quoteMark(kind: keyof typeof QUOTE_MARKS | string): CNode {
+    const mark = QUOTE_MARKS[kind]!;
+    return { type: 'smart_punctuation', kind, value: mark.value, glyph: mark.glyph };
+}
+
 /** Merge adjacent text nodes so renderCarve sees natural runs. */
 function mergeText(nodes: CNode[]): CNode[] {
     const out: CNode[] = [];
@@ -200,25 +236,29 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
                 },
             ];
         case 'Quoted': {
-            // POLICY: literal curly quotes, and the degradation is real - the
-            // text re-imports as `Str`, never as `Quoted`, so the quote kind
-            // and pandoc's locale-aware quoting are gone once this is written.
-            // A `.quoted` span would round-trip, but it would put a class into
-            // every quoted phrase of an imported document to preserve a node
-            // Carve has no spelling for; the characters are what an author
-            // would have typed. Warned once per document, like the
-            // bibliography diagnostic: a document quotes many times and the
-            // repetition carries no extra information.
-            if (!ctx.quotedWarned) {
-                ctx.quotedWarned = true;
-                warn(
-                    ctx,
-                    'Quoted degraded to literal curly quote characters - Carve has no quote node, so the quotation does not re-import as Quoted',
-                );
-            }
+            // The two QUOTE MARKS, as the nodes Carve's own parser produces for
+            // them - not the literal glyphs this used to write.
+            //
+            // The old form was a genuine one-way loss, and the note explaining
+            // it was wrong about why: Carve does have a node here. `"` and `'`
+            // resolve to `smart_punctuation` carrying the KIND
+            // (`left_double_quote` ... ), which is what `pairQuotes` on the way
+            // back reads to rebuild pandoc's wrapping `Quoted`. Writing the
+            // glyph instead threw that kind away - a literal `“` in the source
+            // is ordinary text to the parser, so the quotation came back as
+            // `Str "“alpha”"`.
+            //
+            // It is also unambiguous, which is what makes it safe: the writer
+            // ESCAPES a quote character that is ordinary text (`it\'s`,
+            // `\"x\"`), so an unescaped mark in the emitted source is always
+            // one the bridge put there.
             const [kind, xs] = c as [PandocNode, PandocNode[]];
-            const [open, close] = kind.t === 'SingleQuote' ? ['‘', '’'] : ['“', '”'];
-            return mergeText([text(open), ...inlines(ctx, xs), text(close)]);
+            const single = kind.t === 'SingleQuote';
+            return [
+                quoteMark(single ? 'left_single_quote' : 'left_double_quote'),
+                ...inlines(ctx, xs),
+                quoteMark(single ? 'right_single_quote' : 'right_double_quote'),
+            ];
         }
         case 'Cite': {
             const [citations, xs] = c as [PCitation[], PandocNode[]];
@@ -817,6 +857,28 @@ function table(
             const cellBlocks = (raw as [Attr, PandocNode, number, number, PandocNode[]])[4];
             return Array.isArray(cellBlocks) && !isInlineShaped(cellBlocks);
         }));
+    // ROW-HEAD COLUMNS are the second reason to leave the pipe form, and the
+    // only one that is a straight gain: `header-cols=N` (extensions.md §5.1) IS
+    // pandoc's `RowHeadColumns`, so the list-table spells exactly what the pipe
+    // table drops. The other things `rowGroups` can carry - a foot, a second
+    // body, a body's intermediate header rows - have no list-table spelling
+    // either, so a table that has only those keeps the readable pipe form and
+    // `reportUnspellableGroups` names the loss instead.
+    //
+    // ONLY WHEN THE BODIES AGREE. `header-cols` is one number for the whole
+    // table, so a table whose bodies differ - and `1` beside a plain `0` is the
+    // ordinary way they differ - would come back with row headers ADDED to the
+    // bodies that had none. Widening the markup is worse than the flattening it
+    // was meant to avoid: dropping a row header renders a `td` where a `th`
+    // belonged, while inventing one asserts a heading the source never made.
+    // Such a table keeps the pipe form, where the loss is only a loss and is
+    // reported. A table forced onto the list-table path by its block cells has
+    // no such choice, and `listTable` reports the widening there instead.
+    const rowHeadCounts = new Set(groupBodies.map((b) => b.rowHeadColumns ?? 0));
+    const hasRowHeadColumns = ctx.target === 'source'
+        && rowHeadCounts.size === 1
+        && (groupBodies[0]?.rowHeadColumns ?? 0) > 0;
+    const useListTable = hasBlockCells || hasRowHeadColumns;
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -845,7 +907,7 @@ function table(
             const cell: CNode = {
                 type: 'table_cell',
                 header: isHeader,
-                children: hasBlockCells ? [] : cellInlines(ctx, cellBlocks),
+                children: useListTable ? [] : cellInlines(ctx, cellBlocks),
             };
             const align = ALIGN_BACK[cellAlign.t]
                 ?? (isHeader || !hasHeaderRow ? colAligns[col] : '');
@@ -876,7 +938,7 @@ function table(
     const captionInlinesFor = (): CNode[] | null =>
         captionOverride ?? captionFromBlocks(ctx, capt[1]);
 
-    if (hasBlockCells) {
+    if (useListTable) {
         const short = shortCaptionOverride ?? captionFromInlines(ctx, capt[0] as PandocNode[] | null);
         if (short?.length) {
             warn(ctx, 'list-table: the short caption is dropped - the extension has one quoted title and no second slot');
@@ -890,6 +952,7 @@ function table(
             caption: captionInlinesFor(),
             attrs: fromAttr(a),
             colAligns,
+            reason: hasBlockCells ? 'block-cells' : 'row-head-columns',
         });
     }
 
@@ -979,6 +1042,8 @@ interface ListTableInput {
     caption: CNode[] | null;
     attrs: CAttrs | undefined;
     colAligns: string[];
+    /** Why the pipe form was left, which is what the opening diagnostic says. */
+    reason: 'block-cells' | 'row-head-columns';
 }
 
 /**
@@ -998,8 +1063,13 @@ interface ListTableInput {
  * intermediate header rows.
  */
 function listTable(ctx: Ctx, input: ListTableInput): CNode {
-    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns } = input;
-    warn(ctx, 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)');
+    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, reason } = input;
+    warn(
+        ctx,
+        reason === 'block-cells'
+            ? 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)'
+            : 'table: row-head columns, which a pipe table cannot spell - emitted as a `::: list-table` with `header-cols` (structure preserved)',
+    );
 
     if (colAligns.some((a) => a)) {
         warn(ctx, 'list-table: per-column alignment is dropped - the extension has no alignment marker (extensions.md §5.5)');
@@ -1016,8 +1086,13 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
     if (bodies.some((b) => b.attrs)) {
         warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');
     }
-    if (new Set(bodies.filter((b) => b.rowHeadColumns).map((b) => b.rowHeadColumns)).size > 1) {
-        warn(ctx, 'list-table: the body groups disagree on their row-head column count - `header-cols` is one number for the whole table, and the first is kept');
+    // A body with NO row-head columns disagrees with one that has them, and it
+    // is the common way they disagree - so the zeros count here. Leaving them
+    // out made the one case that CHANGES the markup the one case that said
+    // nothing: `header-cols` applies to every row, so the bodies that had none
+    // come back with row headers they never had.
+    if (new Set(bodies.map((b) => b.rowHeadColumns ?? 0)).size > 1) {
+        warn(ctx, 'list-table: the body groups disagree on their row-head column count - `header-cols` is one number for the whole table, so the first non-zero count is applied to every row, and the rows that had none gain row headers');
     }
 
     const headerCols = bodies.find((b) => b.rowHeadColumns)?.rowHeadColumns ?? 0;
@@ -1336,6 +1411,15 @@ function mappingToYaml(ctx: Ctx, map: Record<string, PandocNode>, depth: number)
             out.push(`${pad}${yamlKey(key)}: ${inline}`);
             continue;
         }
+        if (value.t === 'MetaBlocks') {
+            const body = blockScalarBody(ctx, value.c as PandocNode[], depth + 1);
+            if (body === null) {
+                warn(ctx, `meta: key "${key}" (MetaBlocks) is empty - skipped`);
+                continue;
+            }
+            out.push(`${pad}${yamlKey(key)}: |`, ...body);
+            continue;
+        }
         const nested = nestedToYaml(ctx, value, depth + 1, key);
         if (nested === null) {
             warn(ctx, `meta: key "${key}" (${value.t}) has no YAML form - skipped`);
@@ -1348,6 +1432,35 @@ function mappingToYaml(ctx: Ctx, map: Record<string, PandocNode>, depth: number)
 
 function yamlKey(key: string): string {
     return /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+/**
+ * Block content in metadata as the lines UNDER a `key: |`.
+ *
+ * A YAML literal block scalar keeps every line and every blank line between
+ * them, so the paragraph structure the value has is the paragraph structure it
+ * arrives with - which is the objection that used to make this a skip. The
+ * other half of that objection, that the markup inside "nothing on the reading
+ * side parses", is answered by `parseMeta` reading the scalar back through the
+ * same parser. Pandoc's markdown writer emits exactly this form for the same
+ * value, and its reader turns exactly this form back into `MetaBlocks`.
+ *
+ * Written with the ENGINE's own serializer, so the value carries whatever
+ * `carve fmt` guarantees and is not a second, ad-hoc Carve writer.
+ */
+function blockScalarBody(ctx: Ctx, pandocBlocks: PandocNode[], depth: number): string[] | null {
+    const children = blocks(ctx, pandocBlocks ?? []);
+    if (!children.length) return null;
+    const source = renderCarve(
+        { type: 'document', children } as unknown as Parameters<typeof renderCarve>[0],
+    );
+    const pad = '  '.repeat(depth);
+    const body = source.replace(/\n+$/, '').split('\n');
+    if (!body.length) return null;
+    // A blank line inside the scalar stays EMPTY rather than padded: trailing
+    // whitespace on an otherwise blank line is what a stricter YAML reader
+    // complains about, and the indentation is set by the non-blank lines.
+    return body.map((line) => (line === '' ? '' : pad + line));
 }
 
 /**
@@ -1416,10 +1529,11 @@ function listToYaml(ctx: Ctx, items: PandocNode[], depth: number, key: string): 
 
 // --- Entry point ---
 
-export function pandocToCarve(doc: PandocDoc): ReverseResult {
+export function pandocToCarve(doc: PandocDoc, target: 'source' | 'ast' = 'source'): ReverseResult {
     const ctx: Ctx = {
         warnings: [],
         footnoteDefs: {},
+        target,
         noteCounter: 0,
         abbrevDefs: new Map(),
         bibliographyWarned: false,

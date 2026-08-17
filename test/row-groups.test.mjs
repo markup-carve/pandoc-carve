@@ -16,7 +16,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 // --- Carve AST fixtures -----------------------------------------------------
 
@@ -229,6 +229,24 @@ const twoBodiesAndAFoot = pandocTable({
   shortCaption: [P('Totals')],
 });
 
+/**
+ * The same partition with NO row-head columns.
+ *
+ * Row-head columns are the one thing in a partition that the source layer can
+ * still spell, as a `::: list-table {header-cols=N}`, so a table carrying them
+ * leaves the pipe form entirely. This fixture is what the pipe path looks like
+ * when it has nothing left to save.
+ */
+const twoBodiesAndAFootFlatHeads = pandocTable({
+  head: [pRow('Region', 'Total')],
+  bodies: [
+    [['', [], []], 0, [], [pRow('North', '11')]],
+    [['north-2', ['totals'], []], 0, [pRow('South region', 'Total')], [pRow('South', '22')]],
+  ],
+  foot: [pRow('All', '33')],
+  shortCaption: [P('Totals')],
+});
+
 test('pandoc bodies, foot and row-head columns come back as counts', () => {
   const { ast } = pandocToCarveAst(twoBodiesAndAFoot);
   const table = ast.children[0];
@@ -296,13 +314,112 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
  */
 
 test('the pipe writer reports what the partition says and the source cannot', () => {
-  const { warnings } = pandocToCarve(twoBodiesAndAFoot);
+  const { warnings } = pandocToCarve(twoBodiesAndAFootFlatHeads);
   const said = warnings.filter((w) => w.startsWith('table: '));
   assert.equal(said.length, 1, `one warning naming everything: ${warnings.join(' | ')}`);
-  for (const part of ['a foot of 1 row(s)', '2 body groups', "a body's intermediate header rows", 'row-head columns', "a body group's attributes"]) {
+  for (const part of ['a foot of 1 row(s)', '2 body groups', "a body's intermediate header rows", "a body group's attributes"]) {
     assert.ok(said[0].includes(part), `${part} is named: ${said[0]}`);
   }
   assert.ok(said[0].includes('rowGroups'), 'and it says where the value does survive');
+});
+
+/*
+ * ROW-HEAD COLUMNS ARE THE ONE PART OF A PARTITION THE SOURCE CAN STILL KEEP.
+ *
+ * `header-cols=N` (extensions.md §5.1) IS pandoc's `RowHeadColumns`, so a table
+ * carrying them leaves the pipe form for a list-table and comes back with them
+ * intact. It is a strict gain: whatever else the partition holds - a foot, a
+ * second body - has no pipe spelling EITHER, so nothing is traded away, and the
+ * list-table path names those losses in its own vocabulary.
+ *
+ * The AST path does the opposite and stays a `table`: there `rowGroups` carries
+ * the whole partition, and a list-table would throw the rest of it away to save
+ * a field that was never at risk.
+ */
+
+/** One body, so the bodies trivially agree on their row-head column count. */
+const oneBodyRowHeadsAndAFoot = pandocTable({
+  head: [pRow('Region', 'Total')],
+  bodies: [[['', [], []], 1, [], [pRow('North', '11')]]],
+  foot: [pRow('All', '33')],
+});
+
+test('row-head columns leave the pipe form for a list-table that can spell them', () => {
+  const { carve, warnings } = pandocToCarve(oneBodyRowHeadsAndAFoot);
+  assert.match(carve, /^\{header-rows=1 header-cols=1\}\n::: list-table "Quarterly"\n/);
+  assert.ok(
+    warnings.some((w) => w.startsWith('table: row-head columns')),
+    `the switch is reported: ${warnings.join(' | ')}`,
+  );
+  assert.ok(
+    !warnings.some((w) => w.includes('row-head columns - preserved in the Carve AST')),
+    'and it is no longer reported as flattened',
+  );
+  // What the list-table still cannot spell is named in its own vocabulary.
+  assert.ok(
+    warnings.some((w) => w.startsWith('list-table: ') && w.includes('1 foot row(s)')),
+    `the foot is still named: ${warnings.join(' | ')}`,
+  );
+  // And the row headers make the trip back.
+  const back = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(back.c[4][0][1], 1, 'RowHeadColumns survives');
+});
+
+test('the AST path keeps the table node, because rowGroups loses nothing there', () => {
+  const table = pandocToCarveAst(twoBodiesAndAFoot).ast.children[0];
+  assert.equal(table.type, 'table');
+  assert.equal(table.rowGroups.bodies[0].rowHeadColumns, 1);
+});
+
+/*
+ * `header-cols` is ONE number for the whole table. A table whose bodies
+ * disagree - and `1` beside a plain `0` is the ordinary way they disagree -
+ * would come back with row headers ADDED to the rows that had none, which is a
+ * worse outcome than the flattening the switch was meant to avoid: dropping a
+ * row header renders a `td` where a `th` belonged, inventing one asserts a
+ * heading the source never made.
+ */
+
+const disagreeingRowHeads = pandocTable({
+  head: [],
+  bodies: [
+    [['', [], []], 1, [], [pRow('a', 'b')]],
+    [['', [], []], 0, [], [pRow('c', 'd')]],
+  ],
+  foot: [],
+});
+
+test('bodies that disagree on row-head columns keep the pipe form', () => {
+  const { carve, warnings } = pandocToCarve(disagreeingRowHeads);
+  assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
+  assert.ok(!carve.includes('header-cols'), 'and invented no row headers');
+  assert.ok(
+    warnings.some((w) => w.startsWith('table: ') && w.includes('row-head columns')),
+    `the loss is still reported: ${warnings.join(' | ')}`,
+  );
+});
+
+test('a forced list-table reports the row headers the disagreement invents', () => {
+  // Block cells leave no choice of representation, so the widening happens and
+  // has to be named. A zero is a disagreement: the check used to filter zeros
+  // out, which made the one case that CHANGES the markup the one that was mute.
+  const withBlockCell = pandocTable({
+    head: [],
+    bodies: [
+      [['', [], []], 1, [], [[['', [], []], [
+        [['', [], []], { t: 'AlignDefault' }, 1, 1, [{ t: 'Para', c: [P('a')] }, { t: 'Para', c: [P('a2')] }]],
+        pCell('b'),
+      ]]]],
+      [['', [], []], 0, [], [pRow('c', 'd')]],
+    ],
+    foot: [],
+  });
+  const { warnings } = pandocToCarve(withBlockCell);
+  assert.ok(
+    warnings.some((w) => w.includes('disagree on their row-head column count')
+      && w.includes('gain row headers')),
+    `the widening is named: ${warnings.join(' | ')}`,
+  );
 });
 
 test('the AST path says the same thing, because the warning names where it survives', () => {

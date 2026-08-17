@@ -28,7 +28,11 @@ Common options:
   -s, --standalone   produce a standalone document (pandoc -s; export only)
   --roundtrip        stamp export with markers so a later import restores
                      attribute placement exactly (visible in writer output)
-  --list-table       convert ::: list-table blocks to real tables (export)
+  --no-list-table    keep ::: list-table blocks as the degraded div a processor
+                     without the extension renders (export; default converts
+                     them to real tables)
+  --no-citations     read [@key] as an @mention rather than a citation
+                     (export from Carve source; default reads citations)
   --symbols FILE     JSON map resolving :name: symbols to text (export)
   --pandoc PATH      pandoc executable (default: $PANDOC or "pandoc")
   -h, --help         show this help
@@ -45,6 +49,7 @@ interface Args {
     standalone: boolean;
     roundtrip: boolean;
     listTable: boolean;
+    citations: boolean;
     symbolsFile?: string;
     pandocPath: string;
     passthrough: string[];
@@ -56,7 +61,8 @@ function parseArgs(argv: string[]): Args {
         to: 'json',
         standalone: false,
         roundtrip: false,
-        listTable: false,
+        listTable: true,
+        citations: true,
         pandocPath: process.env.PANDOC ?? 'pandoc',
         passthrough: [],
     };
@@ -78,8 +84,10 @@ function parseArgs(argv: string[]): Args {
             args.standalone = true;
         } else if (a === '--roundtrip') {
             args.roundtrip = true;
-        } else if (a === '--list-table') {
-            args.listTable = true;
+        } else if (a === '--no-list-table') {
+            args.listTable = false;
+        } else if (a === '--no-citations') {
+            args.citations = false;
         } else if (a === '--symbols') {
             args.symbolsFile = argv[++i] ?? usage(1);
         } else if (a === '--pandoc') {
@@ -115,6 +123,7 @@ async function main(): Promise<void> {
     const options = {
         roundtrip: args.roundtrip,
         listTable: args.listTable,
+        citations: args.citations,
         symbols,
     };
     const { doc, warnings } =

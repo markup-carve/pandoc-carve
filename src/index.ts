@@ -1,11 +1,13 @@
 import * as carve from '@markup-carve/carve';
 import { normalizeCarveAst, parseCarveAst, toCarveAst, type CarveAstDocument } from './ast-json.js';
 import { convert, type ConvertOptions, type ConvertResult } from './convert.js';
+import { parseExtensions, type ParseOptions } from './parse-options.js';
 import { pandocToCarve as reverse } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
 
 export { PANDOC_API_VERSION, type PandocDoc } from './pandoc.js';
 export type { ConvertOptions, ConvertResult } from './convert.js';
+export type { ParseOptions } from './parse-options.js';
 export type { ReverseResult } from './reverse.js';
 export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
 
@@ -27,8 +29,8 @@ const engineSerializer = (carve as unknown as { toAstJson?: (doc: unknown) => un
  * `resources/ast-schema.json` pins, and the shape every engine's `--to-json`
  * writes.
  */
-export function carveToCarveAst(source: string): CarveAstDocument {
-    return toCarveAst(carve.parse(source), engineSerializer);
+export function carveToCarveAst(source: string, options?: ParseOptions): CarveAstDocument {
+    return toCarveAst(carve.parse(source, { extensions: parseExtensions(options) }), engineSerializer);
 }
 
 /**
@@ -37,8 +39,28 @@ export function carveToCarveAst(source: string): CarveAstDocument {
  * Returns the document plus a list of degradation warnings for constructs
  * that have no faithful Pandoc equivalent.
  */
-export function carveToPandoc(source: string, options?: ConvertOptions): ConvertResult {
-    return convert(carveToCarveAst(source), options);
+export function carveToPandoc(
+    source: string,
+    options?: ConvertOptions & ParseOptions,
+): ConvertResult {
+    return convert(carveToCarveAst(source, options), withParser(options));
+}
+
+/**
+ * The convert options with this module's parser lent to them.
+ *
+ * `convert` reads a serialized AST from any engine and holds no engine of its
+ * own, but metadata block content (`abstract: |`) is Carve SOURCE inside a
+ * YAML string and has to be parsed. This is the only place that owns both, so
+ * it is the place that hands the parser over. An explicit `parseBlocks` wins,
+ * so a caller can supply another engine's.
+ */
+function withParser(options?: ConvertOptions & ParseOptions): ConvertOptions {
+    return {
+        ...options,
+        parseBlocks: options?.parseBlocks
+            ?? ((source: string) => carveToCarveAst(source, options).children ?? []),
+    };
 }
 
 /**
@@ -51,16 +73,19 @@ export function carveToPandoc(source: string, options?: ConvertOptions): Convert
  */
 export function carveAstToPandoc(
     ast: CarveAstDocument | string,
-    options?: ConvertOptions,
+    options?: ConvertOptions & ParseOptions,
 ): ConvertResult {
-    return convert(normalizeCarveAst(parseCarveAst(ast)), options);
+    return convert(normalizeCarveAst(parseCarveAst(ast)), withParser(options));
 }
 
 /**
  * Convert Carve source to Pandoc JSON, ready for `pandoc -f json -t <target>`.
  * Degradation warnings are discarded; use {@link carveToPandoc} to inspect them.
  */
-export function carveToPandocJson(source: string, options?: ConvertOptions): string {
+export function carveToPandocJson(
+    source: string,
+    options?: ConvertOptions & ParseOptions,
+): string {
     return JSON.stringify(carveToPandoc(source, options).doc);
 }
 
@@ -88,6 +113,6 @@ export function pandocToCarveAst(
     doc: PandocDoc | string,
 ): { ast: CarveAstDocument; warnings: string[] } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
-    const { ast, warnings } = reverse(parsed);
+    const { ast, warnings } = reverse(parsed, 'ast');
     return { ast: toCarveAst(ast, engineSerializer), warnings };
 }

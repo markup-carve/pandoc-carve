@@ -170,12 +170,23 @@ conformance corpus as the oracle any port has to pass.
 ```js
 carveToPandoc(src, {
   roundtrip: true,               // stamp attr wrappers for exact re-import
-  listTable: true,               // ::: list-table -> real Table (full block cells)
   symbols: { heart: '♥' },       // resolve :name: symbols like the renderer would
+  listTable: false,              // opt OUT: keep ::: list-table as a degraded div
+  citations: false,              // opt OUT: read [@key] as an @mention
+  extensions: [],                // extra Carve extensions for the parse
 });
 ```
 
-CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
+CLI equivalents: `--roundtrip`, `--symbols map.json`, `--no-list-table`,
+`--no-citations`.
+
+`listTable` and `citations` default ON, because the reverse direction writes
+both unprompted and a construct this bridge chooses on the way out has to be
+one it recognizes on the way back. With `citations` off the parser reaches the
+`@` first and `[@doe1990]` is a `.mention` span, so an imported bibliography
+becomes mentions; with `listTable` off a table this bridge itself wrote as
+`::: list-table` returns as a `Div` of nested lists. Turn them off to get what
+a processor with neither extension enabled would render.
 
 ## Limitations
 
@@ -191,7 +202,15 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   extension's cells are list items that hold full blocks. Structure is
   preserved; three things the extension does not spell are reported instead -
   per-column alignment, a foot, and a body group's intermediate header rows.
-  Convert back with `listTable: true` to get the pandoc table again.
+  It converts back to the pandoc table by default; `listTable: false` returns
+  the degraded div instead.
+- A pandoc table with ROW-HEAD COLUMNS takes the same route on the source path,
+  because `header-cols=N` is exactly pandoc's `RowHeadColumns` and a pipe table
+  cannot say it. Only when every body group agrees on the count: `header-cols`
+  is one number for the whole table, so a table whose bodies differ keeps the
+  pipe form rather than come back with row headers ADDED to the rows that had
+  none. The AST path keeps the plain table, where `rowGroups` carries the whole
+  partition and nothing has to be traded for it.
 - Pandoc `SmallCaps` has no Carve node and is not getting one: it imports as a
   `[text]{.smallcaps}` span, with a warning saying so. The span is not a dead
   end, though - the export direction reads that class back as `SmallCaps`, the
@@ -232,20 +251,24 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   `NormalCitation` cannot be spelled in Carve (the integral `+` is a property of
   the whole cluster) and is imported as integral with a warning.
 - Pandoc keeps its bibliography in document metadata, not in the AST, so
-  importing a `Cite` emits no `[@key]:` definition lines. Carve renders a group
-  with an undefined key verbatim; the import warns once per document.
-- Block content inside metadata (pandoc's `MetaBlocks`, e.g. `abstract: |`) is
-  skipped with a warning on import, deliberately. It has no honest YAML string
-  form: flattening it to one scalar throws away the paragraph structure, and
-  writing Carve source into a YAML value makes the frontmatter carry markup that
-  nothing on the reading side parses. Every other `Meta` shape - maps, lists,
-  lists of maps, scalars, booleans - round-trips.
+  importing a `Cite` emits no `[@key]:` definition lines. The citation itself
+  round-trips: `citationNoteNum` is reproduced the way pandoc's own markdown
+  reader computes it (notes closed so far, plus one), so a `Cite` returns
+  unchanged rather than unchanged-except-one-integer.
+- Block content inside metadata (pandoc's `MetaBlocks`, e.g. `abstract: |`)
+  round-trips as a YAML literal block scalar, the same spelling pandoc's own
+  markdown writer emits and its reader turns back into `MetaBlocks` - by the
+  FORM, so any key can carry it, not just `abstract`. The scalar keeps every
+  line and every blank line between them, so the paragraph structure survives
+  rather than flattening into one string. Every other `Meta` shape - maps,
+  lists, lists of maps, scalars, booleans - round-trips too.
 - A `rowGroups` partition (a foot, several body groups, a body's own header
   rows or row-head columns) survives into the exchange AST, so
   `pandocToCarveAst` hands it on whole - but PART 9 section 16's pipe table
-  spells only a leading run of header rows, so `pandocToCarve` flattens it into
-  body rows and says so. Use the AST entry point, or the `::: list-table`
-  fallback a block cell already triggers, when that structure has to survive.
+  spells only a leading run of header rows, so `pandocToCarve` flattens the
+  rest into body rows and says so. Row-head columns are the exception - they
+  have a list-table spelling and take it (above). Use the AST entry point when
+  a foot or a second body group has to survive.
 - A marker on a HEAD cell (`|=> Name |`) is the column's alignment and becomes
   pandoc's `ColSpec`; a marker on a BODY cell (`|> 12 |`) aligns that cell alone
   and becomes the cell's own `Alignment`. The two are not interchangeable: a
@@ -277,8 +300,8 @@ CLI equivalents: `--roundtrip`, `--list-table`, `--symbols map.json`.
   that exports `toAstJson` takes over automatically.
 - Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
   degraded block forms (code blocks / divs), same as Carve's static mode.
-  `list-table` is the exception: opt in with `listTable: true` / `--list-table`
-  to get a real Pandoc table with full block content per cell.
+  `list-table` is the exception: it converts to a real Pandoc table with full
+  block content per cell, unless `listTable: false` / `--no-list-table`.
 
 ## Development
 

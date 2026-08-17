@@ -149,7 +149,9 @@ test('reverse: foreign pandoc nodes degrade with warnings, never throw', () => {
   };
   const { carve, warnings } = pandocToCarve(doc);
   assert.ok(carve.includes('caps'));
-  assert.ok(carve.includes('“quoted”'));
+  // A Quoted is no longer foreign either: it is a pair of quote marks, written
+  // as the `"` an author types (test/policy.test.mjs owns the round trip).
+  assert.ok(carve.includes('"quoted"'), `quotation kept in: ${carve}`);
   // A Cite is no longer foreign: it is a citation group now, and the only
   // diagnostic left is the bibliography one.
   assert.ok(carve.includes('[@key1]'), `citation kept in: ${carve}`);

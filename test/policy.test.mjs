@@ -16,7 +16,12 @@ const pandocRead = (bin, source, from = 'markdown') =>
  * documented behavior is the measured one, so each row is pinned here:
  *
  *   - SmallCaps degrades to a `.smallcaps` span AND comes back;
- *   - Quoted degrades to literal curly quotes and SAYS so (it was silent);
+ *   - Quoted is NO LONGER one of them. P10 recorded it as a deliberate loss on
+ *     the premise that "Carve has no quote node"; the premise was wrong. `"`
+ *     and `'` resolve to `smart_punctuation` carrying the mark's KIND, so the
+ *     pair rebuilds pandoc's wrapping `Quoted` and the row moved from policy
+ *     to round-trip. What is pinned here now is the round trip and the three
+ *     shapes that must NOT be promoted to a quotation;
  *   - a ColSpec's ColWidth is dropped, silently and on purpose;
  *   - a rowspan crossing the head/body boundary is clipped, with a warning
  *     (asserted in test/row-groups.test.mjs, which owns the table shapes).
@@ -95,44 +100,86 @@ test(
 
 // --- Quoted ----------------------------------------------------------------
 
-test('policy: Quoted degrades to literal curly quotes and reports it', () => {
+test('a quotation is written as the marks an author types, and warns about nothing', () => {
   const { carve, warnings } = pandocToCarve(para([quoted('DoubleQuote', 'quoted')]));
-  assert.ok(carve.includes('“quoted”'), carve);
-  const hits = warnings.filter((w) => w.includes('Quoted'));
-  assert.equal(hits.length, 1, warnings.join(' | '));
-  assert.match(hits[0], /curly quote/);
+  assert.equal(carve, '"quoted"\n');
+  assert.deepEqual(warnings, [], 'nothing is lost, so nothing is reported');
 });
 
-test('policy: the single-quote kind degrades the same way, and is reported too', () => {
+test('the single-quote kind is written the same way', () => {
   const { carve, warnings } = pandocToCarve(para([quoted('SingleQuote', 'q')]));
-  assert.ok(carve.includes('‘q’'), carve);
-  assert.equal(warnings.filter((w) => w.includes('Quoted')).length, 1, warnings.join(' | '));
+  assert.equal(carve, "'q'\n");
+  assert.deepEqual(warnings, []);
 });
 
-test('policy: many quotations report once, not once each', () => {
-  const doc = para([
-    quoted('DoubleQuote', 'one'),
-    { t: 'Space' },
-    quoted('SingleQuote', 'two'),
-    { t: 'Space' },
-    quoted('DoubleQuote', 'three'),
-  ]);
-  const { carve, warnings } = pandocToCarve(doc);
-  for (const needle of ['“one”', '‘two’', '“three”']) assert.ok(carve.includes(needle), carve);
-  assert.equal(warnings.filter((w) => w.includes('Quoted')).length, 1, warnings.join(' | '));
-});
-
-test('policy: a document without a quotation gets no quotation warning', () => {
+test('a document without a quotation gets no quotation warning', () => {
   const { warnings } = pandocToCarve(para([{ t: 'Str', c: 'plain' }]));
   assert.equal(warnings.length, 0, warnings.join(' | '));
 });
 
-test('policy: the degradation is one-way, which is what the warning claims', () => {
-  const { carve } = pandocToCarve(para([quoted('DoubleQuote', 'quoted')]));
-  const back = carveToPandoc(carve).doc;
-  assert.ok(
-    !JSON.stringify(back).includes('"Quoted"'),
-    'a Quoted that came back would make the warning wrong',
+test('a quotation comes back as a Quoted, of the kind it left as', () => {
+  for (const kind of ['DoubleQuote', 'SingleQuote']) {
+    const { carve } = pandocToCarve(para([quoted(kind, 'quoted')]));
+    const [para1] = carveToPandoc(carve).doc.blocks;
+    assert.deepEqual(para1.c, [quoted(kind, 'quoted')], `${kind} round-trips`);
+  }
+});
+
+test('a quotation around markup keeps both, nested the way it left', () => {
+  const rich = {
+    t: 'Quoted',
+    c: [{ t: 'DoubleQuote' }, [{ t: 'Emph', c: [{ t: 'Str', c: 'a' }] }]],
+  };
+  const { carve } = pandocToCarve(para([rich]));
+  assert.equal(carve, '"/a/"\n');
+  assert.deepEqual(carveToPandoc(carve).doc.blocks[0].c, [rich]);
+});
+
+test('quotations nest, inner kind and outer kind both preserved', () => {
+  const inner = quoted('SingleQuote', 'b');
+  const outer = {
+    t: 'Quoted',
+    c: [{ t: 'DoubleQuote' }, [{ t: 'Str', c: 'a' }, { t: 'Space' }, inner]],
+  };
+  const { carve } = pandocToCarve(para([outer]));
+  assert.equal(carve, '"a \'b\'"\n');
+  assert.deepEqual(carveToPandoc(carve).doc.blocks[0].c, [outer]);
+});
+
+/*
+ * WHAT MUST NOT BECOME A QUOTATION. The marks pair from the CLOSING side
+ * against still-open marks of the same kind, which is what keeps these three
+ * apart from a real quotation. Each is a case where promoting the mark would
+ * assert something the source does not say.
+ */
+
+test('an apostrophe is a lone closing mark and stays one', () => {
+  // `it's` resolves to a right_single_quote with no opener. Pairing it with
+  // the next apostrophe in the paragraph would quote the text between them.
+  const doc = carveToPandoc("it's fine, isn't it\n").doc;
+  assert.ok(!JSON.stringify(doc).includes('"Quoted"'), JSON.stringify(doc));
+});
+
+test('an unclosed quote mark stays a mark', () => {
+  const doc = carveToPandoc('"unclosed here\n').doc;
+  assert.ok(!JSON.stringify(doc).includes('"Quoted"'), JSON.stringify(doc));
+});
+
+test('a quotation crossing an emphasis boundary pairs with nothing', () => {
+  // The two marks land in different sibling arrays, where neither can see the
+  // other - `"a /b" c/` is not a quotation in any reading.
+  const doc = carveToPandoc('"a /b" c/\n').doc;
+  assert.ok(!JSON.stringify(doc).includes('"Quoted"'), JSON.stringify(doc));
+});
+
+test('a quote character that is ordinary text stays ordinary text', () => {
+  // What makes the unescaped mark safe to read as a quotation: the writer
+  // escapes the ones that are not.
+  const { carve } = pandocToCarve(para([{ t: 'Str', c: 'he said "x" and it\'s his' }]));
+  assert.ok(carve.includes('\\"x\\"'), carve);
+  assert.deepEqual(
+    carveToPandoc(carve).doc.blocks[0].c.filter((x) => x.t === 'Str').map((x) => x.c),
+    ['he', 'said', '"x"', 'and', "it's", 'his'],
   );
 });
 

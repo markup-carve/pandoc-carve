@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
 import * as carve from '@markup-carve/carve';
-import { carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { execFileSync } from 'node:child_process';
 import { findPandoc, pandocRender } from './helpers.mjs';
 
@@ -336,4 +336,51 @@ test('citations: an escaped `\\@` in a prefix is not read as a key', () => {
   const [group] = groupsOf(pandocToCarveAst(doc).ast);
   assert.deepEqual(group.items.map((i) => i.key), ['smith2020']);
   assert.equal(group.raw, '[see \\@nobody @smith2020]', 'the source still round-trips verbatim');
+});
+
+/*
+ * `citationNoteNum` - PANDOC'S OWN BOOKKEEPING, AND PANDOC IS THE ORACLE FOR IT.
+ *
+ * The field used to leave the bridge as a hard-coded 0, which was the one thing
+ * standing between a citation and an exact `pandoc -> Carve -> pandoc` round
+ * trip. A review reading the pandoc-types haddock argued it SHOULD be 0 outside
+ * a note, on the reasoning that a positive value names the note the citation
+ * sits in. Measured against the reader instead, that is not what pandoc does:
+ * it counts the notes CLOSED so far and stamps that plus one, so a citation in
+ * running text before any note carries 1, not 0.
+ *
+ * That is why these cases are asserted against pandoc's own reader rather than
+ * against numbers written down here. If pandoc ever changes the convention,
+ * this fails and names the new one, instead of pinning a guess about it.
+ */
+
+const noteNums = (json) => [...JSON.stringify(json).matchAll(/"citationNoteNum":(\d+)/g)].map((m) => Number(m[1]));
+
+const NOTE_CASES = [
+  ['a citation in running text, before any note', 'a [@x]\n'],
+  ['a citation after one note', 'n[^1]\n\nb [@x]\n\n[^1]: f\n'],
+  ['a citation after two notes', 'n[^1] m[^2]\n\nb [@x]\n\n[^1]: f\n\n[^2]: g\n'],
+  ['a citation INSIDE a note', 'p[^1]\n\n[^1]: inside [@x]\n'],
+  ['an inline note, then a citation after it', 'p^[inside [@x]] then [@y]\n'],
+];
+
+for (const [what, source] of NOTE_CASES) {
+  test(`citations: the note number matches pandoc's reader - ${what}`, { skip: !pandoc && 'pandoc not found' }, () => {
+    // The SAME source, read by pandoc's markdown reader and by the bridge.
+    // Carve and pandoc-markdown spell citations and footnotes identically here,
+    // which is what makes the two readings comparable.
+    const expected = noteNums(JSON.parse(pandocRead(pandoc, source)));
+    const actual = noteNums(carveToPandoc(source).doc);
+    assert.ok(expected.length > 0, 'the case has a citation at all');
+    assert.deepEqual(actual, expected);
+  });
+}
+
+test('citations: a citation survives pandoc -> Carve -> pandoc unchanged', { skip: !pandoc && 'pandoc not found' }, () => {
+  // The whole point of tracking the field: the round trip is exact, not exact
+  // except for one integer.
+  const doc = JSON.parse(pandocRead(pandoc, 'Text [@doe1990] here.\n'));
+  const { carve } = pandocToCarve(doc);
+  const back = carveToPandoc(carve).doc;
+  assert.deepEqual(back.blocks, doc.blocks);
 });
