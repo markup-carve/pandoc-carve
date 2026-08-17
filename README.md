@@ -144,6 +144,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
 | A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
+| A reference link or image nothing defines (`[r][]`) | the literal source as text, which is what Carve renders, plus a warning naming the label - as an unresolved footnote already did |
 
 The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs

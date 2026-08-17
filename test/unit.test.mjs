@@ -647,3 +647,49 @@ test('ordered list: a style or delimiter with no Carve form is reported', async 
   assert.deepEqual(pandocToCarve(doc('Decimal', 'OneParen')).warnings, [], 'control: `1)` is exact');
   assert.deepEqual(pandocToCarve(doc('UpperRoman', 'Period')).warnings, [], 'control: `I.` is exact');
 });
+
+test('an unresolved reference is the literal source, and it is named', () => {
+  // PART 12 section 3a keeps `ref`/`rawRef` on the node whether or not the
+  // reference resolved, so an empty destination beside a `ref` is the wire's
+  // way of saying nothing defined the label. Carve renders that literally
+  // (`<p>[r][]</p>`); a Link with an empty target would be a node the document
+  // does not contain, and it renders downstream as a broken anchor
+  // (markup-carve/pandoc-carve#91).
+  const link = carveToPandoc('[r][]\n');
+  assert.deepEqual(link.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: '[r][]' }] }]);
+  assert.ok(
+    link.warnings.some((w) => w.includes('link: missing definition for [r]')),
+    `silent, where an unresolved footnote is not: ${JSON.stringify(link.warnings)}`,
+  );
+
+  // The image path had the same shape and the same silence.
+  const image = carveToPandoc('![i][]\n');
+  assert.deepEqual(image.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: '![i][]' }] }]);
+  assert.ok(
+    image.warnings.some((w) => w.includes('image: missing definition for [i]')),
+    JSON.stringify(image.warnings),
+  );
+
+  // One diagnostic, not two: the outer reference swallows its content, exactly
+  // as the engine's literal rendering does.
+  const nested = carveToPandoc('[![i][]][r]\n');
+  assert.deepEqual(nested.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: '[![i][]][r]' }] }]);
+  assert.equal(nested.warnings.length, 1, nested.warnings.join(' | '));
+
+  // A reference written across two lines. The literal source is prose now, so
+  // the break is a SoftBreak; a newline left inside a Str reaches every writer
+  // verbatim.
+  assert.deepEqual(carveToPandoc('[foo\nbar][missing]\n').doc.blocks, [
+    { t: 'Para', c: [{ t: 'Str', c: '[foo' }, { t: 'SoftBreak' }, { t: 'Str', c: 'bar][missing]' }] },
+  ]);
+
+  // Controls. A resolved reference is still a Link with the destination the
+  // definition gave it, and neither control says anything.
+  const resolved = carveToPandoc('[a][t]\n\n[t]: /u\n');
+  assert.deepEqual(resolved.doc.blocks[0].c[0], {
+    t: 'Link',
+    c: [['', [], []], [{ t: 'Str', c: 'a' }], ['/u', '']],
+  });
+  assert.deepEqual(resolved.warnings, []);
+  assert.deepEqual(carveToPandoc('[x](/y)\n').warnings, []);
+});
