@@ -116,7 +116,7 @@ test('reverse: task lists survive', () => {
 
 test('reverse: frontmatter regenerates', () => {
   const out = roundtrip('---\ntitle: My Doc\ntags: [a, b]\n---\nbody');
-  // `---yaml`, not a bare `---`. Spec PART 9 section 6b is normative on this:
+  // `---yaml`, not a bare `---`. Spec PART 11 section 6b is normative on this:
   // the canonical writer names the format, the default one included, so
   // frontmatter in yaml "comes back as `---yaml`, never as a bare `---`".
   // Asserting the tagged opener PINS that rather than accepting either form.
