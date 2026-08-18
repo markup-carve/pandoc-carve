@@ -33,7 +33,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { carveToHtml } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
-import { shortfall } from './helpers.mjs';
+import { declaredCorpusSize } from './helpers.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpusDir = join(repo, 'spec', 'tests', 'corpus');
@@ -165,16 +165,39 @@ const KNOWN_LOSSY = new Set([
 ]);
 
 test('the round trip is measured against the whole corpus, not a sample', () => {
-  // The same guard spec-corpus.test.mjs applies to itself: an empty or
-  // truncated corpus would make every assertion below describe nothing.
-  const thin = shortfall({
-    label: 'CORPUS',
-    actual: corpus.length,
-    atLeast: 1000,
-    of: 'document(s) in spec/tests/corpus',
-    hint: 'the round trip is only as good as the population it runs over.',
-  });
-  assert.equal(thin, null, thin ?? '');
+  // EQUALITY AGAINST THE DECLARED SIZE, NOT A FLOOR.
+  //
+  // This was `atLeast: 1000` against a corpus that holds 1239 documents, which
+  // is the markup-carve/carve#755 shape one step removed: the check runs, and
+  // reports success over a population nobody chose. 239 documents could vanish
+  // from under it - a half-checked-out submodule, a pin that moved backwards, a
+  // filter that stopped matching - and the gate would stay green while the
+  // ledger below silently described a smaller corpus than the one the ledger
+  // was written against. The floor could not even tell the CURRENT corpus from
+  // the 1124-document one this file's ledger predates.
+  //
+  // The expectation is derived, not written down: spec/tests/corpus is
+  // generated from the `::: compare` blocks in spec/resources/examples, so the
+  // spec declares its own corpus size and a submodule bump moves both halves at
+  // once. There is no literal here to go stale, and no bound to outgrow.
+  //
+  // Deliberately the same derivation test/spec-corpus.test.mjs uses, shared
+  // through helpers.mjs: two corpus gates that disagree about how big the
+  // corpus is would each be able to pass on a population the other rejects.
+  const declared = declaredCorpusSize(repo);
+  assert.ok(
+    declared > 0,
+    'the corpus source pages declare no ::: compare blocks at all - that is a ' +
+      'wiring problem, not a corpus of size zero.',
+  );
+  assert.equal(
+    corpus.length,
+    declared,
+    'expected the full corpus: spec/resources/examples declares ' + declared +
+      ' documents, spec/tests/corpus holds ' + corpus.length + '. The round trip ' +
+      'is only as good as the population it runs over, and the ledger below is ' +
+      'only meaningful against the corpus it was written against.',
+  );
 });
 
 const lossy = [];

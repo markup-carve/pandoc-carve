@@ -48,6 +48,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { carveToCarveAst, carveToPandoc } from '../dist/index.js';
+import { declaredCorpusSize } from './helpers.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpusDir = join(repo, 'spec', 'tests', 'corpus');
@@ -68,49 +69,6 @@ const corpus = existsSync(corpusDir)
       .map((file) => ({ name: file, source: readFileSync(join(corpusDir, file), 'utf8') }))
   : [];
 
-/*
- * How many documents the corpus SHOULD hold, derived rather than written down.
- *
- * tests/corpus is generated from the `::: compare` blocks in
- * spec/resources/examples/{core,extensions,edge-cases}.md, so those pages are
- * the corpus's own declaration of its size. Counting them leaves no literal
- * here to go stale: adding an example upstream moves the expectation on the
- * next submodule bump instead of failing this file.
- *
- * The state machine mirrors the generator rather than grepping - a `::: compare`
- * line inside an already-open block is content, not a second pair, and a block
- * closes on a bare marker line.
- */
-const EXAMPLE_PAGES = ['core.md', 'extensions.md', 'edge-cases.md'];
-const COMPARE_OPEN = /^:{3,}\s+compare(\s+\S.*)?$/;
-
-const declaredCorpusSize = () => {
-  const examplesDir = join(repo, 'spec', 'resources', 'examples');
-  let declared = 0;
-  for (const page of EXAMPLE_PAGES) {
-    const path = join(examplesDir, page);
-    assert.ok(
-      existsSync(path),
-      path + ' is missing - the submodule is incomplete, or the spec moved the ' +
-        'corpus source pages again. Without them there is nothing to check the ' +
-        'corpus size against.',
-    );
-    let marker = null;
-    for (const rawLine of readFileSync(path, 'utf8').split('\n')) {
-      const line = rawLine.trim();
-      if (marker !== null) {
-        if (line === marker) marker = null;
-        continue;
-      }
-      if (COMPARE_OPEN.test(line)) {
-        declared += 1;
-        marker = line.match(/^:{3,}/)[0];
-      }
-    }
-  }
-  return declared;
-};
-
 test('the whole corpus is being read, not a sample', () => {
   // The count is the other half of the submodule check: a submodule pinned at a
   // commit with a handful of documents would pass every test below.
@@ -119,7 +77,7 @@ test('the whole corpus is being read, not a sample', () => {
   // or stale one, and that is the failure being guarded against: a satellite has
   // been found eleven documents behind while every check stayed green. The old
   // `> 500` bound would still have passed at less than half the corpus.
-  const declared = declaredCorpusSize();
+  const declared = declaredCorpusSize(repo);
   assert.ok(
     declared > 0,
     'the corpus source pages declare no ::: compare blocks at all - that is a ' +
