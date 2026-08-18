@@ -1,4 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /*
  * A runner must know how many things it compared, and say so when that number
@@ -77,4 +79,56 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
     throw new Error(`pandoc -t ${target} failed: ${result.stderr}`);
   }
   return result.stdout;
+}
+
+/*
+ * How many documents the spec corpus SHOULD hold, derived rather than written
+ * down.
+ *
+ * spec/tests/corpus is generated from the `::: compare` blocks in
+ * spec/resources/examples/{core,extensions,edge-cases}.md, so those pages are
+ * the corpus's own declaration of its size. Counting them leaves no literal in
+ * a test file to go stale: adding an example upstream moves the expectation on
+ * the next submodule bump instead of failing.
+ *
+ * The state machine mirrors the generator rather than grepping - a `::: compare`
+ * line inside an already-open block is content, not a second pair, and a block
+ * closes on a bare marker line.
+ *
+ * Shared by test/spec-corpus.test.mjs and test/roundtrip-corpus.test.mjs so the
+ * two cannot disagree about how large the population is. Throws rather than
+ * returning a number when a source page is missing: a count derived from pages
+ * that are not there is the "smaller question answered" this module exists to
+ * make loud.
+ */
+const EXAMPLE_PAGES = ['core.md', 'extensions.md', 'edge-cases.md'];
+const COMPARE_OPEN = /^:{3,}\s+compare(\s+\S.*)?$/;
+
+/** @returns {number} the number of `::: compare` blocks the spec pages declare */
+export function declaredCorpusSize(repo) {
+  const examplesDir = join(repo, 'spec', 'resources', 'examples');
+  let declared = 0;
+  for (const page of EXAMPLE_PAGES) {
+    const path = join(examplesDir, page);
+    if (!existsSync(path)) {
+      throw new Error(
+        path + ' is missing - the submodule is incomplete, or the spec moved the ' +
+          'corpus source pages again. Without them there is nothing to check the ' +
+          'corpus size against.',
+      );
+    }
+    let marker = null;
+    for (const rawLine of readFileSync(path, 'utf8').split('\n')) {
+      const line = rawLine.trim();
+      if (marker !== null) {
+        if (line === marker) marker = null;
+        continue;
+      }
+      if (COMPARE_OPEN.test(line)) {
+        declared += 1;
+        marker = line.match(/^:{3,}/)[0];
+      }
+    }
+  }
+  return declared;
 }
