@@ -24,6 +24,8 @@
   workflow refuses a tag with no matching CHANGELOG section, and the section
   had not been cut from `Unreleased`. npm therefore goes 0.1.0 to 0.1.2, and
   0.1.1's contents are recorded below rather than lost.
+- Release readiness is now checked on every pull request, release tags must be
+  on the `main` line, and all workflows use Node 24-based action runtimes.
 
 ## 0.1.1 - 2026-08-18
 

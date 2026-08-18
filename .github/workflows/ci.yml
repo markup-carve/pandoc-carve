@@ -21,6 +21,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
+      - name: Verify package version has release notes
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          if ! grep -qE "^## \[?${VER//./\\.}\]?([[:space:]]|$)" CHANGELOG.md; then
+            echo "::error::package.json is $VER but CHANGELOG.md has no matching release section."
+            exit 1
+          fi
       - name: Install pandoc
         run: |
           curl -sSL -o /tmp/pandoc.deb https://github.com/jgm/pandoc/releases/download/3.10.2/pandoc-3.10.2-1-amd64.deb
