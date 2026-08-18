@@ -1,6 +1,33 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 - 2026-08-18
+
+### Security
+
+- The Carve engine moves to 0.1.4, a security release. A list-valued URL
+  attribute was only probed on its FIRST entry, so
+  `srcset="safe.png 1x, javascript:alert(1) 2x"` passed sanitization on the
+  second one. Anything rendering untrusted Carve through this bridge should
+  take this release.
+
+### Changed
+
+- The engine is an ordinary registry range (`^0.1.4`) instead of a pinned
+  carve-js commit. Installing this package no longer clones carve-js over git:
+  0.1.0 and 0.1.1 both declared `git+https://github.com/markup-carve/carve-js.git#<sha>`,
+  which needs git reachable at install time, carries no integrity hash, and
+  leaves every consumer on whatever commit was current when it shipped.
+
+### Fixed
+
+- 0.1.1 was tagged and released on GitHub but never reached npm: the release
+  workflow refuses a tag with no matching CHANGELOG section, and the section
+  had not been cut from `Unreleased`. npm therefore goes 0.1.0 to 0.1.2, and
+  0.1.1's contents are recorded below rather than lost.
+
+## 0.1.1 - 2026-08-18
+
+Tagged and released on GitHub; not published to npm (see 0.1.2 above).
 
 ### Fixed
 
