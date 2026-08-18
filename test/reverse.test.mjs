@@ -68,15 +68,7 @@ test('reverse: table with alignment, spans and caption', () => {
   const colspan = roundtrip('|= A |=> B |= C |\n| x | < | z |\n^ Table 1: cap');
   assert.ok(/Table 1\\?: cap/.test(colspan), colspan);
   assert.ok(colspan.includes('<'), `colspan marker in: ${colspan}`);
-  // Right alignment survives in EITHER spelling. A round-trip that replays the
-  // authored header emits Carve's own `|=>`; one that rebuilds the table emits
-  // a Markdown-style separator with a trailing colon. Asserting only the second
-  // pinned the lossier of the two - it failed the moment the round-trip got
-  // good enough to give the header back unchanged.
-  assert.ok(
-    /\|=>/.test(colspan) || /:/.test(colspan.split('\n')[1] ?? ''),
-    `right alignment lost: ${colspan}`,
-  );
+  assert.match(colspan, /\{aligns=,right,\}/, `right alignment lost: ${colspan}`);
 
   const rowspan = roundtrip('|= A |= B |\n| x | y |\n| ^ | z |');
   assert.ok(rowspan.includes('^'), `rowspan marker in: ${rowspan}`);

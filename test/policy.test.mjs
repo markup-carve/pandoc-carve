@@ -193,7 +193,7 @@ const GRID_TABLE = `+---------------+------+
 `;
 
 test(
-  'policy: a ColSpec width is dropped, and dropped silently',
+  'policy: a ColSpec width crosses through positional width metadata',
   { skip: !pandoc && 'pandoc not found' },
   () => {
     const doc = pandocRead(pandoc, GRID_TABLE);
@@ -209,7 +209,12 @@ test(
     // Padded form per spec section 6e: a space between marker and content.
     assert.ok(carve.includes('|= Wide column |'), carve);
     assert.equal(warnings.length, 0, warnings.join(' | '));
-    assert.ok(!/\d\.\d/.test(carve), `no width reached the source: ${carve}`);
+    assert.match(carve, /widths=/, carve);
+    const back = carveToPandoc(carve).doc.blocks[0].c[2].map((cs) => cs[1]);
+    assert.deepEqual(back.map((width) => width.t), colspecs.map((cs) => cs[1].t));
+    back.forEach((width, i) => {
+      assert.ok(Math.abs(width.c - colspecs[i][1].c) < 1e-12, `${width.c} != ${colspecs[i][1].c}`);
+    });
   },
 );
 
@@ -228,5 +233,5 @@ test('policy: tables leaving the bridge carry ColWidthDefault, alignment aside',
   const back = pandocToCarve(doc).carve;
   // Padded form per spec section 6e: the writer separates every cell's content
   // from its markers with a space, so the alignment sigils read `|=< A |`.
-  assert.ok(back.includes('|=< A |=> B |'), back);
+  assert.ok(back.includes('{aligns=left,right}'), back);
 });

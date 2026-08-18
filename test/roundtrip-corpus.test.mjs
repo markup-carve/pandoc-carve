@@ -108,6 +108,13 @@ const KNOWN_LOSSY = new Set([
   '322-an-attribute-block-reaches-the-nested-list-it-precedes-10.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
+  // Pandoc ColSpec carries horizontal alignment and width, but has no vertical
+  // alignment slot. The bridge deliberately does not leak Carve's `valigns`
+  // source metadata into the Pandoc table Attr, so these two vertical-axis
+  // examples lose that axis on the source round trip. The AST path remains
+  // lossless because it keeps the Carve column records directly.
+  '370-table-columns-carry-alignment-vertical-alignment-and-widths.crv',
+  '371-a-table-alignment-run-carries-two-independent-axes.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
   // One cause under all of them. A pandoc LineBlock is a list of lines and may hold

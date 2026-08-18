@@ -1260,6 +1260,11 @@ interface CCell {
     attrs?: CAttrs;
 }
 
+interface CColumn {
+    align?: string;
+    width?: number;
+}
+
 const ALIGN: Record<string, P.Alignment> = {
     left: 'AlignLeft',
     right: 'AlignRight',
@@ -1365,7 +1370,10 @@ function table(
             + 'rectangular, and PART 9 §16 keeps each row\'s own cell count',
         );
     }
+    const columns = (n.columns as CColumn[] | undefined) ?? [];
     const colAligns: P.Alignment[] = Array.from({ length: width }, (_, c) => {
+        const declared = ALIGN[columns[c]?.align ?? ''];
+        if (declared) return declared;
         const cell = firstRow[c];
         return firstRowIsHead && cell ? ALIGN[cell.align ?? ''] ?? 'AlignDefault' : 'AlignDefault';
     });
@@ -1522,14 +1530,20 @@ function table(
     }
 
     return P.Table(
-        toAttr(n.attrs),
+        toAttrWithout(n.attrs as CAttrs | undefined, ['aligns', 'valigns', 'widths']),
         caption,
         colAligns,
         toRows(0, headCount),
         bodies,
         footRows,
         shortCaption,
+        Array.from({ length: width }, (_, c) => columns[c]?.width ?? null),
     );
+}
+
+function toAttrWithout(attrs: CAttrs | undefined, omitted: string[]): P.Attr {
+    const [id, classes, pairs] = toAttr(attrs);
+    return [id, classes, pairs.filter(([key]) => !omitted.includes(key))];
 }
 
 // --- List tables (listTable extension semantics) ---
@@ -1571,6 +1585,7 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
     // (extensions.md §5.1), which is exactly pandoc's `RowHeadColumns`. It was
     // read by nobody and left behind as an ordinary table attribute.
     const headerCols = headerCount(a.keyValues?.['header-cols']);
+    const footerRows = headerCount(a.keyValues?.['footer-rows']);
     const caption = Array.isArray(n.title) ? inlines(ctx, n.title as CNode[]) : null;
 
     // Strict shape: exactly one child, the outer list; every row item holds
@@ -1637,15 +1652,33 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
 
     const head = Math.min(headerRows, grid.length);
     const [id, classes, kvs] = toAttr(a);
-    const body: P.TableBody = { bodyRows: toRows(head, grid.length) };
+    const foot = Math.min(footerRows, Math.max(0, grid.length - head));
+    const bodyEnd = grid.length - foot;
+    const body: P.TableBody = { bodyRows: toRows(head, bodyEnd) };
     if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
     return P.Table(
-        [id, classes, kvs.filter(([k]) => k !== 'header-rows' && k !== 'header-cols')],
+        [id, classes, kvs.filter(([k]) => !['header-rows', 'header-cols', 'footer-rows', 'aligns', 'widths', 'valigns'].includes(k))],
         caption,
-        Array<P.Alignment>(nCols).fill('AlignDefault'),
+        positionalAligns(a.keyValues?.aligns, nCols),
         toRows(0, head),
         [body],
+        toRows(bodyEnd, grid.length),
+        null,
+        positionalWidths(a.keyValues?.widths, nCols),
     );
+}
+
+function positionalAligns(value: string | undefined, count: number): P.Alignment[] {
+    const values = value?.split(',').map((part) => ALIGN[part.trim()] ?? 'AlignDefault') ?? [];
+    return Array.from({ length: count }, (_, i) => values[i] ?? 'AlignDefault');
+}
+
+function positionalWidths(value: string | undefined, count: number): Array<number | null> {
+    const values = value?.split(',').map((part) => {
+        const n = Number(part.trim());
+        return Number.isFinite(n) && n > 0 && n <= 100 ? n / 100 : null;
+    }) ?? [];
+    return Array.from({ length: count }, (_, i) => values[i] ?? null);
 }
 
 // --- Figures ---

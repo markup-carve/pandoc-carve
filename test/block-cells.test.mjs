@@ -118,15 +118,13 @@ test('block cells: head rows, row spans and the caption all cross', { skip: !pan
   assert.equal(doc.blocks[0].c[1][1][0].c[0].c, 'Cap', 'caption restored');
 });
 
-test('block cells: what the list-table cannot spell is reported', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { warnings } = pandocToCarveAst(read(RICH_HTML, 'html'));
-  assert.ok(
-    warnings.some((w) => w.includes('foot row(s) become ordinary body rows')),
-    `a foot has no list-table spelling: ${warnings.join(' | ')}`,
-  );
+test('block cells: list-table spells its foot explicitly', { skip: !pandoc && 'pandoc not found' }, () => {
+  const { ast, warnings } = pandocToCarveAst(read(RICH_HTML, 'html'));
+  assert.equal(ast.children[0].attrs.keyValues['footer-rows'], '1');
+  assert.ok(!warnings.some((w) => w.includes('foot row(s)')), warnings.join(' | '));
 });
 
-test('block cells: per-column alignment is reported when it is dropped', { skip: !pandoc && 'pandoc not found' }, () => {
+test('block cells: list-table carries per-column alignment', { skip: !pandoc && 'pandoc not found' }, () => {
   // A grid table, because a pipe table's cell keeps `- one` inline: the
   // alignment lives on the colspec and the block content needs the grid form.
   const aligned = `+:-------+---------------:+
@@ -136,11 +134,9 @@ test('block cells: per-column alignment is reported when it is dropped', { skip:
 |        | - two
 +--------+----------------+
 `;
-  const { warnings } = pandocToCarveAst(read(aligned, 'markdown'));
-  assert.ok(
-    warnings.some((w) => w.includes('per-column alignment is dropped')),
-    warnings.join(' | '),
-  );
+  const { ast, warnings } = pandocToCarveAst(read(aligned, 'markdown'));
+  assert.equal(ast.children[0].attrs.keyValues.aligns, 'left,right');
+  assert.ok(!warnings.some((w) => w.includes('alignment')), warnings.join(' | '));
 });
 
 test('block cells: a body group\'s intermediate header rows are reported', () => {
@@ -256,7 +252,7 @@ test('block cells: row-head columns survive the list-table loop', { skip: !pando
   assert.equal(doc.blocks[0].c[4][0][1], 1, 'the premise: pandoc recorded one row-head column');
 
   const { carve } = pandocToCarve(doc);
-  assert.ok(carve.includes('{header-cols=1}'), carve);
+  assert.match(carve, /\{[^}]*header-cols=1(?:\s|\})/, carve);
 
   const { doc: back } = carveToPandoc(carve, { listTable: true });
   assert.equal(back.blocks[0].c[4][0][1], 1, 'restored as RowHeadColumns');
