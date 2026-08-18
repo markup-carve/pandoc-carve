@@ -813,6 +813,10 @@ function table(
     // for every grid and multiline table from the ASCII column widths, so a
     // warning would fire on the ordinary case and report a value nobody chose.
     const colAligns = colspecs.map((cs) => ALIGN_BACK[cs[0].t] ?? '');
+    const columns = colspecs.map((cs) => ({
+        ...(ALIGN_BACK[cs[0].t] ? { align: ALIGN_BACK[cs[0].t] } : {}),
+        ...(cs[1]?.t === 'ColWidth' && typeof cs[1].c === 'number' ? { width: cs[1].c } : {}),
+    }));
     const nCols = colspecs.length;
 
     const headRaw = thead[1] as [Attr, unknown[][]][];
@@ -884,7 +888,7 @@ function table(
     // readable, needs no extension, and round-trips. Block cells remain the one
     // reason to leave, because a Carve `table_cell` holds INLINES and there is
     // no pipe form for a cell holding blocks at all.
-    const useListTable = hasBlockCells;
+    const useListTable = hasBlockCells || (ctx.target === 'source' && footRaw.length > 0);
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -921,8 +925,7 @@ function table(
             // every cell when there is no header row. A row-head cell is not a
             // header row, so it does not carry the column - its own marker
             // aligns itself alone, which is what the engine does.
-            const align = ALIGN_BACK[cellAlign.t]
-                ?? (isHeaderRow[r] === true || !hasHeaderRow ? colAligns[col] : '');
+            const align = ALIGN_BACK[cellAlign.t];
             if (align) cell.align = align;
             const cellAttrs = fromAttr(cellAttr);
             if (cellAttrs) cell.attrs = cellAttrs;
@@ -964,20 +967,13 @@ function table(
             caption: captionInlinesFor(),
             attrs: fromAttr(a),
             colAligns,
-            reason: hasBlockCells ? 'block-cells' : 'row-head-columns',
+            colWidths: columns.map((column) => column.width),
+            reason: hasBlockCells ? 'block-cells' : 'foot',
         });
     }
 
-    if (!hasHeaderRow && colAligns.some((a) => a)) {
-        warn(
-            ctx,
-            'table: column alignment on a table with no header row is written on '
-            + 'each cell instead - Carve spells column alignment on the header '
-            + 'marker (`|=> Name |`), and there is no header to carry it',
-        );
-    }
-
     const node: CNode = { type: 'table', rows };
+    if (columns.some((column) => Object.keys(column).length > 0)) node.columns = columns;
     // The counts come from the same arrays `rows` was built from, one row
     // pushed per raw row, so §15's sum holds by construction here. It is
     // checked where it can actually fail instead: on a partition that arrived
@@ -1054,8 +1050,9 @@ interface ListTableInput {
     caption: CNode[] | null;
     attrs: CAttrs | undefined;
     colAligns: string[];
+    colWidths: Array<number | undefined>;
     /** Why the pipe form was left, which is what the opening diagnostic says. */
-    reason: 'block-cells' | 'row-head-columns';
+    reason: 'block-cells' | 'row-head-columns' | 'foot';
 }
 
 /**
@@ -1075,20 +1072,13 @@ interface ListTableInput {
  * intermediate header rows.
  */
 function listTable(ctx: Ctx, input: ListTableInput): CNode {
-    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, reason } = input;
-    warn(
+    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, colWidths, reason } = input;
+    if (reason !== 'foot') warn(
         ctx,
         reason === 'block-cells'
             ? 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)'
             : 'table: row-head columns, which a pipe table cannot spell - emitted as a `::: list-table` with `header-cols` (structure preserved)',
     );
-
-    if (colAligns.some((a) => a)) {
-        warn(ctx, 'list-table: per-column alignment is dropped - the extension has no alignment marker (extensions.md §5.5)');
-    }
-    if (footRows > 0) {
-        warn(ctx, `list-table: the table's ${footRows} foot row(s) become ordinary body rows - the extension has head rows only`);
-    }
     if (bodies.some((b) => b.headRows > 0)) {
         warn(ctx, 'list-table: a body group\'s intermediate header rows become ordinary body rows - `header-rows` counts only the leading run');
     }
@@ -1139,6 +1129,14 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
     };
     addKey('header-rows', headRows);
     addKey('header-cols', headerCols);
+    addKey('footer-rows', footRows);
+    const addList = (key: string, values: string[]): void => {
+        if (!values.some(Boolean)) return;
+        keyValues[key] = values.join(',');
+        if (!order.includes('key')) order.push('key');
+    };
+    addList('aligns', colAligns);
+    addList('widths', colWidths.map((width) => width === undefined ? '' : String(width * 100)));
     const merged: CAttrs = {};
     if (attrs?.id) merged.id = attrs.id;
     if (attrs?.classes?.length) merged.classes = attrs.classes;

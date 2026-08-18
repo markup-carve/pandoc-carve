@@ -335,14 +335,11 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
  * list-table path reported its own version of the same losses.
  */
 
-test('the pipe writer reports what the partition says and the source cannot', () => {
+test('the source writer keeps the foot and reports the body-group facts it still cannot spell', () => {
   const { warnings } = pandocToCarve(twoBodiesAndAFootFlatHeads);
-  const said = warnings.filter((w) => w.startsWith('table: '));
-  assert.equal(said.length, 1, `one warning naming everything: ${warnings.join(' | ')}`);
-  for (const part of ['a foot of 1 row(s)', '2 body groups', "a body's intermediate header rows", "a body group's attributes"]) {
-    assert.ok(said[0].includes(part), `${part} is named: ${said[0]}`);
+  for (const part of ['2 body groups', "intermediate header rows", "body group's attributes"]) {
+    assert.ok(warnings.some((warning) => warning.includes(part)), `${part} is named: ${warnings.join(' | ')}`);
   }
-  assert.ok(said[0].includes('rowGroups'), 'and it says where the value does survive');
 });
 
 /** Row heads, one body, no foot: the shape the pipe table spells completely. */
@@ -384,21 +381,13 @@ test('and pandoc gets its RowHeadColumns back from those cells', () => {
   assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 1);
 });
 
-test('a foot still collapses into the body, and the foot is all that is lost', () => {
-  // A pipe table cannot spell a foot at all, so the foot row re-reads as an
-  // ordinary body row. The loss is reported, and markup-carve/carve#1337 tracks
-  // the missing spelling.
-  //
-  // What is NOT lost any more is the row head above it. This used to assert a
-  // count of 0, because one body took the MINIMUM leading run across its rows
-  // and the demoted foot row has none - so a foot on the table quietly took the
-  // row headers off every row as well. The rows now split into runs, `North`
-  // keeps its count, and the foot's own collapse is the whole of the damage.
+test('a foot uses ListTable footer-rows and round-trips as a foot', () => {
   const { carve, warnings } = pandocToCarve(rowHeadsAndAFoot);
-  assert.match(carve, /^\|= Region \|= Total \|\n\|= North \| 11 \|\n\| All \| 33 \|/, carve);
-  assert.ok(warnings.some((w) => w.includes('foot')), warnings.join(' | '));
-  const bodies = carveToPandoc(carve).doc.blocks[0].c[4];
-  assert.deepEqual(bodies.map((b) => [b[1], b[3].length]), [[1, 1], [0, 1]], carve);
+  assert.match(carve, /footer-rows=1/, carve);
+  assert.ok(!warnings.some((w) => w.includes('foot row(s) become')), warnings.join(' | '));
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(table.c[4][0][1], 1, carve);
+  assert.equal(table.c[5][1].length, 1, carve);
 });
 
 test('a row-head row below a plain one keeps its scope through the round trip', () => {
@@ -523,25 +512,16 @@ function alignedTable(withHeader) {
 test('column alignment with no header row is written per cell, and the move is reported', () => {
   const { ast, warnings } = pandocToCarveAst(alignedTable(false));
   assert.deepEqual(
-    ast.children[0].rows[0].cells.map((c) => c.align),
+    ast.children[0].columns.map((c) => c.align),
     ['right', 'right'],
-    'the alignment survives on the only slot left',
+    'the alignment survives in the column records',
   );
-  assert.ok(
-    warnings.some((w) => w.includes('no header row') && w.includes('each cell')),
-    warnings.join(' | '),
-  );
+  assert.deepEqual(warnings, []);
 });
 
 test('control: with a header row the alignment stays on the header, unreported', () => {
   const { ast, warnings } = pandocToCarveAst(alignedTable(true));
-  const [head, body] = ast.children[0].rows;
-  assert.deepEqual(head.cells.map((c) => c.align), ['right', 'right']);
-  assert.deepEqual(
-    body.cells.map((c) => c.align),
-    [undefined, undefined],
-    'a body cell inherits its column and needs no marker of its own',
-  );
+  assert.deepEqual(ast.children[0].columns.map((c) => c.align), ['right', 'right']);
   assert.deepEqual(warnings, []);
 });
 
@@ -562,9 +542,9 @@ test("a body's intermediate header row does not count as the column header", () 
 
   const { ast, warnings } = pandocToCarveAst(doc);
   assert.deepEqual(
-    ast.children[0].rows.map((r) => r.cells.map((c) => c.align)),
-    [['right', 'right'], ['right', 'right']],
-    'every cell carries it, the intermediate header included',
+    ast.children[0].columns.map((c) => c.align),
+    ['right', 'right'],
+    'the columns carry it independently of intermediate header rows',
   );
-  assert.ok(warnings.some((w) => w.includes('no header row')), warnings.join(' | '));
+  assert.deepEqual(warnings, []);
 });
