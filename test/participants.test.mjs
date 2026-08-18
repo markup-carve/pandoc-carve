@@ -90,7 +90,7 @@ test('no test source carries a literal control byte where an escape belongs', ()
 test('the engine under test is the engine the manifest pins', () => {
   // A THIRD POPULATION THAT CAN GO UNCOMPARED: the dependency itself.
   //
-  // `package.json` names exact carve-js code, `package-lock.json` resolves it,
+  // `package.json` names a commit of carve-js, `package-lock.json` resolves it,
   // and `node_modules/.package-lock.json` records what npm actually wrote to
   // disk. Nothing in this suite reads the last one, so a checkout whose
   // `node_modules` predates a pin bump runs every engine-facing test against a
@@ -107,30 +107,98 @@ test('the engine under test is the engine the manifest pins', () => {
   // assertions against an engine that cannot satisfy them - or, worse, passed
   // them one day and not the next with no file in the diff to explain it.
   //
-  // The fix is `npm ci`, and this is the line that says so. Development pins
-  // use commits before a release; released versions are accepted once they
-  // contain the required engine work.
+  // The fix is `npm ci`, and this is the line that says so.
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const read = (p) => JSON.parse(readFileSync(join(root, p), 'utf8'));
   const dep = '@markup-carve/carve';
 
   const manifest = read('package.json').dependencies[dep];
-  const locked = read('package-lock.json').packages[`node_modules/${dep}`];
-  const installed = read('node_modules/.package-lock.json').packages[`node_modules/${dep}`];
+  const locked = read('package-lock.json').packages[`node_modules/${dep}`].resolved;
+  const installed = read('node_modules/.package-lock.json').packages[`node_modules/${dep}`].resolved;
 
-  const manifestSha = manifest.split('#')[1];
-  if (manifestSha) {
-    assert.equal(locked.resolved.split('#')[1], manifestSha, 'package-lock.json did not follow the manifest bump');
-    assert.equal(installed.resolved.split('#')[1], manifestSha, `node_modules does not hold ${manifestSha}. Run \`npm ci\``);
-  } else {
-    assert.match(manifest, /^\d+\.\d+\.\d+$/, `${dep} is not pinned exactly: ${manifest}`);
-    assert.equal(locked.version, manifest, 'package-lock.json did not follow the manifest bump');
-    assert.equal(installed.version, manifest, `node_modules does not hold release ${manifest}. Run \`npm ci\``);
+  // The manifest names the engine in ONE OF TWO SPELLINGS, and the identity to
+  // compare differs between them. Reading only one spelling turns this into a
+  // check that cannot fail the moment the other is adopted.
+  //
+  //   a git pin,      `<url>#<sha>` - the sha is the only part that identifies
+  //                   code. The url half legitimately differs between the three
+  //                   (npm rewrites `git+https:` to `git+ssh:` when it
+  //                   resolves), so comparing whole strings would fail on a
+  //                   correct tree and teach everyone to ignore this.
+  //
+  //   a semver range, `^0.1.4` - there is no sha anywhere. What identifies the
+  //                   code is the resolved VERSION, which lives in the lockfile
+  //                   and in node_modules but nowhere in the manifest. So the
+  //                   range is checked for SATISFACTION and the two installed
+  //                   populations for EQUALITY.
+  //
+  // A version string is not by itself sufficient evidence, and this is measured
+  // rather than assumed: carve-js commit 2dc3232 sits one docs-only commit
+  // behind the 0.1.4 tag, so a tree installed from that pin REPORTS 0.1.3 while
+  // behaving exactly like 0.1.4. Identity is what this test can check; behavior
+  // is what the engine-facing tests elsewhere in the suite check.
+  const sha = (spec) => (typeof spec === 'string' ? (spec.split('#')[1] ?? null) : null);
+  const entry = (p) => read(p).packages[`node_modules/${dep}`] ?? {};
+
+  if (sha(manifest)) {
+    assert.equal(sha(locked), sha(manifest), 'package-lock.json did not follow the manifest bump');
+    assert.equal(
+      sha(installed),
+      sha(manifest),
+      `node_modules holds ${installed}, not the pinned commit. Run \`npm ci\`: every ` +
+        'engine-facing test in this suite is currently measuring a different engine.',
+    );
+    return;
   }
+
+  // A semver range. Only a CARET range is accepted, and everything else is
+  // refused rather than waved through: a `file:` or `link:` spec identifies
+  // nothing reproducible, and a range shape this test cannot evaluate would
+  // otherwise sail past the comparison below and report a pass it did not earn.
+  // Caret semantics are reimplemented here rather than pulled in, because one
+  // range shape is not worth a dependency - and the refusal above is what keeps
+  // that narrowness honest.
+  const caret = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(manifest);
   assert.ok(
-    installed.resolved,
-    `node_modules has no resolved engine identity. Run \`npm ci\`: every ` +
-      'engine-facing test in this suite is currently measuring a different engine.',
+    caret,
+    `${dep} is neither a commit pin nor a caret range in package.json: ${manifest}. ` +
+      'Those are the two shapes this check knows how to evaluate; anything else ' +
+      'would be reported as a pass without having been compared.',
+  );
+
+  const lockedVersion = entry('package-lock.json').version ?? null;
+  const installedVersion = entry('node_modules/.package-lock.json').version ?? null;
+
+  assert.ok(lockedVersion, `${dep} is absent from package-lock.json`);
+  assert.equal(
+    installedVersion,
+    lockedVersion,
+    `node_modules holds ${dep} ${installedVersion}, but package-lock.json pins ` +
+      `${lockedVersion}. Run \`npm ci\`: every engine-facing test in this suite is ` +
+      'currently measuring a different engine.',
+  );
+  const locked3 = /^(\d+)\.(\d+)\.(\d+)$/.exec(lockedVersion);
+  assert.ok(locked3, `package-lock.json pins ${dep} ${lockedVersion}, which is not a version`);
+  const [, fMaj, fMin, fPat] = caret.map(Number);
+  const [, lMaj, lMin, lPat] = locked3.map(Number);
+  // Caret on a 0.x line pins the MINOR too: ^0.1.4 admits 0.1.9 and refuses
+  // 0.2.0. Getting that backwards is how a downstream range silently stops
+  // tracking the engine it thinks it tracks.
+  const sameLine = fMaj === 0 ? lMaj === 0 && lMin === fMin : lMaj === fMaj;
+  const notBelow =
+    lMaj > fMaj ||
+    (lMaj === fMaj && (lMin > fMin || (lMin === fMin && lPat >= fPat)));
+  assert.ok(
+    sameLine && notBelow,
+    `package-lock.json pins ${dep} ${lockedVersion}, which does not satisfy the ` +
+      `declared range ${manifest} - the manifest and the lockfile disagree about ` +
+      'which engine this repo builds against.',
+  );
+  assert.match(
+    String(entry('package-lock.json').resolved),
+    /^https:\/\/registry\.npmjs\.org\//,
+    `${dep} is declared as a registry range but the lockfile resolves it from ` +
+      'somewhere else, so an install here does not come from the registry.',
   );
 });
 
