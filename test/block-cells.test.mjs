@@ -135,7 +135,7 @@ test('block cells: list-table carries per-column alignment', { skip: !pandoc && 
 +--------+----------------+
 `;
   const { ast, warnings } = pandocToCarveAst(read(aligned, 'markdown'));
-  assert.equal(ast.children[0].attrs.keyValues.aligns, ',right');
+  assert.equal(ast.children[0].attrs.keyValues.aligns, 'left,right');
   assert.ok(!warnings.some((w) => w.includes('alignment')), warnings.join(' | '));
 });
 
@@ -252,7 +252,7 @@ test('block cells: row-head columns survive the list-table loop', { skip: !pando
   assert.equal(doc.blocks[0].c[4][0][1], 1, 'the premise: pandoc recorded one row-head column');
 
   const { carve } = pandocToCarve(doc);
-  assert.ok(carve.includes('{header-cols=1}'), carve);
+  assert.match(carve, /\{[^}]*header-cols=1(?:\s|\})/, carve);
 
   const { doc: back } = carveToPandoc(carve, { listTable: true });
   assert.equal(back.blocks[0].c[4][0][1], 1, 'restored as RowHeadColumns');

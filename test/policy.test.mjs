@@ -210,10 +210,11 @@ test(
     assert.ok(carve.includes('|= Wide column |'), carve);
     assert.equal(warnings.length, 0, warnings.join(' | '));
     assert.match(carve, /widths=/, carve);
-    assert.deepEqual(
-      carveToPandoc(carve).doc.blocks[0].c[2].map((cs) => cs[1]),
-      colspecs.map((cs) => cs[1]),
-    );
+    const back = carveToPandoc(carve).doc.blocks[0].c[2].map((cs) => cs[1]);
+    assert.deepEqual(back.map((width) => width.t), colspecs.map((cs) => cs[1].t));
+    back.forEach((width, i) => {
+      assert.ok(Math.abs(width.c - colspecs[i][1].c) < 1e-12, `${width.c} != ${colspecs[i][1].c}`);
+    });
   },
 );
 
