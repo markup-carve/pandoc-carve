@@ -139,10 +139,9 @@ test('block cells: list-table carries per-column alignment', { skip: !pandoc && 
   assert.ok(!warnings.some((w) => w.includes('alignment')), warnings.join(' | '));
 });
 
-test('block cells: a body group\'s intermediate header rows are reported', () => {
+test('block cells: a body group\'s intermediate header rows are spelled', () => {
   // Hand-built: pandoc's readers rarely produce an intermediate header, but its
-  // model has one and `rowGroups` carries it. `header-rows` counts only the
-  // leading run, so an intermediate header cannot be spelled.
+  // model has one; ListTable marks it locally on the first cell.
   const cell = (blocks) => [['', [], []], { t: 'AlignDefault' }, 1, 1, blocks];
   const row = (blocks) => [['', [], []], [cell(blocks)]];
   const doc = {
@@ -171,10 +170,9 @@ test('block cells: a body group\'s intermediate header rows are reported', () =>
   };
   const { warnings, ast } = pandocToCarveAst(doc);
   assert.equal(ast.children[0].kind, 'list-table');
-  assert.ok(
-    warnings.some((w) => w.includes('intermediate header rows become ordinary body rows')),
-    warnings.join(' | '),
-  );
+  assert.ok(!warnings.some((w) => w.includes('intermediate header')), warnings.join(' | '));
+  const firstCell = ast.children[0].children[0].items[0].children[0].items[0];
+  assert.equal(firstCell.attrs.keyValues['header-row'], '');
 });
 
 test('block cells: an all-inline table is still a pipe table', { skip: !pandoc && 'pandoc not found' }, () => {
@@ -182,6 +180,26 @@ test('block cells: an all-inline table is still a pipe table', { skip: !pandoc &
   // fires for a table that never needed one.
   const { ast, warnings } = pandocToCarveAst(read('| a | b |\n|---|---|\n| x | y |\n', 'markdown'));
   assert.equal(ast.children[0].type, 'table');
+  assert.deepEqual(warnings, []);
+});
+
+test('list-table: local header rows become separate pandoc body groups', () => {
+  const source = `::: list-table
+- -{header-row} Name
+  - Value
+- - Alpha
+  - 1
+- -{header-row} Name again
+  - Value again
+- - Beta
+  -{header} Total
+:::
+`;
+  const { doc, warnings } = carveToPandoc(source, { listTable: true });
+  const bodies = doc.blocks[0].c[4];
+  assert.equal(bodies.length, 2);
+  assert.deepEqual(bodies.map((body) => [body[2].length, body[3].length]), [[1, 1], [1, 1]]);
+  assert.deepEqual(bodies[1][3][0][1][1][0][2], [['header', '']]);
   assert.deepEqual(warnings, []);
 });
 
@@ -285,6 +303,6 @@ test('block cells: merged body groups and their attributes are reported', () => 
     ],
   };
   const { warnings } = pandocToCarveAst(doc);
-  assert.ok(warnings.some((w) => w.includes('2 body groups merge into one')), warnings.join(' | '));
+  assert.ok(warnings.some((w) => w.includes('2 body groups merge')), warnings.join(' | '));
   assert.ok(warnings.some((w) => w.includes("body group's attributes are dropped")), warnings.join(' | '));
 });

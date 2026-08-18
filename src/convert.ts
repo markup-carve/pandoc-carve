@@ -1594,11 +1594,14 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
     if (children.length !== 1 || children[0]!.type !== 'list') return null;
     const rowItems = (children[0]!.items as CNode[] | undefined) ?? [];
     const grid: CNode[][][] = [];
+    const cellItems: CNode[][] = [];
     for (const rowItem of rowItems) {
         const rowChildren = (rowItem.children as CNode[] | undefined) ?? [];
         if (rowChildren.length !== 1 || rowChildren[0]!.type !== 'list') return null;
+        const items = (rowChildren[0]!.items as CNode[] | undefined) ?? [];
+        cellItems.push(items);
         grid.push(
-            ((rowChildren[0]!.items as CNode[] | undefined) ?? []).map(
+            items.map(
                 (cellItem) => (cellItem.children as CNode[] | undefined) ?? [],
             ),
         );
@@ -1636,7 +1639,11 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
                 }
                 warn(ctx, `list-table: rowspan crossing the header/body boundary at row ${r + 1} - clipped`);
             }
-            const pc = P.cell(untight(ctx, () => blocks(ctx, cellBlocks)));
+            const pc = P.cell(
+                untight(ctx, () => blocks(ctx, cellBlocks)),
+                'AlignDefault',
+                toAttr((cellItems[r]![c]!.attrs ?? {}) as CAttrs),
+            );
             origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;
         }
@@ -1654,14 +1661,40 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
     const [id, classes, kvs] = toAttr(a);
     const foot = Math.min(footerRows, Math.max(0, grid.length - head));
     const bodyEnd = grid.length - foot;
-    const body: P.TableBody = { bodyRows: toRows(head, bodyEnd) };
-    if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
+    const hasBareMarker = (item: CNode | undefined, key: string): boolean =>
+        ((item?.attrs ?? {}) as CAttrs).keyValues?.[key] === '';
+    const bodies: P.TableBody[] = [];
+    let at = head;
+    while (at < bodyEnd) {
+        const bodyStart = at;
+        let headEnd = at;
+        if (hasBareMarker(cellItems[at]?.[0], 'header-row')) {
+            while (headEnd < bodyEnd && hasBareMarker(cellItems[headEnd]?.[0], 'header-row')) headEnd++;
+        }
+        let next = headEnd;
+        while (next < bodyEnd && !hasBareMarker(cellItems[next]?.[0], 'header-row')) next++;
+        // A marker after ordinary rows begins the next body; the ordinary run
+        // before it remains its own body with no intermediate header.
+        const end = headEnd === bodyStart ? next : next;
+        const body: P.TableBody = {
+            ...(headEnd > bodyStart ? { headRows: toRows(bodyStart, headEnd) } : {}),
+            bodyRows: toRows(headEnd, end),
+        };
+        if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
+        bodies.push(body);
+        at = end;
+    }
+    if (!bodies.length) {
+        const body: P.TableBody = { bodyRows: [] };
+        if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
+        bodies.push(body);
+    }
     return P.Table(
         [id, classes, kvs.filter(([k]) => !['header-rows', 'header-cols', 'footer-rows', 'aligns', 'widths', 'valigns'].includes(k))],
         caption,
         positionalAligns(a.keyValues?.aligns, nCols),
         toRows(0, head),
-        [body],
+        bodies,
         toRows(bodyEnd, grid.length),
         null,
         positionalWidths(a.keyValues?.widths, nCols),
