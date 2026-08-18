@@ -144,7 +144,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
 | A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
-| A reference link or image nothing defines (`[r][]`) | the literal source as text, which is what Carve renders, plus a warning naming the label - as an unresolved footnote already did |
+| A reference link, image or footnote nothing defines (`[r][]`, `[^f]`) | the literal source as text, which is what Carve renders, plus a warning naming the label |
 
 The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs
@@ -204,13 +204,15 @@ a processor with neither extension enabled would render.
   per-column alignment, a foot, and a body group's intermediate header rows.
   It converts back to the pandoc table by default; `listTable: false` returns
   the degraded div instead.
-- A pandoc table with ROW-HEAD COLUMNS takes the same route on the source path,
-  because `header-cols=N` is exactly pandoc's `RowHeadColumns` and a pipe table
-  cannot say it. Only when every body group agrees on the count: `header-cols`
-  is one number for the whole table, so a table whose bodies differ keeps the
-  pipe form rather than come back with row headers ADDED to the rows that had
-  none. The AST path keeps the plain table, where `rowGroups` carries the whole
-  partition and nothing has to be traded for it.
+- A pandoc table with ROW-HEAD COLUMNS stays a pipe table. `RowHeadColumns` says
+  the leading N cells of every body row are row headers, and a pipe table says
+  that per cell: `|= Mercury | 4,879.4 |` is a `<th scope="row">`. Marking the
+  cells needs no extension and round-trips, because the export direction derives
+  the count back from the leading run.
+- On the way out, one TableBody per RUN of body rows that agree on that leading
+  run. Pandoc's `RowHeadColumns` is a count on a body and a `Table` holds a list
+  of bodies, so rows that disagree are simply different bodies. A table whose
+  body rows all agree emits exactly one body, as before.
 - Pandoc `SmallCaps` has no Carve node and is not getting one: it imports as a
   `[text]{.smallcaps}` span, with a warning saying so. The span is not a dead
   end, though - the export direction reads that class back as `SmallCaps`, the
@@ -266,9 +268,9 @@ a processor with neither extension enabled would render.
   rows or row-head columns) survives into the exchange AST, so
   `pandocToCarveAst` hands it on whole - but PART 9 section 16's pipe table
   spells only a leading run of header rows, so `pandocToCarve` flattens the
-  rest into body rows and says so. Row-head columns are the exception - they
-  have a list-table spelling and take it (above). Use the AST entry point when
-  a foot or a second body group has to survive.
+  rest into body rows and says so. Row-head columns are the exception - the pipe
+  table marks them on the cells (above). Use the AST entry point when a foot or
+  a second body group has to survive.
 - A marker on a HEAD cell (`|=> Name |`) is the column's alignment and becomes
   pandoc's `ColSpec`; a marker on a BODY cell (`|> 12 |`) aligns that cell alone
   and becomes the cell's own `Alignment`. The two are not interchangeable: a
