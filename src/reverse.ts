@@ -1336,6 +1336,51 @@ function figure(ctx: Ctx, c: never): CNode[] {
     return out;
 }
 
+/**
+ * The inverse of convert.ts's `citationDefinition`: citeproc's own bibliography
+ * entry, `Div ("ref-<key>", ["csl-entry"], ...)`, back to a Carve `[@key]:`
+ * definition line.
+ *
+ * The forward direction has written this shape since the arm was added, but
+ * nothing read it, so a bibliography line went out as a definition and came
+ * back as a fenced div carrying an id and a class - the entry rendered in the
+ * body of the document, and the key that binds it to its citations survived
+ * only as the text of an id. That asymmetry was invisible while the engine
+ * still handed a definition line to the bridge as a paragraph holding a
+ * citation group; it surfaced the moment carve-js started emitting a real
+ * `citation_definition` node for one.
+ *
+ * Only the exact shape the forward direction produces converts back: a
+ * `ref-`-prefixed id, `csl-entry` first among the classes, and a body that is
+ * empty or one `Para`. A `--citeproc` bibliography whose entry runs to several
+ * blocks has no Carve definition to be, so it stays the div it is rather than
+ * being flattened into one.
+ */
+function citationDefinition(
+    ctx: Ctx,
+    id: string,
+    classes: string[],
+    kvs: [string, string][],
+    body: PandocNode[],
+): CNode | undefined {
+    if (classes[0] !== 'csl-entry') return undefined;
+    if (!id.startsWith('ref-') || id === 'ref-') return undefined;
+    if (body.length > 1) return undefined;
+    const only = body[0];
+    if (only && only.t !== 'Para') return undefined;
+
+    const node: CNode = {
+        type: 'citation_definition',
+        key: id.slice('ref-'.length),
+        children: only ? inlines(ctx, only.c as PandocNode[]) : [],
+    };
+    // The id is the key's carrier here, so it is spent; anything else the Attr
+    // holds is the author's and rides back as the definition's attributes.
+    const attrs = fromAttr(['', classes.slice(1), kvs]);
+    if (attrs) node.attrs = attrs;
+    return node;
+}
+
 function div(ctx: Ctx, c: never): CNode[] {
     const [a, body] = c as [Attr, PandocNode[]];
     const [id, classes, rawKvs] = a;
@@ -1358,6 +1403,9 @@ function div(ctx: Ctx, c: never): CNode[] {
             return [child];
         }
     }
+
+    const definition = citationDefinition(ctx, id, classes, kvs, body);
+    if (definition) return [definition];
 
     let kind: string | undefined;
     let rest: string[] = [];

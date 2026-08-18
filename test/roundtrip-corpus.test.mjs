@@ -118,7 +118,7 @@ const KNOWN_LOSSY = new Set([
   '336-a-footnote-definition-inside-an-item-s-comment-registers-nothing.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
-  // One cause under all ten. A pandoc LineBlock is a list of lines and may hold
+  // One cause under all of them. A pandoc LineBlock is a list of lines and may hold
   // an EMPTY one; a Carve line block spells each line as a source line, and a
   // blank source line inside `::: |` ends the paragraph rather than producing an
   // empty line. So the reverse direction writes the blank, the block comes back
@@ -128,24 +128,26 @@ const KNOWN_LOSSY = new Set([
   // exists to catch, which is why these are named here rather than normalized
   // away.
   //
-  // Where the empty line comes from differs, and one half is the engine PIN
-  // rather than the bridge: a backslash break inside a line block is still
-  // ADDITIVE in the carve-js commit this package depends on, which predates
-  // carve#1339 and carve#1340 (implemented in markup-carve/carve-js#1172), so
-  // `a \` reaches pandoc as two breaks and an empty line between them. Measured
-  // against carve-js main, three of these ten round-trip unchanged - 344,
-  // 345 and 345-3 - and the ledger's own "no longer lossy" check will require
-  // them off this list when the dependency pin moves.
+  // Where the empty line comes from differs, and one half WAS the engine PIN
+  // rather than the bridge: a backslash break inside a line block used to be
+  // ADDITIVE in the carve-js commit this package depended on, which predated
+  // carve#1339 and carve#1340 (implemented in markup-carve/carve-js#1172), so a
+  // line ending in a backslash reached pandoc as two breaks with an empty line
+  // between them. That pin has moved, and exactly the three documents predicted
+  // here - 344, 345 and 345-3 - came off this list, because the ledger's own
+  // "no longer lossy" check requires it rather than merely permitting it.
   //
-  // The 346 family does not, on either engine: a line block whose LAST body line
-  // ends in a backslash is a TRAILING empty LineBlock line, and that has no
-  // spelling either. That one is the bridge's to fix.
+  // What is left is the bridge's own, and all of it is one shape: an empty
+  // LineBlock line that Carve has no way to spell.
+  //
+  //   - 344-2 and 344-4: a comment-only line is removed before any inline run,
+  //     so the line survives as an EMPTY one.
+  //   - 345-2: a body line that is a lone backslash IS an empty line.
+  //   - the 346 family: a line block whose LAST body line ends in a backslash
+  //     is a TRAILING empty LineBlock line.
   '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run-2.crv',
   '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run-4.crv',
-  '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run.crv',
   '345-a-line-block-s-hard-break-keeps-its-backslash-2.crv',
-  '345-a-line-block-s-hard-break-keeps-its-backslash-3.crv',
-  '345-a-line-block-s-hard-break-keeps-its-backslash.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-3.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-4.crv',
