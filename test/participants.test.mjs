@@ -90,7 +90,7 @@ test('no test source carries a literal control byte where an escape belongs', ()
 test('the engine under test is the engine the manifest pins', () => {
   // A THIRD POPULATION THAT CAN GO UNCOMPARED: the dependency itself.
   //
-  // `package.json` names a commit of carve-js, `package-lock.json` resolves it,
+  // `package.json` names exact carve-js code, `package-lock.json` resolves it,
   // and `node_modules/.package-lock.json` records what npm actually wrote to
   // disk. Nothing in this suite reads the last one, so a checkout whose
   // `node_modules` predates a pin bump runs every engine-facing test against a
@@ -107,27 +107,29 @@ test('the engine under test is the engine the manifest pins', () => {
   // assertions against an engine that cannot satisfy them - or, worse, passed
   // them one day and not the next with no file in the diff to explain it.
   //
-  // The fix is `npm ci`, and this is the line that says so.
+  // The fix is `npm ci`, and this is the line that says so. Development pins
+  // use commits before a release; released versions are accepted once they
+  // contain the required engine work.
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const read = (p) => JSON.parse(readFileSync(join(root, p), 'utf8'));
   const dep = '@markup-carve/carve';
 
   const manifest = read('package.json').dependencies[dep];
-  const locked = read('package-lock.json').packages[`node_modules/${dep}`].resolved;
-  const installed = read('node_modules/.package-lock.json').packages[`node_modules/${dep}`].resolved;
+  const locked = read('package-lock.json').packages[`node_modules/${dep}`];
+  const installed = read('node_modules/.package-lock.json').packages[`node_modules/${dep}`];
 
-  // A git pin is `<url>#<sha>`; the sha is the only part that identifies code.
-  // The url half legitimately differs between the three (npm rewrites the
-  // manifest's `git+https:` to `git+ssh:` when it resolves), so comparing whole
-  // strings would fail on a correct tree and teach everyone to ignore this.
-  const sha = (spec) => (typeof spec === 'string' ? (spec.split('#')[1] ?? null) : null);
-
-  assert.ok(sha(manifest), `${dep} is not pinned to a commit in package.json: ${manifest}`);
-  assert.equal(sha(locked), sha(manifest), 'package-lock.json did not follow the manifest bump');
-  assert.equal(
-    sha(installed),
-    sha(manifest),
-    `node_modules holds ${installed}, not the pinned commit. Run \`npm ci\`: every ` +
+  const manifestSha = manifest.split('#')[1];
+  if (manifestSha) {
+    assert.equal(locked.resolved.split('#')[1], manifestSha, 'package-lock.json did not follow the manifest bump');
+    assert.equal(installed.resolved.split('#')[1], manifestSha, `node_modules does not hold ${manifestSha}. Run \`npm ci\``);
+  } else {
+    assert.match(manifest, /^\d+\.\d+\.\d+$/, `${dep} is not pinned exactly: ${manifest}`);
+    assert.equal(locked.version, manifest, 'package-lock.json did not follow the manifest bump');
+    assert.equal(installed.version, manifest, `node_modules does not hold release ${manifest}. Run \`npm ci\``);
+  }
+  assert.ok(
+    installed.resolved,
+    `node_modules has no resolved engine identity. Run \`npm ci\`: every ` +
       'engine-facing test in this suite is currently measuring a different engine.',
   );
 });
