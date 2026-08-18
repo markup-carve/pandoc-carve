@@ -115,6 +115,8 @@ const KNOWN_LOSSY = new Set([
   // lossless because it keeps the Carve column records directly.
   '370-table-columns-carry-alignment-vertical-alignment-and-widths.crv',
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
+  '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
+  '375-a-table-cell-can-inherit-horizontal-alignment.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
   // One cause under all of them. A pandoc LineBlock is a list of lines and may hold

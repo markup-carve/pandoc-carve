@@ -335,11 +335,11 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
  * list-table path reported its own version of the same losses.
  */
 
-test('the source writer keeps the foot and reports the body-group facts it still cannot spell', () => {
+test('the source writer spells header-led groups and reports only body attributes', () => {
   const { warnings } = pandocToCarve(twoBodiesAndAFootFlatHeads);
-  for (const part of ['2 body groups', "intermediate header rows", "body group's attributes"]) {
-    assert.ok(warnings.some((warning) => warning.includes(part)), `${part} is named: ${warnings.join(' | ')}`);
-  }
+  assert.ok(warnings.some((warning) => warning.includes("body group's attributes")), warnings.join(' | '));
+  assert.ok(!warnings.some((warning) => warning.includes('intermediate header')), warnings.join(' | '));
+  assert.ok(!warnings.some((warning) => warning.includes('2 body groups')), warnings.join(' | '));
 });
 
 /** Row heads, one body, no foot: the shape the pipe table spells completely. */

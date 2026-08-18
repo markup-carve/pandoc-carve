@@ -1067,9 +1067,8 @@ interface ListTableInput {
  *
  * The list-table extension (extensions.md §5) exists for exactly this shape:
  * cells are list items, so they hold full block content. It is lossless in
- * structure. Three things it cannot spell are reported rather than dropped
- * quietly: per-column alignment (§5.5 leaves it out), a foot, and a body's
- * intermediate header rows.
+ * structure. Header-led body groups use `header-row` on the first cell of
+ * each intermediate header row.
  */
 function listTable(ctx: Ctx, input: ListTableInput): CNode {
     const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, colWidths, reason } = input;
@@ -1079,14 +1078,11 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
             ? 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)'
             : 'table: row-head columns, which a pipe table cannot spell - emitted as a `::: list-table` with `header-cols` (structure preserved)',
     );
-    if (bodies.some((b) => b.headRows > 0)) {
-        warn(ctx, 'list-table: a body group\'s intermediate header rows become ordinary body rows - `header-rows` counts only the leading run');
-    }
-    if (bodies.length > 1) {
-        warn(ctx, `list-table: the table's ${bodies.length} body groups merge into one - the extension has no body boundary`);
-    }
     if (bodies.some((b) => b.attrs)) {
         warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');
+    }
+    if (bodies.slice(1).some((b) => b.headRows === 0)) {
+        warn(ctx, `list-table: the table's ${bodies.length} body groups merge where a later body has no header row to mark its boundary`);
     }
     // A body with NO row-head columns disagrees with one that has them, and it
     // is the common way they disagree - so the zeros count here. Leaving them
@@ -1099,6 +1095,13 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
 
     const headerCols = bodies.find((b) => b.rowHeadColumns)?.rowHeadColumns ?? 0;
 
+    const intermediateHeads = new Set<number>();
+    let groupAt = headRows;
+    for (const body of bodies) {
+        for (let i = 0; i < body.headRows; i++) intermediateHeads.add(groupAt + i);
+        groupAt += body.headRows + body.bodyRows;
+    }
+
     const rowItems: CNode[] = rows.map((row, r) => {
         const cells = (row.cells as CNode[] | undefined) ?? [];
         const cellItems: CNode[] = cells.map((cell, c) => {
@@ -1108,7 +1111,14 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
             if (cell.span === 'colspan') return listItem([paragraphOf('<')]);
             const cellBlocks = cellBlocksAt[r]?.[c];
             const children = cellBlocks?.length ? blocks(ctx, cellBlocks) : [];
-            return listItem(children.length ? children : [paragraphOf('')]);
+            const item = listItem(children.length ? children : [paragraphOf('')], cell.attrs as CAttrs | undefined);
+            if (intermediateHeads.has(r) && c === 0) addBareAttr(item, 'header-row');
+            // A header outside a header row and outside the common leading
+            // row-head run is genuinely local to this cell.
+            if (cell.header === true && r >= headRows && !intermediateHeads.has(r) && c >= headerCols) {
+                addBareAttr(item, 'header');
+            }
+            return item;
         });
         return listItem([bulletListOf(cellItems)]);
     });
@@ -1148,7 +1158,18 @@ function listTable(ctx: Ctx, input: ListTableInput): CNode {
     return node;
 }
 
-const listItem = (children: CNode[]): CNode => ({ type: 'list_item', children });
+const listItem = (children: CNode[], attrs?: CAttrs): CNode => ({
+    type: 'list_item',
+    children,
+    ...(attrs ? { attrs } : {}),
+});
+const addBareAttr = (node: CNode, key: string): void => {
+    const attrs = (node.attrs ??= {} as CAttrs) as CAttrs;
+    const keyValues = (attrs.keyValues ??= {});
+    keyValues[key] = '';
+    const order = (attrs.order ??= []);
+    if (!order.includes('key')) order.push('key');
+};
 const paragraphOf = (value: string): CNode => ({
     type: 'paragraph',
     children: value ? [text(value)] : [],
