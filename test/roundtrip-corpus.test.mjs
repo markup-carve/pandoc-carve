@@ -70,15 +70,10 @@ const KNOWN_LOSSY = new Set([
   '107-colspan-marker-scans-left-past-a-consumed-cell.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
-  '134-footnote-definition-requires-an-inline-body.crv',
-  '135-footnote-definition-separator-must-be-a-space.crv',
   '141-trailing-whitespace-boundaries.crv',
-  '159-indented-reference-and-footnote-definitions-stay-literal-2.crv',
-  '163-unresolved-footnote-reference-with-a-trailing-attribute-stays-literal.crv',
   '172-attribute-braces-on-a-list-item-marker-line.crv',
   '173-implicit-heading-references-with-no-definition.crv',
   '174-bare-dot-ordered-markers-3.crv',
-  '184-a-definition-below-every-content-column-folds-as-text.crv',
   '21-math-2.crv',
   '215-a-marker-attribute-may-hold-a-quoted-brace.crv',
   '22-footnotes-4.crv',
@@ -88,8 +83,6 @@ const KNOWN_LOSSY = new Set([
   '227-a-definition-inside-a-definition-list-dd-is-collected-and-the-entry-keeps-no-trace.crv',
   '23-inline-footnotes-2.crv',
   '252-a-tab-separates-two-attributes-and-pads-a-block-as-a-space-does-2.crv',
-  '267-a-definition-marker-s-separator-is-a-space-and-it-is-a-run-8.crv',
-  '267-a-definition-marker-s-separator-is-a-space-and-it-is-a-run-9.crv',
   '268-trailing-whitespace-on-a-content-line-is-dropped-10.crv',
   '273-the-inline-attribute-interior-is-space-only-the-attribute-line-is-not.crv',
   '274-a-quoted-attribute-value-stops-at-the-newline-2.crv',
@@ -115,7 +108,6 @@ const KNOWN_LOSSY = new Set([
   '322-an-attribute-block-reaches-the-nested-list-it-precedes-10.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
-  '336-a-footnote-definition-inside-an-item-s-comment-registers-nothing.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
   // One cause under all of them. A pandoc LineBlock is a list of lines and may hold

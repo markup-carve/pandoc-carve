@@ -149,10 +149,20 @@ test('footnotes: reference and inline resolve to Note', () => {
   assert.ok(note2, 'inline note present');
 });
 
-test('missing footnote definition degrades with warning', () => {
+test('missing footnote definition degrades to the literal source, with a warning', () => {
   const r = carveToPandoc('x[^ghost]');
   assert.ok(r.warnings.some((w) => w.includes('ghost')));
-  assert.ok(r.doc.blocks[0].c.some((i) => i.t === 'Superscript'));
+  // The four characters the author typed, not a raised `ghost`. A Superscript
+  // here is a construct the document does not contain, and it survived the
+  // round trip as one: `[^ghost]` came back spelled `{^ghost^}`.
+  assert.ok(
+    !r.doc.blocks[0].c.some((i) => i.t === 'Superscript'),
+    JSON.stringify(r.doc.blocks[0].c),
+  );
+  assert.equal(
+    r.doc.blocks[0].c.map((i) => (i.t === 'Space' ? ' ' : i.c)).join(''),
+    'x[^ghost]',
+  );
 });
 
 test('link reference definitions resolve their links and emit no block or warning', () => {

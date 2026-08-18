@@ -740,8 +740,27 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             const id = String(n.id ?? '');
             const def = ctx.footnoteDefs[id];
             if (!def) {
-                warn(ctx, `footnote: missing definition for [^${id}]`);
-                return [P.Superscript([P.Str(id)])];
+                // THE LITERAL SOURCE, not a superscript.
+                //
+                // Carve renders an unresolved `[^f]` as the four characters the
+                // author typed. This used to emit `Superscript [Str "f"]`, which
+                // is a construct the document does not contain: the reader saw a
+                // raised `f` where the source says `[^f]`, and the round trip
+                // came back spelling it `{^f^}` - a superscript in Carve too, so
+                // the loss was permanent rather than merely cosmetic.
+                //
+                // The sibling path has been right all along. An unresolved link
+                // or image reference returns its `rawRef` as text for exactly
+                // this reason (see `unresolvedReference`), and there was no
+                // reason for a footnote to be the one construct that invented a
+                // node instead.
+                //
+                // A footnote reference carries no `rawRef`, so the source is
+                // rebuilt from the id. That is faithful even where the author
+                // wrote a trailing attribute: the engine drops the attribute
+                // along with the reference, so `[^a]{.ref}` renders `[^a]` too.
+                warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
+                return textInlines(`[^${id}]`);
             }
             const note = P.Note(blocks(ctx, def));
             ctx.noteCount++;
