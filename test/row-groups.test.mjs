@@ -126,14 +126,29 @@ test('a body group carries its own attrs to the pandoc TableBody', () => {
   assert.deepEqual(tableParts(doc).bodies[0].attr, ['north', ['totals'], []]);
 });
 
-test('control: without the field the implicit head/body split is unchanged', () => {
+test('control: without the field the implicit split follows the rows themselves', () => {
   const { doc, warnings } = carveAstToPandoc(tableAst(null));
   const t = tableParts(doc);
   assert.deepEqual(warnings, []);
   assert.equal(t.headRows, 1);
+  // ONE BODY PER RUN OF ROWS THAT AGREE ON THEIR LEADING HEADER CELLS.
+  //
+  // This asserted one body of four rows with no row heads, which was the old
+  // rule showing through: the count was the MINIMUM leading run across every
+  // body row, so row 3 - `South region | Total`, header cells throughout -
+  // dragged the whole table to zero and its cells left as `<td>`. Silently.
+  //
+  // The fixture's four body rows are 0, 2, 0, 0 header-led, so they are three
+  // runs and pandoc carries three bodies, each stating its own count. A table
+  // whose body rows DO agree still produces exactly one body, which is what
+  // this control was really guarding.
   assert.deepEqual(
     t.bodies.map((b) => [b.rowHeadColumns, b.headRows, b.bodyRows]),
-    [[0, 0, 4]],
+    [
+      [0, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+    ],
   );
   assert.equal(t.footRows, 0);
 });
@@ -162,7 +177,14 @@ test('a partition whose counts do not sum is refused, with the numbers said out 
   const t = tableParts(doc);
   assert.deepEqual(
     t.bodies.map((b) => [b.headRows, b.bodyRows]),
-    [[0, 4]],
+    // The implicit split, which is three runs on this fixture - see the control
+    // above. What matters here is that the refused partition contributed
+    // nothing to it: no intermediate head rows, no foot.
+    [
+      [0, 1],
+      [0, 1],
+      [0, 2],
+    ],
   );
   assert.equal(t.footRows, 0);
 });
@@ -362,16 +384,33 @@ test('and pandoc gets its RowHeadColumns back from those cells', () => {
   assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 1);
 });
 
-test('a foot still collapses into the body, and that is what loses the count', () => {
-  // Not a row-head defect: a pipe table cannot spell a foot at all, so the foot
-  // row re-reads as an ordinary body row - one with no row-head cells - and the
-  // count derived from the leading run every body row agrees on is then zero.
-  // The loss is reported, and markup-carve/carve#1337 tracks the missing
-  // spelling.
+test('a foot still collapses into the body, and the foot is all that is lost', () => {
+  // A pipe table cannot spell a foot at all, so the foot row re-reads as an
+  // ordinary body row. The loss is reported, and markup-carve/carve#1337 tracks
+  // the missing spelling.
+  //
+  // What is NOT lost any more is the row head above it. This used to assert a
+  // count of 0, because one body took the MINIMUM leading run across its rows
+  // and the demoted foot row has none - so a foot on the table quietly took the
+  // row headers off every row as well. The rows now split into runs, `North`
+  // keeps its count, and the foot's own collapse is the whole of the damage.
   const { carve, warnings } = pandocToCarve(rowHeadsAndAFoot);
   assert.match(carve, /^\|= Region \|= Total \|\n\|= North \| 11 \|\n\| All \| 33 \|/, carve);
   assert.ok(warnings.some((w) => w.includes('foot')), warnings.join(' | '));
-  assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 0);
+  const bodies = carveToPandoc(carve).doc.blocks[0].c[4];
+  assert.deepEqual(bodies.map((b) => [b[1], b[3].length]), [[1, 1], [0, 1]], carve);
+});
+
+test('a row-head row below a plain one keeps its scope through the round trip', () => {
+  // Corpus 354-2, the smallest case of the run split, and the one that made the
+  // whole-corpus round trip red: a plain row, then a row whose only cell is a
+  // row header. Under one body and a minimum, the two rows disagreed, the count
+  // went to zero, and `<th scope="row">` came back `<td>`.
+  const src = '| a |\n|=b |\n+ c |\n';
+  const bodies = carveToPandoc(src).doc.blocks[0].c[4];
+  assert.deepEqual(bodies.map((b) => [b[1], b[3].length]), [[0, 1], [1, 1]]);
+  const { carve } = pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc);
+  assert.equal(carve, '| a |\n|= b c |\n');
 });
 
 test('a row-head cell does not carry the column alignment', () => {

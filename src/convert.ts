@@ -1479,27 +1479,46 @@ function table(
         });
         footRows = toRows(at, at + groups.footRows);
     } else {
-        // The implicit structure: everything after the head is one body.
-        const implicit: P.TableBody = { bodyRows: toRows(headCount, rows.length) };
         // ROW HEADERS ARE DERIVED WHEN NOTHING DECLARED THEM. A body row may
         // open with header cells (`|= Mercury | 4,879.4 |`), which the engine
         // renders as `<th scope="row">`. Pandoc says the same thing with
         // `RowHeadColumns`, a COUNT on the body - and the count was only ever
         // read from an explicit `rowGroups`, so a table that simply marked its
         // first cells came out as ordinary `<td>` and lost the row headers.
-        // Derived from the leading run every body row agrees on, because that
-        // is what one number for the whole body can say.
-        const bodyRows = rows.slice(headCount);
-        if (bodyRows.length) {
-            let lead = width;
-            for (const row of bodyRows) {
-                let n = 0;
-                while (n < row.length && row[n]!.header === true) n++;
-                lead = Math.min(lead, n);
-            }
-            if (lead > 0) implicit.rowHeadColumns = lead;
+        //
+        // ONE BODY PER RUN OF ROWS THAT AGREE, not one body for the table.
+        //
+        // This used to take the MINIMUM leading run across every body row,
+        // because one `RowHeadColumns` is one number. A body whose rows disagree
+        // therefore lost every row header above that minimum, and lost it
+        // SILENTLY - the cells simply came out `<td>`. Corpus 354-2 is the
+        // smallest case: a plain row followed by a row-header row takes the
+        // minimum 0, so `<th scope="row">b c</th>` came back `<td>b c</td>`.
+        //
+        // Pandoc's own model has the slot for this. A `Table` holds a LIST of
+        // bodies and each carries its own `RowHeadColumns`, so consecutive rows
+        // that agree become one body and a change starts the next one. Nothing
+        // is invented: a document with a single run still emits exactly one
+        // body, which is what every table that agreed already produced.
+        bodies = [];
+        const leadOf = (row: CCell[]): number => {
+            let n = 0;
+            while (n < row.length && row[n]!.header === true) n++;
+            return Math.min(n, width);
+        };
+        let at = headCount;
+        while (at < rows.length) {
+            const lead = leadOf(rows[at]!);
+            let to = at + 1;
+            while (to < rows.length && leadOf(rows[to]!) === lead) to++;
+            const group: P.TableBody = { bodyRows: toRows(at, to) };
+            if (lead > 0) group.rowHeadColumns = lead;
+            bodies.push(group);
+            at = to;
         }
-        bodies = [implicit];
+        // A table with a head and no body rows at all still needs a body,
+        // because that is the shape pandoc's own readers produce.
+        if (!bodies.length) bodies = [{ bodyRows: [] }];
     }
 
     return P.Table(
