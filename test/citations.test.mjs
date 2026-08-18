@@ -60,6 +60,10 @@ const citesOf = (doc) => {
   return found;
 };
 
+/** Bibliography entries, in the shape convert.ts writes them. */
+const entriesOf = (doc) =>
+  doc.blocks.filter((b) => b.t === 'Div' && b.c[0][1][0] === 'csl-entry');
+
 const groupsOf = (ast) => {
   const found = [];
   const walk = (node) => {
@@ -79,11 +83,19 @@ const groupsOf = (ast) => {
 test('citations: a group reaches pandoc as a native Cite, not an empty string', () => {
   const { doc, warnings } = carveAstToPandoc(cite(FIXTURE));
   const cites = citesOf(doc);
-  // Seven, not three: the extension's `afterParse` hook strips `[@key]:`
-  // definition lines at RENDER time, so a plain `parse()` still carries all
-  // four of them as citation groups of their own. The bridge converts the tree
-  // it is handed; that count is the measured one, not a rounded intent.
-  assert.equal(cites.length, 7, `three in the body plus four definition lines: ${JSON.stringify(cites.map((x) => x.c[0].map((y) => y.citationId)))}`);
+  // Three, and the count is load-bearing rather than incidental: the four
+  // `[@key]:` definition lines are NOT among them. They used to be - the engine
+  // this package pinned before parsed a definition line as a paragraph holding
+  // a citation group of its own, so this read seven - and carve-js now emits a
+  // `citation_definition` node instead, which the bridge writes as citeproc's
+  // own bibliography entry. Both halves are asserted, because a definition that
+  // stopped being either would leave this number unchanged.
+  assert.equal(cites.length, 3, `three in the body, none from the definitions: ${JSON.stringify(cites.map((x) => x.c[0].map((y) => y.citationId)))}`);
+  assert.deepEqual(
+    entriesOf(doc).map((d) => d.c[0][0]),
+    ['ref-smith2020', 'ref-jones1999', 'ref-doe2021', 'ref-roe1999'],
+    'the four definition lines, as bibliography entries',
+  );
   assert.ok(!warnings.some((w) => w.includes('unknown node type "citation_group"')), warnings.join(' | '));
 
   const [first] = cites;
@@ -138,7 +150,12 @@ test('citations: a Cite becomes a citation group, not literal citation text', ()
   const { doc } = carveAstToPandoc(cite(FIXTURE));
   const { ast, warnings } = pandocToCarveAst(doc);
   const groups = groupsOf(ast);
-  assert.equal(groups.length, 7, 'three in the body plus the four definition lines');
+  assert.equal(groups.length, 3, 'three in the body; the four definition lines are entries, not groups');
+  assert.deepEqual(
+    ast.children.filter((n) => n.type === 'citation_definition').map((n) => n.key),
+    ['smith2020', 'jones1999', 'doe2021', 'roe1999'],
+    'and each bibliography entry reads back as the definition line it came from',
+  );
   assert.deepEqual(groups[0].items.map((i) => i.key), ['smith2020', 'jones1999']);
   assert.equal(groups[0].items[1].suppressAuthor, true);
   assert.deepEqual(groups[0].items[0].prefix, [{ type: 'text', value: 'see also' }]);
@@ -271,7 +288,26 @@ test('citations: source the rebuilder cannot reproduce is recovered verbatim', (
   const { ast } = pandocToCarveAst(doc);
   const [group] = groupsOf(ast);
   assert.equal(group.raw, '[/see/ @smith2020;@jones1999]');
-  assert.equal(pandocToCarve(doc).carve, src, 'byte for byte, emphasis and tight `;` included');
+  // Byte for byte through the group, which is what this test is about.
+  //
+  // The definition lines come back one blank line apart, and that gap is the
+  // WRITER's, not a loss here: renderCarve packs two consecutive definitions
+  // onto adjacent lines only when their `pos` says they were adjacent in some
+  // source, and a pandoc AST has no `pos` to give it. Measured - reparsing the
+  // same document with `pos` stripped produces exactly this blank line - so
+  // asking for the tighter spelling would be asking the bridge to invent source
+  // positions. Both spellings parse to the same two definitions, asserted below
+  // rather than asserted away.
+  assert.equal(
+    pandocToCarve(doc).carve,
+    'A [/see/ @smith2020;@jones1999] B.\n\n[@smith2020]: S.\n\n[@jones1999]: J.\n',
+    'emphasis and the tight `;` included',
+  );
+  const reparsed = cite(pandocToCarve(doc).carve);
+  assert.deepEqual(
+    reparsed.children.filter((n) => n.type === 'citation_definition').map((n) => n.key),
+    ['smith2020', 'jones1999'],
+  );
 });
 
 test('citations: pandoc reading Carve\'s integral form keeps the `+` out of the prefix', { skip: !pandoc && 'pandoc not found' }, () => {

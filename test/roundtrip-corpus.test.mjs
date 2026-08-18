@@ -70,15 +70,10 @@ const KNOWN_LOSSY = new Set([
   '107-colspan-marker-scans-left-past-a-consumed-cell.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
-  '134-footnote-definition-requires-an-inline-body.crv',
-  '135-footnote-definition-separator-must-be-a-space.crv',
   '141-trailing-whitespace-boundaries.crv',
-  '159-indented-reference-and-footnote-definitions-stay-literal-2.crv',
-  '163-unresolved-footnote-reference-with-a-trailing-attribute-stays-literal.crv',
   '172-attribute-braces-on-a-list-item-marker-line.crv',
   '173-implicit-heading-references-with-no-definition.crv',
   '174-bare-dot-ordered-markers-3.crv',
-  '184-a-definition-below-every-content-column-folds-as-text.crv',
   '21-math-2.crv',
   '215-a-marker-attribute-may-hold-a-quoted-brace.crv',
   '22-footnotes-4.crv',
@@ -88,8 +83,6 @@ const KNOWN_LOSSY = new Set([
   '227-a-definition-inside-a-definition-list-dd-is-collected-and-the-entry-keeps-no-trace.crv',
   '23-inline-footnotes-2.crv',
   '252-a-tab-separates-two-attributes-and-pads-a-block-as-a-space-does-2.crv',
-  '267-a-definition-marker-s-separator-is-a-space-and-it-is-a-run-8.crv',
-  '267-a-definition-marker-s-separator-is-a-space-and-it-is-a-run-9.crv',
   '268-trailing-whitespace-on-a-content-line-is-dropped-10.crv',
   '273-the-inline-attribute-interior-is-space-only-the-attribute-line-is-not.crv',
   '274-a-quoted-attribute-value-stops-at-the-newline-2.crv',
@@ -115,10 +108,9 @@ const KNOWN_LOSSY = new Set([
   '322-an-attribute-block-reaches-the-nested-list-it-precedes-10.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
-  '336-a-footnote-definition-inside-an-item-s-comment-registers-nothing.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
-  // One cause under all ten. A pandoc LineBlock is a list of lines and may hold
+  // One cause under all of them. A pandoc LineBlock is a list of lines and may hold
   // an EMPTY one; a Carve line block spells each line as a source line, and a
   // blank source line inside `::: |` ends the paragraph rather than producing an
   // empty line. So the reverse direction writes the blank, the block comes back
@@ -128,24 +120,26 @@ const KNOWN_LOSSY = new Set([
   // exists to catch, which is why these are named here rather than normalized
   // away.
   //
-  // Where the empty line comes from differs, and one half is the engine PIN
-  // rather than the bridge: a backslash break inside a line block is still
-  // ADDITIVE in the carve-js commit this package depends on, which predates
-  // carve#1339 and carve#1340 (implemented in markup-carve/carve-js#1172), so
-  // `a \` reaches pandoc as two breaks and an empty line between them. Measured
-  // against carve-js main, three of these ten round-trip unchanged - 344,
-  // 345 and 345-3 - and the ledger's own "no longer lossy" check will require
-  // them off this list when the dependency pin moves.
+  // Where the empty line comes from differs, and one half WAS the engine PIN
+  // rather than the bridge: a backslash break inside a line block used to be
+  // ADDITIVE in the carve-js commit this package depended on, which predated
+  // carve#1339 and carve#1340 (implemented in markup-carve/carve-js#1172), so a
+  // line ending in a backslash reached pandoc as two breaks with an empty line
+  // between them. That pin has moved, and exactly the three documents predicted
+  // here - 344, 345 and 345-3 - came off this list, because the ledger's own
+  // "no longer lossy" check requires it rather than merely permitting it.
   //
-  // The 346 family does not, on either engine: a line block whose LAST body line
-  // ends in a backslash is a TRAILING empty LineBlock line, and that has no
-  // spelling either. That one is the bridge's to fix.
+  // What is left is the bridge's own, and all of it is one shape: an empty
+  // LineBlock line that Carve has no way to spell.
+  //
+  //   - 344-2 and 344-4: a comment-only line is removed before any inline run,
+  //     so the line survives as an EMPTY one.
+  //   - 345-2: a body line that is a lone backslash IS an empty line.
+  //   - the 346 family: a line block whose LAST body line ends in a backslash
+  //     is a TRAILING empty LineBlock line.
   '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run-2.crv',
   '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run-4.crv',
-  '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run.crv',
   '345-a-line-block-s-hard-break-keeps-its-backslash-2.crv',
-  '345-a-line-block-s-hard-break-keeps-its-backslash-3.crv',
-  '345-a-line-block-s-hard-break-keeps-its-backslash.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-3.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-4.crv',
