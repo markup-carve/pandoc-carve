@@ -144,6 +144,10 @@ const KNOWN_LOSSY = new Set([
   '346-a-line-block-s-last-body-line-keeps-its-backslash-3.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-4.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash.crv',
+  // Pandoc has no vertical-alignment slot in either a table colspec or cell.
+  // Horizontal alignment and widths cross natively; the vertical half cannot.
+  '366-table-columns-carry-alignment-vertical-alignment-and-widths.crv',
+  '367-a-table-alignment-run-carries-two-independent-axes.crv',
   '45-inline-extensions-12.crv',
   '45-inline-extensions-13.crv',
   '45-inline-extensions-7.crv',

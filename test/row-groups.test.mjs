@@ -509,7 +509,7 @@ function alignedTable(withHeader) {
   return doc;
 }
 
-test('column alignment with no header row is written per cell, and the move is reported', () => {
+test('column alignment with no header row lives in column records without a warning', () => {
   const { ast, warnings } = pandocToCarveAst(alignedTable(false));
   assert.deepEqual(
     ast.children[0].columns.map((c) => c.align),
@@ -546,5 +546,8 @@ test("a body's intermediate header row does not count as the column header", () 
     ['right', 'right'],
     'the columns carry it independently of intermediate header rows',
   );
-  assert.deepEqual(warnings, []);
+  assert.ok(
+    warnings.some((w) => w.includes('intermediate header rows')),
+    warnings.join(' | '),
+  );
 });

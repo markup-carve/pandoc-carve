@@ -233,9 +233,8 @@ export function Table(
     colWidths: Array<number | null> = [],
 ): Block {
     // The export side of the same ColWidth policy `reverse.ts`'s `table()`
-    // states: alignment is carried, width is always `ColWidthDefault`. Carve
-    // has no width to carry, and pandoc's writers size a default-width column
-    // themselves, so this is the honest value rather than a placeholder.
+    // states: carry explicit Carve widths as `ColWidth`; leave an unspecified
+    // column at `ColWidthDefault` so pandoc's writers can size it themselves.
     const colspecs = colAligns.map((al, i) => [node(al), colWidths[i] == null ? node('ColWidthDefault') : node('ColWidth', colWidths[i])]);
     return node('Table', [
         a,
