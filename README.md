@@ -62,16 +62,21 @@ carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
 ```
 
 Anything Carve cannot map faithfully is reported on stderr as a
-`pandoc-carve: degraded ...` warning - nothing degrades silently.
+`pandoc-carve: degraded ...` warning - nothing degrades silently. For migration
+automation, `--diagnostics report.json` writes the same findings as structured
+JSON without mixing them into document output. `--fail-on-loss` exits with code
+3 for `lossy` or `unsupported` findings, while harmless `normalized` findings
+do not fail CI. Use `--diagnostics -` for JSON on stderr.
 
 ## API
 
 ```js
 import { carveToPandoc, carveToPandocJson } from '@markup-carve/pandoc-carve';
 
-const { doc, warnings } = carveToPandoc('Hello /world/!');
+const { doc, warnings, diagnostics } = carveToPandoc('Hello /world/!');
 // doc = { 'pandoc-api-version': [1, 23, 1], meta: {...}, blocks: [...] }
 // warnings = ['degraded: ...'] for lossy constructs
+// diagnostics = [{ code, direction, severity, message, details?, path?, sourceLocation? }]
 
 const json = carveToPandocJson('Hello /world/!'); // stringified doc
 ```
@@ -85,7 +90,7 @@ whether it arrives as an object or as JSON text:
 import { carveAstToPandoc, carveToCarveAst } from '@markup-carve/pandoc-carve';
 
 // A tree from carve-rs, carve-php, carve-go ... or `carve doc.crv --to-json`
-const { doc, warnings } = carveAstToPandoc(serializedAstJson);
+const { doc, warnings, diagnostics } = carveAstToPandoc(serializedAstJson);
 
 // The same exchange format, produced from source here
 const ast = carveToCarveAst('Hello /world/!');
@@ -98,7 +103,7 @@ serializer), so output formatting carries fmt's guarantees:
 ```js
 import { pandocToCarve, pandocToCarveAst } from '@markup-carve/pandoc-carve';
 
-const { carve, warnings } = pandocToCarve(pandocJsonString);
+const { carve, warnings, diagnostics } = pandocToCarve(pandocJsonString);
 
 // Preserve structured fields that Carve 0.1 source cannot spell, including
 // Pandoc's optional short figure/table caption.
@@ -109,8 +114,13 @@ Round-trips are tested as a hard gate: `carve -> pandoc AST -> carve` must
 render byte-identical HTML to the original source across the test corpus.
 For exact restoration of attribute placement (`{.lead}` on a paragraph or
 list), export with `carveToPandoc(src, { roundtrip: true })` or the CLI's
-`--roundtrip` flag - it stamps wrapper divs with a `carve-block` marker the
-importer uses, at the cost of that marker being visible in writer output.
+`--roundtrip` flag. In addition to the existing `carve-block` attribute marker,
+this preserves comments, typed citation fields, and unknown future Carve nodes
+with a versioned private Span/Div envelope. The native citation and readable
+unknown-node fallback remain usable by Pandoc. The marker may be visible in
+writer output and exact preservation is guaranteed only through Pandoc JSON.
+The complete format, safety checks, available source information, and filter
+semantics are documented in [the provenance envelope](docs/roundtrip-provenance.md).
 
 Pipe the JSON to pandoc yourself:
 
@@ -249,7 +259,9 @@ a processor with neither extension enabled would render.
   those two fields on the way back - the label table is section 4.2's, it lives
   in the engine, and a second copy here would drift. The locator TEXT round-
   trips byte for byte, so re-parsing the emitted source with the citations
-  extension restores the typed pair. A group whose items mix `AuthorInText` and
+  extension restores the typed pair. With `roundtrip: true`, the private
+  provenance wrapper retains the original typed fields directly while its
+  enclosed native `Cite` remains available to citeproc. A group whose items mix `AuthorInText` and
   `NormalCitation` cannot be spelled in Carve (the integral `+` is a property of
   the whole cluster) and is imported as integral with a warning.
 - Pandoc keeps its bibliography in document metadata, not in the AST, so

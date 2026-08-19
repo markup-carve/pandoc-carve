@@ -11,6 +11,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { carveAstToPandoc, carveToPandoc } from './index.js';
+import { hasLoss, type ConversionDiagnostic } from './diagnostics.js';
 
 function usage(exitCode: number): never {
     const text = `Usage: pandoc-carve <input | -> [options] [-- pandoc-args...]
@@ -33,6 +34,9 @@ Common options:
                      them to real tables)
   --no-citations     read [@key] as an @mention rather than a citation
                      (export from Carve source; default reads citations)
+  --diagnostics FILE write structured diagnostics as JSON (use - for stderr;
+                     human warnings are suppressed)
+  --fail-on-loss     exit 3 when lossy or unsupported diagnostics are present
   --symbols FILE     JSON map resolving :name: symbols to text (export)
   --pandoc PATH      pandoc executable (default: $PANDOC or "pandoc")
   -h, --help         show this help
@@ -51,6 +55,8 @@ interface Args {
     listTable: boolean;
     citations: boolean;
     symbolsFile?: string;
+    diagnosticsFile?: string;
+    failOnLoss: boolean;
     pandocPath: string;
     passthrough: string[];
 }
@@ -63,6 +69,7 @@ function parseArgs(argv: string[]): Args {
         roundtrip: false,
         listTable: true,
         citations: true,
+        failOnLoss: false,
         pandocPath: process.env.PANDOC ?? 'pandoc',
         passthrough: [],
     };
@@ -90,6 +97,10 @@ function parseArgs(argv: string[]): Args {
             args.citations = false;
         } else if (a === '--symbols') {
             args.symbolsFile = argv[++i] ?? usage(1);
+        } else if (a === '--diagnostics') {
+            args.diagnosticsFile = argv[++i] ?? usage(1);
+        } else if (a === '--fail-on-loss') {
+            args.failOnLoss = true;
         } else if (a === '--pandoc') {
             args.pandocPath = argv[++i] ?? usage(1);
         } else if (!args.input) {
@@ -126,18 +137,17 @@ async function main(): Promise<void> {
         citations: args.citations,
         symbols,
     };
-    const { doc, warnings } =
+    const { doc, warnings, diagnostics } =
         args.from === 'carve-json'
             ? carveAstToPandoc(source, options)
             : carveToPandoc(source, options);
-    for (const w of warnings) {
-        process.stderr.write(`pandoc-carve: degraded: ${w}\n`);
-    }
+    report(args, warnings, diagnostics);
     const json = JSON.stringify(doc);
 
     if (args.to === 'json') {
         if (args.output) writeFileSync(args.output, json + '\n');
         else process.stdout.write(json + '\n');
+        if (args.failOnLoss && hasLoss(diagnostics)) process.exitCode = 3;
         return;
     }
 
@@ -171,7 +181,7 @@ async function main(): Promise<void> {
         }
         throw result.error;
     }
-    process.exit(result.status ?? 0);
+    process.exit(result.status || (args.failOnLoss && hasLoss(diagnostics) ? 3 : 0));
 }
 
 /** Reverse direction: pandoc-readable input -> Carve source. */
@@ -202,12 +212,21 @@ async function importToCarve(args: Args): Promise<void> {
     }
 
     const { pandocToCarve } = await import('./index.js');
-    const { carve, warnings } = pandocToCarve(json);
-    for (const w of warnings) {
-        process.stderr.write(`pandoc-carve: degraded: ${w}\n`);
-    }
+    const { carve, warnings, diagnostics } = pandocToCarve(json);
+    report(args, warnings, diagnostics);
     if (args.output) writeFileSync(args.output, carve);
     else process.stdout.write(carve);
+    if (args.failOnLoss && hasLoss(diagnostics)) process.exitCode = 3;
+}
+
+function report(args: Args, warnings: string[], diagnostics: ConversionDiagnostic[]): void {
+    if (args.diagnosticsFile !== undefined) {
+        const json = JSON.stringify(diagnostics, null, 2) + '\n';
+        if (args.diagnosticsFile === '-') process.stderr.write(json);
+        else writeFileSync(args.diagnosticsFile, json);
+        return;
+    }
+    for (const warning of warnings) process.stderr.write(`pandoc-carve: degraded: ${warning}\n`);
 }
 
 main().catch((err: unknown) => {

@@ -62,6 +62,25 @@ test('cli: degradation warnings land on stderr', () => {
   assert.ok(result.stderr.includes('pandoc-carve: degraded:'));
 });
 
+test('cli: structured diagnostics stay separate from converted output', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const report = join(dir, 'diagnostics.json');
+  const result = run(['-', '-t', 'json', '--diagnostics', report], 'a :heart: b\n');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).blocks[0].t, 'Para');
+  const diagnostics = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(diagnostics[0].code, 'symbol-unresolved');
+  assert.equal(result.stderr, '');
+});
+
+test('cli: fail-on-loss ignores degradation but fails on actual loss', () => {
+  const degraded = run(['-', '-t', 'json', '--fail-on-loss'], 'a :heart: b\n');
+  assert.equal(degraded.status, 0, degraded.stderr);
+  const lossy = run(['-', '-t', 'json', '--fail-on-loss'], 'visible %% secret\n');
+  assert.equal(lossy.status, 3, lossy.stderr);
+  assert.doesNotThrow(() => JSON.parse(lossy.stdout), 'converted output is still complete');
+});
+
 test('cli: converts to latex through pandoc', { skip: !pandoc && 'pandoc not found' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
   const file = join(dir, 'doc.crv');

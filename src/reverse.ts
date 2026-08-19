@@ -12,6 +12,8 @@
 import { parse as parseCarve, renderCarve } from '@markup-carve/carve';
 import type { PandocDoc, PandocNode, Attr } from './pandoc.js';
 import type { RowGroupBody, RowGroups } from './row-groups.js';
+import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
+import { readProvenance } from './provenance.js';
 
 /**
  * The node type THIS engine uses for an editorial comment.
@@ -49,10 +51,12 @@ interface CNode {
 export interface ReverseResult {
     ast: CNode;
     warnings: string[];
+    diagnostics: ConversionDiagnostic[];
 }
 
 interface Ctx {
     warnings: string[];
+    diagnostics: ConversionDiagnostic[];
     footnoteDefs: Record<string, CNode[]>;
     /**
      * Where this tree is headed, which is the difference between a field the
@@ -79,6 +83,7 @@ interface Ctx {
 
 function warn(ctx: Ctx, msg: string): void {
     ctx.warnings.push(msg);
+    ctx.diagnostics.push(diagnostic('pandoc-to-carve', msg));
 }
 
 interface CAttrs {
@@ -308,7 +313,14 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             return [{ type: 'footnote_ref', id }];
         }
         case 'Span':
-            return span(ctx, c);
+            {
+                const [a, xs] = c as [Attr, PandocNode[]];
+                const payload = readProvenance(a);
+                if (payload?.kind === 'comment' && payload.node.type === 'comment') return [payload.node as CNode];
+                if (payload?.kind === 'unknown-inline' && typeof payload.node.type === 'string') return [payload.node as CNode];
+                if (payload?.kind === 'citation' && payload.node.type === 'citation_group') return [payload.node as CNode];
+                return span(ctx, c);
+            }
         default:
             warn(ctx, `inline: pandoc node "${n.t}" has no Carve mapping - dropped`);
             return [];
@@ -636,7 +648,13 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
         case 'Figure':
             return figure(ctx, c);
         case 'Div':
-            return div(ctx, c);
+            {
+                const [a] = c as [Attr, PandocNode[]];
+                const payload = readProvenance(a);
+                if (payload?.kind === 'comment' && payload.node.type === 'comment') return [payload.node as CNode];
+                if (payload?.kind === 'unknown-block' && typeof payload.node.type === 'string') return [payload.node as CNode];
+                return div(ctx, c);
+            }
         default:
             warn(ctx, `block: pandoc node "${n.t}" has no Carve mapping - dropped`);
             return [];
@@ -1611,6 +1629,7 @@ function listToYaml(ctx: Ctx, items: PandocNode[], depth: number, key: string): 
 export function pandocToCarve(doc: PandocDoc, target: 'source' | 'ast' = 'source'): ReverseResult {
     const ctx: Ctx = {
         warnings: [],
+        diagnostics: [],
         footnoteDefs: {},
         target,
         noteCounter: 0,
@@ -1629,7 +1648,7 @@ export function pandocToCarve(doc: PandocDoc, target: 'source' | 'ast' = 'source
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
     const yaml = metaToYaml(ctx, doc.meta ?? {});
     if (yaml) ast.frontmatter = { format: 'yaml', content: yaml };
-    return { ast, warnings: ctx.warnings };
+    return { ast, warnings: ctx.warnings, diagnostics: ctx.diagnostics };
 }
 
 function containsShortCaption(value: unknown): boolean {
