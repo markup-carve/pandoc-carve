@@ -73,6 +73,25 @@ the content at write time, so `~~~` holding a three-backtick run comes back as a
 four-backtick fence, and narrows again when the content holds no backticks. The
 only thing an author loses is the character they typed.
 
+A wrapper only works where the node can hold an `Attr`, and that set is
+narrower than it looks. Measured against pandoc 3.10.2 by reading a document
+exercising every block kind and inspecting which constructors carry an Attr
+triple:
+
+- **can carry it:** `Code`, `CodeBlock`, `Div`, `Header`, `Span`, `Table`
+  (and `Link`, `Image`, `Figure`, table rows and cells)
+- **cannot:** `Para`, `Plain`, `BulletList`, `OrderedList`, `BlockQuote`,
+  `HorizontalRule`, `Str`
+
+The properties in the table above belong almost entirely to the second group - a
+bullet character to a `BulletList`, a smart-punctuation source run to a `Str`, a
+marker to a `HorizontalRule`. That is why this format wraps rather than
+annotates, and why the wrapped set is what it is rather than everything the
+exchange AST could offer.
+
+One of them needs no envelope at all: pandoc's `OrderedList` carries
+`ListAttributes`, so `1.` versus `1)` survives natively.
+
 Local wrappers were chosen over a positional document sidecar: they travel with
 a node when a Pandoc filter reorders content. A filter that replaces the
 wrapper or edits only its visible fallback intentionally breaks the exact
