@@ -37,10 +37,39 @@ typed locator fields that Pandoc lacks.
 The canonical exchange AST currently exposes node fields, authored attributes,
 resolved smart-punctuation kinds, typed citation locators, comment text, and
 source positions. The local payload therefore stores the complete affected
-node, including positions when supplied by the producing engine. Attribute
-order and original marker/escape spelling are not consistently available once
-source has been parsed, so this format cannot reconstruct them. That requires
-an upstream exchange-AST change rather than bridge metadata.
+node, including positions when supplied by the producing engine.
+
+Measured against `@markup-carve/carve` 0.1.4, rather than assumed:
+
+| property | available | how |
+| --- | --- | --- |
+| attribute order | yes | `attrs.order`, e.g. `[".class", "#id", "k"]` |
+| escaped character | yes | its own `escaped_text` node; `pos` spans the backslash |
+| smart-punctuation source | yes | `smart_punctuation` keeps `value: "--"` beside `kind: "en_dash"` |
+| bullet character | yes | `list.bulletChar` |
+| thematic-break marker | yes | `thematic_break.marker` |
+| ordered-list delimiter | yes | `delim`, and Pandoc's own `ListAttributes` already carries it |
+| source span | yes | `pos` plus `srcByteLength` |
+| **code fence character** | **no** | `` ``` `` and `~~~` produce byte-identical nodes |
+
+An earlier version of this page said attribute order and marker/escape spelling
+were unavailable and needed an upstream change. That is true only of the fence
+character. Recording the rest needs no exchange-AST work, and saying otherwise
+told the next implementer not to attempt something already possible.
+
+The fence character is a deliberate omission upstream rather than an oversight:
+markup-carve/carve#1000 measured that no engine preserves fence LENGTH either,
+and #1004 answered it by narrowing PART 11 section 6 instead of adding a field.
+Whether the CHARACTER should be an author-choice field is open at
+markup-carve/carve#1415. Until that is answered this bridge cannot record it,
+because the tree it reads does not carry it.
+
+Losing it is safe rather than merely tolerated. A backtick fence nested inside a
+tilde fence is the case that would corrupt a document if the writer respelled
+the outer fence at the same width, and it does not: the width is derived from
+the content at write time, so `~~~` holding a three-backtick run comes back as a
+four-backtick fence, and narrows again when the content holds no backticks. The
+only thing an author loses is the character they typed.
 
 Local wrappers were chosen over a positional document sidecar: they travel with
 a node when a Pandoc filter reorders content. A filter that replaces the
