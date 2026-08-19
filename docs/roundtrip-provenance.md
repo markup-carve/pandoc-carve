@@ -39,18 +39,20 @@ resolved smart-punctuation kinds, typed citation locators, comment text, and
 source positions. The local payload therefore stores the complete affected
 node, including positions when supplied by the producing engine.
 
-Measured against `@markup-carve/carve` 0.1.4, rather than assumed:
+Every row below is a PART 12 schema field, not one engine's behavior - checked in
+`resources/ast-schema.json`, then confirmed present in carve-js `main` (1a4c82e)
+and in published `@markup-carve/carve` 0.1.4:
 
 | property | available | how |
 | --- | --- | --- |
 | attribute order | yes | `attrs.order`, e.g. `[".class", "#id", "k"]` |
 | escaped character | yes | its own `escaped_text` node; `pos` spans the backslash |
-| smart-punctuation source | yes | `smart_punctuation` keeps `value: "--"` beside `kind: "en_dash"` |
+| smart-punctuation source | yes | `smart_punctuation` carries `value: "--"` (source) beside `glyph` and `kind: "en_dash"` (resolved) |
 | bullet character | yes | `list.bulletChar` |
 | thematic-break marker | yes | `thematic_break.marker` |
 | ordered-list delimiter | yes | `delim`, and Pandoc's own `ListAttributes` already carries it |
 | source span | yes | `pos` plus `srcByteLength` |
-| **code fence character** | **no** | `` ``` `` and `~~~` produce byte-identical nodes |
+| **code fence character** | **no** | `code_block` is defined with `content`, `header`, `label`, `lang` and nothing for the fence, so the two spellings produce byte-identical nodes |
 
 An earlier version of this page said attribute order and marker/escape spelling
 were unavailable and needed an upstream change. That is true only of the fence
