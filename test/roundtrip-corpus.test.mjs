@@ -146,18 +146,13 @@ const KNOWN_LOSSY = new Set([
   //   - 345-2: a body line that is a lone backslash IS an empty line.
   //   - the 346 family: a line block whose LAST body line ends in a backslash
   //     is a TRAILING empty LineBlock line.
-  '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run-2.crv',
-  '344-a-comment-only-line-in-a-line-block-is-removed-before-any-inline-run-4.crv',
   '345-a-line-block-s-hard-break-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-2.crv',
-  '346-a-line-block-s-last-body-line-keeps-its-backslash-3.crv',
-  '346-a-line-block-s-last-body-line-keeps-its-backslash-4.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash.crv',
   '45-inline-extensions-12.crv',
   '45-inline-extensions-13.crv',
   '45-inline-extensions-7.crv',
   '46-symbols-4.crv',
-  '70-blocks-that-render-to-nothing-2.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',
   '80-trailing-attribute-block-edge-cases.crv',

@@ -13,6 +13,8 @@
 import type { CarveAstDocument } from './ast-json.js';
 import * as P from './pandoc.js';
 import { readRowGroups } from './row-groups.js';
+import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
+import { provenanceAttr } from './provenance.js';
 
 // The Carve AST is plain data; we type the parts we read.
 interface CNode {
@@ -29,6 +31,7 @@ interface CAttrs {
 export interface ConvertResult {
     doc: P.PandocDoc;
     warnings: string[];
+    diagnostics: ConversionDiagnostic[];
 }
 
 export interface ConvertOptions {
@@ -73,6 +76,7 @@ export interface ConvertOptions {
 
 interface Ctx {
     warnings: string[];
+    diagnostics: ConversionDiagnostic[];
     footnoteDefs: Record<string, CNode[]>;
     /**
      * Crossref target id -> the inline content a `</#id>` resolves to.
@@ -174,8 +178,9 @@ interface Ctx {
     blockScalars: Map<string, string>;
 }
 
-function warn(ctx: Ctx, msg: string): void {
+function warn(ctx: Ctx, msg: string, details?: Record<string, unknown>, sourceLocation?: unknown): void {
     ctx.warnings.push(msg);
+    ctx.diagnostics.push(diagnostic('carve-to-pandoc', msg, details, sourceLocation));
 }
 
 /**
@@ -831,8 +836,8 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // but a silent drop is not (markup-carve/pandoc-carve#75). The
             // warning names the content, so a migration can see what did not
             // make the trip.
-            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`);
-
+            if (ctx.roundtrip) return [P.Span(provenanceAttr('comment', n), [])];
+            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`, { construct: 'comment' }, n.pos);
             return [];
         case QUOTED:
             return [
@@ -855,7 +860,8 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // which is exactly what the escape asked for.
             return [P.Str(String(n.value ?? ''))];
         default:
-            warn(ctx, `inline: unknown node type "${n.type}" degraded to its text content`);
+            if (ctx.roundtrip) return [P.Span(provenanceAttr('unknown-inline', n), textInlines(plainText([n])))];
+            warn(ctx, `inline: unknown node type "${n.type}" degraded to its text content`, { nodeType: n.type }, n.pos);
             return textInlines(plainText([n]));
     }
 }
@@ -902,7 +908,7 @@ function citationGroup(ctx: Ctx, n: CNode): P.Inline {
             }
             mode = 'SuppressAuthor';
         }
-        if (item.locatorLabel) {
+        if (item.locatorLabel && !ctx.roundtrip) {
             warn(ctx, `citation: @${key}'s typed locator (${item.locatorLabel}) is serialized into the pandoc citation suffix - pandoc's Citation has no locator field`);
         }
         return P.citation(
@@ -913,7 +919,8 @@ function citationGroup(ctx: Ctx, n: CNode): P.Inline {
             ctx.noteCount + 1,
         );
     });
-    return P.Cite(citations, textInlines(String(n.raw ?? '')));
+    const cite = P.Cite(citations, textInlines(String(n.raw ?? '')));
+    return ctx.roundtrip ? P.Span(provenanceAttr('citation', n), [cite]) : cite;
 }
 
 /**
@@ -1137,8 +1144,8 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             // Unlike the definitions below, a dropped comment IS authored
             // content leaving the document - so it is named rather than
             // silent (markup-carve/pandoc-carve#75).
-            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`);
-
+            if (ctx.roundtrip) return [P.Div(provenanceAttr('comment', n), [])];
+            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`, { construct: 'comment' }, n.pos);
             return [];
         case 'abbreviation_def':
         case 'link_reference_definition':
@@ -1149,8 +1156,10 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return [];
         default: {
             // An inline node at block level (defensive) or an unknown block.
-            warn(ctx, `block: unknown node type "${n.type}" degraded to a paragraph of its text`);
-            return [P.Para(textInlines(plainText([n])))];
+            const fallback = [P.Para(textInlines(plainText([n])))];
+            if (ctx.roundtrip) return [P.Div(provenanceAttr('unknown-block', n), fallback)];
+            warn(ctx, `block: unknown node type "${n.type}" degraded to a paragraph of its text`, { nodeType: n.type }, n.pos);
+            return fallback;
         }
     }
 }
@@ -2102,6 +2111,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
 
     const ctx: Ctx = {
         warnings: [],
+        diagnostics: [],
         footnoteDefs,
         crossrefTargets: new Map(),
         headingIdByText: new Map(),
@@ -2134,6 +2144,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
             blocks: blocks(ctx, body),
         },
         warnings: ctx.warnings,
+        diagnostics: ctx.diagnostics,
     };
 }
 

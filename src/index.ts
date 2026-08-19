@@ -4,11 +4,13 @@ import { convert, type ConvertOptions, type ConvertResult } from './convert.js';
 import { parseExtensions, type ParseOptions } from './parse-options.js';
 import { pandocToCarve as reverse } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
+import type { ConversionDiagnostic } from './diagnostics.js';
 
 export { PANDOC_API_VERSION, type PandocDoc } from './pandoc.js';
 export type { ConvertOptions, ConvertResult } from './convert.js';
 export type { ParseOptions } from './parse-options.js';
 export type { ReverseResult } from './reverse.js';
+export type { ConversionDiagnostic, DiagnosticDirection, DiagnosticSeverity } from './diagnostics.js';
 export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
 
 /**
@@ -95,12 +97,13 @@ export function carveToPandocJson(
  * `renderCarve` (the `carve fmt` serializer), so the output carries fmt's
  * guarantees. Returns the Carve source plus degradation warnings.
  */
-export function pandocToCarve(doc: PandocDoc | string): { carve: string; warnings: string[] } {
+export function pandocToCarve(doc: PandocDoc | string): { carve: string; warnings: string[]; diagnostics: ConversionDiagnostic[] } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
-    const { ast, warnings } = reverse(parsed);
+    const { ast, warnings, diagnostics } = reverse(parsed);
     return {
         carve: carve.renderCarve(ast as unknown as Parameters<typeof carve.renderCarve>[0]),
         warnings,
+        diagnostics,
     };
 }
 
@@ -111,8 +114,8 @@ export function pandocToCarve(doc: PandocDoc | string): { carve: string; warning
  */
 export function pandocToCarveAst(
     doc: PandocDoc | string,
-): { ast: CarveAstDocument; warnings: string[] } {
+): { ast: CarveAstDocument; warnings: string[]; diagnostics: ConversionDiagnostic[] } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
-    const { ast, warnings } = reverse(parsed, 'ast');
-    return { ast: toCarveAst(ast, engineSerializer), warnings };
+    const { ast, warnings, diagnostics } = reverse(parsed, 'ast');
+    return { ast: toCarveAst(ast, engineSerializer), warnings, diagnostics };
 }

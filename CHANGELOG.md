@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `roundtrip: true` preserves comments, typed citation fields, and unknown
+  future Carve AST nodes in a strict, versioned private Pandoc envelope while
+  retaining native/readable Pandoc fallbacks.
+- Library conversion results now include structured diagnostics with stable
+  codes, direction, severity, details, and source locations where available;
+  the existing `warnings` strings remain unchanged.
+- The CLI can write a separate JSON loss report with `--diagnostics` and fail
+  CI only for actual loss with `--fail-on-loss`.
+
+### Fixed
+
+- Five comment-related corpus cases now survive the Pandoc AST round trip and
+  have been removed from the known-loss ledger.
+
 ## 0.1.2 - 2026-08-18
 
 ### Security
