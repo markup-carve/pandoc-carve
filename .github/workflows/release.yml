@@ -49,6 +49,21 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
 
+      # A git dependency in runtime `dependencies` ships to every consumer: their
+      # npm re-resolves the spec out of this tarball's manifest, so the install
+      # needs git and GitHub reachability and has no registry tarball to check an
+      # integrity hash against. 0.1.0 and 0.1.1 both went out that way, 0.1.2
+      # moved the engine to `^0.1.4` and said so under Changed, and a later
+      # branch put it back - because nothing inspected the manifest before a
+      # publish. markup-carve/carve-grammars#276 added the same check there.
+      #
+      # This step FAILS today, and that is the intended state: the engine is
+      # pinned to a carve-js commit because this bridge reads `Table.columns`,
+      # which no published engine has. Until carve-js publishes one that does,
+      # this repo should not publish either, and now it cannot do so by accident.
+      - name: No dependency is installed over git
+        run: node scripts/no-git-dependencies.mjs
+
       # The same pandoc CI installs. Without it the suite SKIPS every check that
       # needs pandoc - the example goldens, the metadata comparisons against
       # pandoc's own reader - so the release gate would be weaker than the gate
