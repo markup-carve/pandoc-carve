@@ -4,24 +4,39 @@
 
 ### Added
 
+- Pandoc table columns and feet cross the bridge: `ColSpec` alignment and widths
+  map through `table.columns`, table feet emit as ListTable `footer-rows`, and
+  multiple `TableBody` groups stay lossless on the AST path while their
+  unavoidable flattening is reported on the source path (#110,
+  markup-carve/carve#1344, markup-carve/carve#1391).
+- ListTable local header groups: a `header-row` marker maps to a Pandoc body
+  header row and back, and local `header` cell metadata travels through Pandoc
+  cell attributes (#115, markup-carve/carve#1248).
 - `roundtrip: true` preserves comments, typed citation fields, and unknown
   future Carve AST nodes in a strict, versioned private Pandoc envelope while
-  retaining native/readable Pandoc fallbacks.
+  retaining native/readable Pandoc fallbacks (#122).
 - Library conversion results now include structured diagnostics with stable
   codes, direction, severity, details, and source locations where available;
-  the existing `warnings` strings remain unchanged.
+  the existing `warnings` strings remain unchanged (#122).
 - The CLI can write a separate JSON loss report with `--diagnostics` and fail
-  CI only for actual loss with `--fail-on-loss`.
+  CI only for actual loss with `--fail-on-loss` (#122).
+
+### Changed
+
+- The Carve engine dependency is a `github:` commit pin again rather than the
+  `^0.1.4` registry range that 0.1.2 shipped, so installing this package clones
+  carve-js over git once more, with no integrity hash and git reachable at
+  install time (#110, #115).
 
 ### Fixed
 
 - `package.json` is importable, so the installed version can be read back
-  (#126). The subpath was not in `exports`, so reading it threw
+  (#127, #126). The subpath was not in `exports`, so reading it threw
   `ERR_PACKAGE_PATH_NOT_EXPORTED` - which reads as the package being absent
   rather than the subpath being closed. Only that one file is opened; every
   other path stays refused.
 - Five comment-related corpus cases now survive the Pandoc AST round trip and
-  have been removed from the known-loss ledger.
+  have been removed from the known-loss ledger (#122).
 
 ## 0.1.2 - 2026-08-18
 
