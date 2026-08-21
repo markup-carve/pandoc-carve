@@ -15,6 +15,11 @@
 
 ### Fixed
 
+- `package.json` is importable, so the installed version can be read back
+  (#126). The subpath was not in `exports`, so reading it threw
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` - which reads as the package being absent
+  rather than the subpath being closed. Only that one file is opened; every
+  other path stays refused.
 - Five comment-related corpus cases now survive the Pandoc AST round trip and
   have been removed from the known-loss ledger.
 
