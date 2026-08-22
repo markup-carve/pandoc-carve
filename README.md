@@ -332,7 +332,3 @@ npm ci && npm test
 Without the submodule the corpus tests FAIL rather than skip - a skipped corpus
 reads like a converted one, which is how a stack overflow reachable from a
 two-word document stayed live on the published package.
-
-## License
-
-MIT
