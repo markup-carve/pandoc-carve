@@ -149,6 +149,23 @@ const KNOWN_LOSSY = new Set([
   '345-a-line-block-s-hard-break-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash.crv',
+  // A PANDOC `Math` INLINE HAS NO ATTRIBUTE SLOT, so an accessible name on an
+  // inline math span cannot make the trip. `MathInline` in src/pandoc.ts builds
+  // `Math [InlineMath, s]` - two children and no `Attr` - because that is the
+  // whole of pandoc's constructor, so there is nowhere to carry one:
+  //
+  //     An inline $`x = 1` and a named $`y`{aria-label="why"} one.
+  //
+  // comes back as
+  //
+  //     An inline $`x = 1` and a named $`y` one.
+  //
+  // and `393-...-7` loses a `ROLE="img"` the same way, while the `ARIA-LABEL` on
+  // the DIV beside it survives - only the math span's attributes go. This is a
+  // model loss rather than a bridge defect: carrying it would mean inventing a
+  // slot pandoc does not have, or leaking it into a neighbouring node.
+  '393-an-engine-written-shape-says-what-it-is-called-5.crv',
+  '393-an-engine-written-shape-says-what-it-is-called-7.crv',
   '45-inline-extensions-12.crv',
   '45-inline-extensions-13.crv',
   '45-inline-extensions-7.crv',
