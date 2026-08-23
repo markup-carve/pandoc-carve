@@ -19,12 +19,16 @@
 // until release prep. markup-carve/carve-grammars#276 added the same check there
 // after the same regression reached the registry.
 //
-// It is wired into release.yml only, deliberately. The manifest is NOT clean
-// today - the engine is pinned to a carve-js commit because this bridge reads
-// `Table.columns`, which no published engine has yet - so a pull-request check
-// would turn every PR red for a condition no PR author can fix. Blocking the
-// PUBLISH is the part that protects consumers, and the pull-request half belongs
-// with the change that restores the registry range.
+// It is wired into release.yml only, deliberately. A pull-request check would
+// add nothing the suite does not already give: test/no-git-dependencies.test.mjs
+// runs this script against the committed manifest on every pull request, so a
+// newly added git dependency turns that test red long before a tag exists.
+//
+// ONE DEPENDENCY IS EXEMPT, AND THAT IS THE UNCOMFORTABLE PART. See EXEMPT
+// below. The guard exists to reject a git dependency and currently waves one
+// through, which is a hole by construction - so it is named outright, one
+// package and one repository, rather than expressed as a pattern that would
+// silently cover the next one too.
 //
 // Only `dependencies`, `optionalDependencies` and `peerDependencies` are
 // inspected, because those are the three a consumer installs - npm fetches an
@@ -83,6 +87,81 @@ const NON_REGISTRY_PROTOCOL =
   /^(github|gitlab|bitbucket|gist|git|git\+[a-z.+-]+|ssh|https?|file|link|portal|workspace):/i;
 
 const FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies'];
+
+// TEMPORARY. One package, named outright, and the only thing this guard lets
+// past a reason it found.
+//
+// WHY IT IS HERE. This bridge reads `Table.columns` (markup-carve/carve-js#1206)
+// and ListTable local headers (markup-carve/carve-js#1220). Neither is in any
+// published carve-js: 0.1.4 is the latest on the registry and the pin is 19
+// commits ahead of it. Restoring a registry range is not a downgrade of the pin,
+// it is a bridge that silently drops table column alignment - `tsc` stays clean
+// because the read is a cast, and five tests plus eight corpus documents fail at
+// runtime instead. So the pin stays, and the release is allowed to go out with
+// it, which is what this exemption buys.
+//
+// WHAT RETIRES IT. A published carve-js version carrying those two changes -
+// 0.1.5 or later, whichever first ships `Table.columns`. When one exists:
+// restore `@markup-carve/carve` to a registry range in package.json, delete this
+// block along with `isExempt` and its call site, and flip the committed-manifest
+// row in test/no-git-dependencies.test.mjs back from accept to reject. Nothing
+// else in this file depends on it.
+//
+// WHY IT IS SPELLED THIS NARROWLY. "Any github: spec owned by markup-carve"
+// would have been shorter and is exactly the hole this org keeps writing: it
+// would cover every future sibling engine, grammar and tool without anyone
+// deciding that it should. This matches ONE dependency name pointing at ONE
+// repository at ONE commit-shaped ref, so a second git dependency - including
+// another markup-carve one, including this same package pointed at a fork or at
+// a moving branch - is still refused. The test file proves that rather than
+// asserting it.
+const EXEMPT = {
+  name: '@markup-carve/carve',
+  repository: 'markup-carve/carve-js',
+  // The git spellings that CLONE that one repository, pinned to a commit. Not
+  // every spelling npm will classify as that repository - see the separator note
+  // below - and deliberately not npm's bare `owner/repo#ref` shorthand, which is
+  // the protocol-less form that leaked past this guard family once already
+  // (#131). A pin rewritten into a spelling not listed here fails the release
+  // loudly and is one line to add; an exemption written wide enough to cover
+  // every spelling in advance is the hole this is trying not to be.
+  //
+  // A ref that is not a commit sha (`#main`, `#v1`) is NOT exempt: a moving ref
+  // reinstalls as something different on a consumer's machine, which is a worse
+  // defect than the one being tolerated here.
+  //
+  // THE HOST IS PART OF THE MATCH, not just the path. An earlier draft allowed
+  // anything before `github.com`, so `git+https://evil.example/github.com/
+  // markup-carve/carve-js#<sha>` satisfied it while npm fetched from
+  // `evil.example` - the exemption naming a repository it was not actually
+  // checking. Found by `codex review`. So the authority is spelled out: an
+  // optional `user@`, then `github.com`, then the path.
+  //
+  // THE SEPARATOR AFTER THE HOST IS `/`, and a colon is exempt only in the
+  // scp-style form that carries no `://` at all. Two measurements disagreed
+  // here, so the narrow one wins. `npm-package-arg` resolves
+  // `git+ssh://git@github.com:markup-carve/carve-js.git#<sha>` to hosted
+  // `markup-carve/carve-js`, which argued for accepting it; git itself cannot
+  // clone that URL - https rejects `markup-carve` as a port, ssh reads
+  // `github.com:markup-carve` as a hostname and fails to resolve it - which
+  // argues for refusing it. A spec a consumer cannot install is not one this
+  // exemption should wave through, and the cost of being wrong in this
+  // direction is a loud release failure rather than a silent hole. Both rounds
+  // came from `codex review`, which is also where the foreign-host hole above
+  // came from.
+  spec: new RegExp(
+    String.raw`^(?:github:markup-carve/carve-js`
+      + String.raw`|git\+(?:https|ssh)://(?:[^/@\s]+@)?github\.com/markup-carve/carve-js(?:\.git)?`
+      + String.raw`|git@github\.com:markup-carve/carve-js(?:\.git)?`
+      + String.raw`)#[0-9a-f]{7,40}$`,
+    'i',
+  ),
+};
+
+/** Whether this exact dependency is the one temporary exemption above. */
+function isExempt(name, spec) {
+  return name === EXEMPT.name && typeof spec === 'string' && EXEMPT.spec.test(spec.trim());
+}
 
 // user@host:path, npm's scp-style git URL. It carries no protocol, and when the
 // repository sits at the root of its host it carries no slash either
@@ -233,11 +312,34 @@ function offendingReason(spec) {
 }
 
 const offenders = [];
+const exempted = [];
 for (const field of FIELDS) {
   for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
     const reason = offendingReason(spec);
-    if (reason) offenders.push({ field, name, spec, reason });
+    if (!reason) continue;
+    if (isExempt(name, spec)) {
+      exempted.push({ field, name, spec, reason });
+      continue;
+    }
+    offenders.push({ field, name, spec, reason });
   }
+}
+
+// LOUD, and printed even when the run goes on to fail. An exemption nobody sees
+// is how a temporary one becomes permanent, so it is reported at every release
+// rather than only when it is the last thing standing.
+for (const { field, name, spec, reason } of exempted) {
+  console.error(`::warning::${field}.${name} -> ${spec}`);
+  console.error(`  ${reason}, and is the one temporary exemption this guard carries.`);
+  console.error(
+    `  A consumer of this release needs git at install time for ${name} and gets no`,
+  );
+  console.error(
+    '  integrity check on it. Retire this the moment a carve-js release carries',
+  );
+  console.error(
+    '  markup-carve/carve-js#1206 and markup-carve/carve-js#1220 (see EXEMPT in this script).',
+  );
 }
 
 if (offenders.length > 0) {
@@ -255,4 +357,14 @@ if (offenders.length > 0) {
 }
 
 const counted = FIELDS.reduce((n, field) => n + Object.keys(manifest[field] ?? {}).length, 0);
-console.log(`all ${counted} runtime, optional and peer dependencies resolve from the registry`);
+if (exempted.length > 0) {
+  // Not "all ... resolve from the registry". That sentence would be false while
+  // an exemption is in force, and a guard that reports a clean run it did not
+  // have is the thing this file is written against.
+  console.log(
+    `${counted - exempted.length} of ${counted} runtime, optional and peer dependencies resolve `
+      + `from the registry; ${exempted.length} exempted: ${exempted.map((e) => e.name).join(', ')}`,
+  );
+} else {
+  console.log(`all ${counted} runtime, optional and peer dependencies resolve from the registry`);
+}
