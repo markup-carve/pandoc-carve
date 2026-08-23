@@ -132,19 +132,6 @@ const KNOWN_LOSSY = new Set([
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
   '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
   '375-a-table-cell-can-inherit-horizontal-alignment.crv',
-  // A PIPE TABLE STATING `header-rows` / `footer-rows` COMES BACK AS A
-  // `::: list-table`. The reverse writer leaves the pipe form whenever the
-  // table has a foot, so the head and foot survive structurally but the
-  // rendered output is a list-table div rather than a table, and the leading
-  // attribute block is written outside it.
-  //
-  // NOT recorded as a settled loss: the pipe form demonstrably CAN spell this -
-  // the source document is a pipe table - so this is a choice about what the
-  // writer should emit, not a limit of any model. It is the same question the
-  // row-head case already answered in the other direction (see the note in
-  // test/row-groups.test.mjs), and it is tracked separately in #138 rather than
-  // decided inside a pin bump.
-  '376-pipe-tables-can-state-head-and-foot-row-counts.crv',
   // PANDOC'S `Math` HAS NO ATTRIBUTE SLOT. The constructor is `Math MathType
   // Text` - two children, no `Attr` (src/pandoc.ts `MathInline`) - so an
   // attribute block on an inline math span has nowhere to live:

@@ -287,6 +287,19 @@ test('pandoc bodies, foot and row-head columns come back as counts', () => {
   });
 });
 
+/*
+ * THE `ast` TARGET STATES NOTHING, because it has nothing to state it on and
+ * nothing to lose. The partition is exact in `rowGroups` there; adding
+ * `header-rows` / `footer-rows` to the table's attrs would invent attributes the
+ * pandoc table never carried and say the same thing twice, and the source
+ * writer's merge diagnostic would describe a read-back that never happens.
+ */
+test('the ast target adds no partition attributes and no source diagnostic', () => {
+  const { ast, warnings } = pandocToCarveAst(twoBodiesAndAFoot);
+  assert.equal(ast.children[0].attrs, undefined);
+  assert.ok(!warnings.some((w) => w.includes('disagree on how many leading cells')), warnings.join(' | '));
+});
+
 test("a body's intermediate header row is imported as header cells", () => {
   const { ast } = pandocToCarveAst(twoBodiesAndAFoot);
   assert.deepEqual(
@@ -327,19 +340,31 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
 
 /*
  * The partition reaches the exchange AST intact - that is what the tests above
- * pin. The SOURCE writer is where it stops: a pipe table spells a leading run
- * of header rows and nothing else, so a foot, a second body, a body's own
- * header rows, its row-head columns and its attributes come out as ordinary
- * body rows. §15 asks for exactly this to be reported rather than dropped
- * quietly, and the pipe path used to be silent about all five while the
- * list-table path reported its own version of the same losses.
+ * pin. The SOURCE writer is where it stops, and the line has moved: a pipe table
+ * states its head and foot row counts on its attribute line and marks its row
+ * headers on the cells, so a second body, a body's own intermediate header rows
+ * and its attributes are what come out as ordinary body rows. §15 asks for
+ * exactly this to be reported rather than dropped quietly.
+ *
+ * This test asserted the opposite for the two middle facts - that the second
+ * body and its intermediate header rows were NOT reported - and it was right at
+ * the time for a reason that has nothing to do with the pipe writer: a table
+ * with a foot never reached it. It went out as a `::: list-table`, whose own
+ * diagnostics carry the intermediate header rows losslessly (a `header-row`
+ * marker on the first cell) and only complain about a body boundary that the
+ * markers cannot show. With the foot back in the pipe form, this fixture reaches
+ * the pipe path for the first time, and there both facts are genuinely lost.
  */
 
-test('the source writer spells header-led groups and reports only body attributes', () => {
-  const { warnings } = pandocToCarve(twoBodiesAndAFootFlatHeads);
+test('the source writer states head and foot and reports the groups it flattens', () => {
+  const { carve, warnings } = pandocToCarve(twoBodiesAndAFootFlatHeads);
+  assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
+  assert.match(carve, /^\{header-rows=1 footer-rows=1\}$/m, carve);
   assert.ok(warnings.some((warning) => warning.includes("body group's attributes")), warnings.join(' | '));
-  assert.ok(!warnings.some((warning) => warning.includes('intermediate header')), warnings.join(' | '));
-  assert.ok(!warnings.some((warning) => warning.includes('2 body groups')), warnings.join(' | '));
+  assert.ok(warnings.some((warning) => warning.includes('intermediate header')), warnings.join(' | '));
+  assert.ok(warnings.some((warning) => warning.includes('2 body groups')), warnings.join(' | '));
+  // The foot is the one that is no longer named, because it is no longer lost.
+  assert.ok(!warnings.some((warning) => warning.includes('a foot of')), warnings.join(' | '));
 });
 
 /** Row heads, one body, no foot: the shape the pipe table spells completely. */
@@ -349,7 +374,7 @@ const rowHeadsOnly = pandocTable({
   foot: [],
 });
 
-/** The same, plus a foot - which a pipe table cannot spell (a separate gap). */
+/** The same, plus a foot, which the pipe table states on its attribute line. */
 const rowHeadsAndAFoot = pandocTable({
   head: [pRow('Region', 'Total')],
   bodies: [[['', [], []], 1, [], [pRow('North', '11')]]],
@@ -381,13 +406,180 @@ test('and pandoc gets its RowHeadColumns back from those cells', () => {
   assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 1);
 });
 
-test('a foot uses ListTable footer-rows and round-trips as a foot', () => {
+/*
+ * A FOOT USED TO LEAVE THE PIPE FORM, AND AT THE TIME IT HAD TO.
+ *
+ * This test was `a foot uses ListTable footer-rows and round-trips as a foot`,
+ * and it pinned `::: list-table {footer-rows=1}` - the writer left the pipe form
+ * for any table with a foot. That was not a preference. Measured on the two
+ * engines either side of it, on the same source:
+ *
+ *     {header-rows=1 footer-rows=1}
+ *     |= Region |= Total |
+ *     |= North | 11 |
+ *     | All | 33 |
+ *
+ * carve-js 0.1.3, the pin in force when the clause was written, produced no
+ * `rowGroups` and leaked the keys as literal HTML attributes -
+ * `<table header-rows="1" footer-rows="1">`, every row in one `<tbody>`. The
+ * spelling reached the spec the day AFTER (corpus 376), so the list-table was
+ * the only form that could carry a foot at all.
+ *
+ * carve-js 0.1.4 reads the same source as
+ * `{headRows: 1, bodies: [{headRows: 0, bodyRows: 1}], footRows: 1}` and renders
+ * a real `<tfoot>`. So the test keeps its subject and its numbers - a foot of one
+ * row, arriving beside row-head columns - and changes the form it expects.
+ */
+test('a foot is stated on the pipe table and round-trips as a foot', () => {
   const { carve, warnings } = pandocToCarve(rowHeadsAndAFoot);
-  assert.match(carve, /footer-rows=1/, carve);
-  assert.ok(!warnings.some((w) => w.includes('foot row(s) become')), warnings.join(' | '));
+  assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
+  assert.equal(carve, '{header-rows=1 footer-rows=1}\n|= Region |= Total |\n|= North | 11 |\n| All | 33 |\n^ Quarterly\n');
+  assert.ok(!warnings.some((w) => w.includes('a foot of')), warnings.join(' | '));
   const table = carveToPandoc(carve).doc.blocks[0];
   assert.equal(table.c[4][0][1], 1, carve);
   assert.equal(table.c[5][1].length, 1, carve);
+});
+
+/*
+ * THE HEAD IS STATED ALONGSIDE THE FOOT BECAUSE IT HAS TO BE. Measured: the
+ * counts are read as the whole partition rather than as a correction to the one
+ * the `|=` markers imply, so `{footer-rows=1}` on its own moves the header row
+ * into the body and its cells come back `<th scope="row">`.
+ */
+test('and the head is stated with it, or the attribute line would eat the head', () => {
+  const { carve } = pandocToCarve(rowHeadsAndAFoot);
+  assert.match(carve, /^\{header-rows=1 footer-rows=1\}$/m, carve);
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[3][1].length, 1, carve);
+});
+
+/*
+ * A DECLARED PARTITION STILL READS THE ROW HEADERS OFF THE CELLS. This is the
+ * defect corpus 376 was parked on once the foot came back: the forward direction
+ * derived `RowHeadColumns` only when NOTHING declared a partition, so a table
+ * that stated its foot lost every `|= North | 11 |` in silence while the same
+ * table without the foot kept them.
+ */
+test('a stated partition does not swallow the row headers under it', () => {
+  const carve = '{header-rows=1 footer-rows=1}\n|= Region |= Total |\n|= North | 11 |\n| All | 33 |\n';
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(table.c[4][0][1], 1, 'RowHeadColumns comes off the marked cells');
+  assert.equal(table.c[3][1].length, 1);
+  assert.equal(table.c[5][1].length, 1);
+});
+
+/*
+ * THE STRAY-ROW-HEADER REPORT REACHES A DECLARED PARTITION TOO. It used to sit
+ * inside the branch that runs when NOTHING declared a partition, where no foot
+ * can exist - so a table that stated its foot reached none of it, and the
+ * declared path had just started deriving row headers, which is what makes the
+ * cells that cannot be derived worth naming.
+ */
+test('a stray row header under a stated partition is reported, not dropped quietly', () => {
+  const carve = '{header-rows=1 footer-rows=1}\n|= Region |= Total |\n| North |= 11 |\n| All | 33 |\n';
+  const { warnings } = carveToPandoc(carve);
+  assert.ok(
+    warnings.some((w) => w.includes('a row header outside the leading run is dropped')),
+    warnings.join(' | '),
+  );
+});
+
+/*
+ * AND A FOOT ROW HAS NO ROW-HEAD SLOT AT ALL. `TableFoot` is a bare list of rows
+ * with no `RowHeadColumns` (src/pandoc.ts `Table`), so even a LEADING `|=` in a
+ * foot row has nowhere to go - a case that could not arise while a foot never
+ * reached the pipe path.
+ */
+test('and a row header in the foot is reported, because a foot has no slot for one', () => {
+  const carve = '{header-rows=1 footer-rows=1}\n|= Region |= Total |\n| North | 11 |\n|= All | 33 |\n';
+  const { warnings } = carveToPandoc(carve);
+  assert.ok(
+    warnings.some((w) => w.includes("a foot row's row header is dropped")
+      && w.includes('no RowHeadColumns')),
+    warnings.join(' | '),
+  );
+});
+
+/*
+ * STATING THE FOOT STATES THE WHOLE PARTITION, AND ONE STATED BODY CARRIES ONE
+ * ROW-HEADER COUNT. Row-head columns survive the pipe form because the reader
+ * splits a body at every change in the marked run - but a partition read off the
+ * attribute line cannot be split, so rows that disagree lose their scope. The
+ * writer is the only side that still knows the runs, so it is the side that says
+ * so; by read-back the disagreement is all that is left of them.
+ */
+const rowHeadsDisagreeingUnderAFoot = pandocTable({
+  head: [pRow('Region', 'Total')],
+  bodies: [
+    [['', [], []], 1, [], [pRow('North', '11')]],
+    [['', [], []], 0, [], [pRow('South', '22')]],
+  ],
+  foot: [pRow('All', '33')],
+});
+
+test('a foot over disagreeing row-head runs reports what the merge costs', () => {
+  const { carve, warnings } = pandocToCarve(rowHeadsDisagreeingUnderAFoot);
+  assert.ok(
+    warnings.some((w) => w.includes('disagree on how many leading cells are row headers')
+      && w.includes('come back as data cells')),
+    warnings.join(' | '),
+  );
+  assert.deepEqual(carveToPandoc(carve).doc.blocks[0].c[4].map((b) => b[1]), [0], carve);
+});
+
+test('control: runs that agree under a foot are not reported and are not lost', () => {
+  const { carve, warnings } = pandocToCarve(rowHeadsAndAFoot);
+  assert.ok(!warnings.some((w) => w.includes('disagree')), warnings.join(' | '));
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 1, carve);
+});
+
+/*
+ * A STALE COUNT ON AN INCOMING `Attr` MUST NOT OUTRANK THE ROWS. The forward
+ * direction filters its own copies of these keys out, but a pandoc document that
+ * arrived from anywhere else can carry them, and the pipe writer states the
+ * partition through the same keys. Measured before the fix: a table with a head,
+ * two body rows and NO foot, whose `Attr` said `footer-rows=1`, was written
+ * `{footer-rows=1}` above the pipe rows and came back head 0, foot 1.
+ */
+const staleFooterKey = (() => {
+  const table = pandocTable({
+    head: [pRow('Region', 'Total')],
+    bodies: [[['', [], []], 0, [], [pRow('North', '11'), pRow('South', '22')]]],
+    foot: [],
+  });
+  table.blocks[0].c[0] = ['', [], [['footer-rows', '1']]];
+  return table;
+})();
+
+test('a partition key on the incoming attr is replaced by the rows, not kept', () => {
+  const { carve } = pandocToCarve(staleFooterKey);
+  assert.ok(!carve.includes('footer-rows'), carve);
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(table.c[3][1].length, 1, `the head survives: ${carve}`);
+  assert.equal(table.c[5][1].length, 0, `and no foot is invented: ${carve}`);
+});
+
+/*
+ * The counts ARE the partition, so they must not also be an attribute. They used
+ * to arrive as both: `header-rows` and `footer-rows` were read into `rowGroups`
+ * AND left on the pandoc `Attr`, which put a stray attribute on the table in
+ * every pandoc writer. The list-table reader already filtered its own copies.
+ */
+test('the stated counts do not survive as pandoc table attributes as well', () => {
+  const carve = '{header-rows=1 footer-rows=1}\n|= Region |= Total |\n| North | 11 |\n| All | 33 |\n';
+  assert.deepEqual(carveToPandoc(carve).doc.blocks[0].c[0], ['', [], []]);
+});
+
+test('and a body whose rows disagree reports it instead of picking a count', () => {
+  // A declared body cannot be split the way a derived one is - splitting would
+  // contradict the count that was stated - so there is no number every row asked
+  // for, and saying so is the whole of what can be done.
+  const carve = '{header-rows=1 footer-rows=1}\n|= Region |= Total |\n|= North | 11 |\n| South | 22 |\n| All | 33 |\n';
+  const { warnings } = carveToPandoc(carve);
+  assert.ok(
+    warnings.some((w) => w.includes('disagree on how many leading cells are row headers')),
+    warnings.join(' | '),
+  );
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[4][0][1], 0);
 });
 
 test('a row-head row below a plain one keeps its scope through the round trip', () => {
@@ -453,8 +645,21 @@ test('bodies that disagree on row-head columns keep the pipe form', () => {
   assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
   assert.ok(!carve.includes('header-cols'), 'and invented no row headers');
   assert.ok(
-    warnings.some((w) => w.startsWith('table: ') && w.includes('row-head columns')),
+    warnings.some((w) => w.startsWith('table: ') && w.includes('2 body groups')),
     `the loss is still reported: ${warnings.join(' | ')}`,
+  );
+  assert.ok(
+    !warnings.some((w) => w.includes('row-head columns')),
+    `and the row heads are not reported as lost: ${warnings.join(' | ')}`,
+  );
+  // AND THE ROW HEADS THEMSELVES ARE NOT LOST, which is why the warning no
+  // longer names them. Each row carries its own marker, and the reader splits a
+  // body at every change, so both counts come back - measured here rather than
+  // asserted from the writer's side, because the writer cannot see the split.
+  assert.equal(carve, '|= a | b |\n| c | d |\n^ Quarterly\n');
+  assert.deepEqual(
+    carveToPandoc(carve).doc.blocks[0].c[4].map((body) => body[1]),
+    [1, 0],
   );
 });
 

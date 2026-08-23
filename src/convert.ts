@@ -1499,6 +1499,13 @@ function table(
         return out;
     };
 
+    /** How many LEADING cells of a row are header cells (`|= Mercury | ... |`). */
+    const leadOf = (row: CCell[]): number => {
+        let n = 0;
+        while (n < row.length && row[n]!.header === true) n++;
+        return Math.min(n, width);
+    };
+
     let bodies: P.TableBody[];
     let footRows: P.PRow[] = [];
     if (groups) {
@@ -1511,7 +1518,21 @@ function table(
                 headRows: toRows(at, headTo),
                 bodyRows: toRows(headTo, bodyTo),
             };
-            if (body.rowHeadColumns) converted.rowHeadColumns = body.rowHeadColumns;
+            // A DECLARED PARTITION STILL HAS TO READ THE CELLS. `rowGroups` may
+            // state the head and foot row counts and say nothing about row
+            // headers - that is exactly what a pipe table's
+            // `{header-rows=N footer-rows=M}` produces - and the derivation
+            // below used to run only when NO partition was declared. So a table
+            // that stated its foot lost every `|= North | 11 |` row header in
+            // silence, while the same table without the foot kept them.
+            //
+            // A declared body cannot be SPLIT the way the derived ones are
+            // (splitting would contradict the count that was stated), so the
+            // count is taken only when the body's rows agree on it, and the
+            // disagreement is reported rather than resolved by a minimum.
+            const declared = body.rowHeadColumns
+                ?? agreedLead(leadOf, rows, headTo, bodyTo, ctx, n);
+            if (declared) converted.rowHeadColumns = declared;
             at = bodyTo;
             return converted;
         });
@@ -1539,42 +1560,6 @@ function table(
         // is invented: a document with a single run still emits exactly one
         // body, which is what every table that agreed already produced.
         bodies = [];
-        const leadOf = (row: CCell[]): number => {
-            let n = 0;
-            while (n < row.length && row[n]!.header === true) n++;
-            return Math.min(n, width);
-        };
-        // A ROW HEADER OUTSIDE THE LEADING RUN HAS NOWHERE TO GO, and until now
-        // it went nowhere QUIETLY. `RowHeadColumns` is a count of the row's
-        // FIRST cells, so `| =h |= i |` - a data cell, then a row header -
-        // cannot be said at all: pandoc's `Cell` carries no header flag, and
-        // splitting into more bodies only partitions ROWS, never columns.
-        //
-        // Splitting the run (below) fixed the rows that disagreed with each
-        // other. This is the remaining case, where the cells disagree WITHIN a
-        // row, and it is a limit of pandoc's model rather than something the
-        // bridge can spell. Reporting it is the whole of what can be done, and
-        // it is worth more than it looks: the silence is what let the loss ride
-        // along unnoticed while the corpus round trip was computed with an
-        // engine too old to produce the shape in the first place.
-        for (let r = headCount; r < rows.length; r++) {
-            const row = rows[r]!;
-            const lead = leadOf(row);
-            const strays = row.reduce(
-                (count, cell, at) => (at >= lead && cell.header === true ? count + 1 : count),
-                0,
-            );
-            if (strays > 0) {
-                warn(
-                    ctx,
-                    `table: a row header outside the leading run is dropped - pandoc's RowHeadColumns ` +
-                        `counts a row's FIRST cells, and row ${r + 1} marks ${strays} header cell(s) after ` +
-                        `${lead} unmarked one(s), which its model cannot express`,
-                    { construct: 'table', row: r + 1, rowHeadColumns: lead, dropped: strays },
-                    n.pos,
-                );
-            }
-        }
         let at = headCount;
         while (at < rows.length) {
             const lead = leadOf(rows[at]!);
@@ -1590,8 +1575,55 @@ function table(
         if (!bodies.length) bodies = [{ bodyRows: [] }];
     }
 
+    // A ROW HEADER WITH NO ROW-HEAD SLOT TO SIT IN HAS NOWHERE TO GO, and until
+    // now it went nowhere QUIETLY. `RowHeadColumns` is a count of the row's FIRST
+    // cells, so `| h |= i |` - a data cell, then a row header - cannot be said at
+    // all: pandoc's `Cell` carries no header flag, and splitting into more bodies
+    // only partitions ROWS, never columns. A foot row is worse off still, because
+    // `TableFoot` is a bare list of rows with no `RowHeadColumns` at all
+    // (src/pandoc.ts `Table`), so even a LEADING header cell has no slot there.
+    //
+    // Splitting the run fixed the rows that disagreed with each other, and
+    // `agreedLead` reports the declared bodies that cannot split. This is the
+    // remaining case, where the cells disagree WITHIN a row, and it is a limit of
+    // pandoc's model rather than something the bridge can spell. Reporting it is
+    // the whole of what can be done, and it is worth more than it looks: the
+    // silence is what let the loss ride along unnoticed while the corpus round
+    // trip was computed with an engine too old to produce the shape at all.
+    //
+    // It runs for a DECLARED partition too. It used to sit inside the derived
+    // branch, where no foot can exist and a body always splits, so a table that
+    // stated its foot reached none of it.
+    const footFrom = rows.length - (groups?.footRows ?? 0);
+    for (let r = headCount; r < rows.length; r++) {
+        const row = rows[r]!;
+        const lead = r >= footFrom ? 0 : leadOf(row);
+        const strays = row.reduce(
+            (count, cell, at) => (at >= lead && cell.header === true ? count + 1 : count),
+            0,
+        );
+        if (strays === 0) continue;
+        warn(
+            ctx,
+            r >= footFrom
+                ? `table: a foot row's row header is dropped - pandoc's TableFoot is a bare list `
+                    + `of rows with no RowHeadColumns, so the ${strays} header cell(s) in row `
+                    + `${r + 1} have no slot in its model`
+                : `table: a row header outside the leading run is dropped - pandoc's RowHeadColumns `
+                    + `counts a row's FIRST cells, and row ${r + 1} marks ${strays} header cell(s) after `
+                    + `${lead} unmarked one(s), which its model cannot express`,
+            { construct: 'table', row: r + 1, rowHeadColumns: lead, dropped: strays },
+            n.pos,
+        );
+    }
+
     return P.Table(
-        toAttrWithout(n.attrs as CAttrs | undefined, ['aligns', 'valigns', 'widths']),
+        // `header-rows` / `footer-rows` are the partition, and the partition
+        // reached `groups` above - leaving them here would state the same fact
+        // twice and put a stray attribute on the table in every pandoc writer.
+        // The list-table reader already filters its own copies of both.
+        toAttrWithout(n.attrs as CAttrs | undefined,
+            ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows']),
         caption,
         colAligns,
         toRows(0, headCount),
@@ -1600,6 +1632,40 @@ function table(
         shortCaption,
         Array.from({ length: width }, (_, c) => columns[c]?.width ?? null),
     );
+}
+
+/**
+ * The row-head column count a declared body's rows agree on, or 0.
+ *
+ * Pandoc's `RowHeadColumns` is one number per body, so rows that disagree have
+ * no shared answer. The derived path solves that by starting a new body at each
+ * change; a body whose boundaries were STATED cannot move them, so this reports
+ * the disagreement instead of picking a number some row did not ask for.
+ */
+function agreedLead(
+    leadOf: (row: CCell[]) => number,
+    rows: CCell[][],
+    from: number,
+    to: number,
+    ctx: Ctx,
+    n: CNode,
+): number {
+    if (to <= from) return 0;
+    const first = leadOf(rows[from]!);
+    for (let r = from + 1; r < to; r++) {
+        if (leadOf(rows[r]!) === first) continue;
+        warn(
+            ctx,
+            'table: the rows of a declared body group disagree on how many leading cells are '
+            + `row headers (row ${from + 1} marks ${first}, row ${r + 1} marks ${leadOf(rows[r]!)}) `
+            + "- pandoc's RowHeadColumns is one count per body and the group's boundaries were "
+            + 'stated, so no count is emitted and those cells come back as data cells',
+            { construct: 'table', row: r + 1, rowHeadColumns: first },
+            n.pos,
+        );
+        return 0;
+    }
+    return first;
 }
 
 function toAttrWithout(attrs: CAttrs | undefined, omitted: string[]): P.Attr {
