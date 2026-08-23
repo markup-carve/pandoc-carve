@@ -57,10 +57,13 @@ jobs:
       # branch put it back - because nothing inspected the manifest before a
       # publish. markup-carve/carve-grammars#276 added the same check there.
       #
-      # This step FAILS today, and that is the intended state: the engine is
-      # pinned to a carve-js commit because this bridge reads `Table.columns`,
-      # which no published engine has. Until carve-js publishes one that does,
-      # this repo should not publish either, and now it cannot do so by accident.
+      # ONE dependency is exempt today and the step reports it as a warning
+      # rather than failing: the engine is pinned to a carve-js commit because
+      # this bridge reads `Table.columns`, which no published engine has, and the
+      # decision on this repo is to keep the pin and publish with it until
+      # carve-js releases one that does. The exemption names that single package
+      # and repository outright - see EXEMPT in the script - so any OTHER git
+      # dependency, including another markup-carve one, still stops the publish.
       - name: No dependency is installed over git
         run: node scripts/no-git-dependencies.mjs
 
