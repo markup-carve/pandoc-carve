@@ -395,7 +395,14 @@ test('a row-head row below a plain one keeps its scope through the round trip', 
   // whole-corpus round trip red: a plain row, then a row whose only cell is a
   // row header. Under one body and a minimum, the two rows disagreed, the count
   // went to zero, and `<th scope="row">` came back `<td>`.
-  const src = '| a |\n|=b |\n+ c |\n';
+  //
+  // `|= b |`, with the space: corpus 256 "table cell padding must be a space"
+  // makes the kind marker a marker only when a space follows it, so the glued
+  // `|=b |` this used to spell is a data cell whose content is the literal
+  // `=b`. Measured on the engine, the glued form renders `<td>=b c</td>` and
+  // the spaced one `<th scope="row">b c</th>`. The assertions are unchanged -
+  // the row-head run is still what is being pinned.
+  const src = '| a |\n|= b |\n+ c |\n';
   const bodies = carveToPandoc(src).doc.blocks[0].c[4];
   assert.deepEqual(bodies.map((b) => [b[1], b[3].length]), [[0, 1], [1, 1]]);
   const { carve } = pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc);

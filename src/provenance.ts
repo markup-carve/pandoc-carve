@@ -6,7 +6,7 @@ const MAX_ENCODED_BYTES = 1024 * 1024;
 
 export interface ProvenancePayload {
     v: 1;
-    kind: 'comment' | 'unknown-inline' | 'unknown-block' | 'citation';
+    kind: 'comment' | 'unknown-inline' | 'unknown-block' | 'citation' | 'literal-inline';
     node: Record<string, unknown>;
 }
 
@@ -26,7 +26,7 @@ export function readProvenance(attr: Attr | undefined): ProvenancePayload | null
         const value = JSON.parse(decoded.toString('utf8')) as unknown;
         if (!value || typeof value !== 'object') return null;
         const payload = value as Partial<ProvenancePayload>;
-        if (payload.v !== 1 || !['comment', 'unknown-inline', 'unknown-block', 'citation'].includes(String(payload.kind)) || !payload.node || typeof payload.node !== 'object' || Array.isArray(payload.node)) return null;
+        if (payload.v !== 1 || !['comment', 'unknown-inline', 'unknown-block', 'citation', 'literal-inline'].includes(String(payload.kind)) || !payload.node || typeof payload.node !== 'object' || Array.isArray(payload.node)) return null;
         return payload as ProvenancePayload;
     } catch {
         return null;

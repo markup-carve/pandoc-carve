@@ -71,7 +71,21 @@ test('cell attrs: the round trip preserves them through Carve source', () => {
 test('cell attrs: a head-row cell keeps its Attr too', () => {
   // `|=` header cells have no attribute slot in the grammar, but a header
   // derived from the delimiter row does, and that is the shape fmt writes.
-  const src = '|{.hh}H|\n|---|\n|{.dd}d|\n';
+  //
+  // THE SPACE AFTER THE BRACE IS THE RULING, not padding. edge-cases.md
+  // "Cell attributes bind after the kind and alignment markers": the block is
+  // followed by the space that ends the marker run (T11), "without it the
+  // braces would be content too". Measured on the engine, `|{.hh}H|` renders
+  // `<th scope="col">{.hh}H</th>` - the braces are TEXT and the cell carries no
+  // attributes at all - while `|{.hh} H |` renders
+  // `<th scope="col" class="hh">H</th>`.
+  //
+  // So this test used to assert a contract the spec rejects: it expected
+  // `['', ['hh'], []]` from a spelling that produces no attributes, and only
+  // passed against an engine old enough to accept the glued form. The
+  // expectations below are unchanged; the SOURCE is corrected to the ruled
+  // spelling, which is the shape they were always describing.
+  const src = '|{.hh} H |\n|---|\n|{.dd} d |\n';
   const { doc } = carveToPandoc(src);
   assert.deepEqual(headOf(doc)[0][1][0][0], ['', ['hh'], []]);
   const { ast } = pandocToCarveAst(doc);
