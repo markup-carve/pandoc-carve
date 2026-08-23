@@ -27,9 +27,27 @@
   `^0.1.4` registry range that 0.1.2 shipped, so installing this package clones
   carve-js over git once more, with no integrity hash and git reachable at
   install time (#110, #115).
+- The Carve engine pin and the spec corpus submodule advance to current
+  `main`. The previous engine rendered 1141 of 1370 corpus documents correctly,
+  so the round trip computed both of its sides with it and wrong readings
+  cancelled; the two documents #135 reported now round-trip on the fixed engine
+  (#135, #137, markup-carve/carve-js#1342, markup-carve/carve-js#1359).
 
 ### Fixed
 
+- Inline literals survive the round trip: a literal spanning a line break no
+  longer puts a newline inside a Pandoc `Str` and no longer gains a hard break,
+  and a literal of nothing but spaces is no longer collapsed away. Two documents
+  come off the known-loss ledger (#137).
+- `<==` and `<=>` reach Pandoc as their glyphs instead of the author's source
+  run, so they no longer come back backslash-escaped. The bridge imports the
+  engine's glyph table rather than keeping a copy of it
+  (markup-carve/carve#355) (#137).
+- Attributes on a math span, and a row header outside a row's leading run, are
+  now reported as `math-attributes-dropped` and
+  `table-row-head-outside-leading-run`. Neither can be carried - Pandoc's `Math`
+  has no `Attr` and `RowHeadColumns` counts only a row's first cells - but both
+  used to be dropped with no diagnostic at all (#137).
 - `package.json` is importable, so the installed version can be read back
   (#127, #126). The subpath was not in `exports`, so reading it threw
   `ERR_PACKAGE_PATH_NOT_EXPORTED` - which reads as the package being absent

@@ -70,7 +70,6 @@ const KNOWN_LOSSY = new Set([
   '107-colspan-marker-scans-left-past-a-consumed-cell.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
-  '141-trailing-whitespace-boundaries.crv',
   '172-attribute-braces-on-a-list-item-marker-line.crv',
   '173-implicit-heading-references-with-no-definition.crv',
   '174-bare-dot-ordered-markers-3.crv',
@@ -83,7 +82,23 @@ const KNOWN_LOSSY = new Set([
   '227-a-definition-inside-a-definition-list-dd-is-collected-and-the-entry-keeps-no-trace.crv',
   '23-inline-footnotes-2.crv',
   '252-a-tab-separates-two-attributes-and-pads-a-block-as-a-space-does-2.crv',
-  '268-trailing-whitespace-on-a-content-line-is-dropped-10.crv',
+  // A ROW HEADER OUTSIDE THE LEADING RUN cannot be said in pandoc's model.
+  // `RowHeadColumns` is a count of a row's FIRST cells and `Cell` carries no
+  // header flag of its own, so `| =h |= i |` - a data cell, then a row header -
+  // has nowhere to be recorded. Splitting into further bodies does not help:
+  // that partitions ROWS, and this is cells disagreeing WITHIN a row.
+  //
+  // Both documents reach that shape through the padding rule - a kind marker is
+  // a marker only when a space follows it, so `|=h|` is the literal text `=h`
+  // and only the second cell is a header. Against an engine that needed no
+  // space BOTH cells were headers, the leading run covered them, and the trip
+  // was clean. That is why this surfaces on a pin bump rather than on any
+  // change to this bridge, and it is a MODEL limit, not a mapping defect.
+  //
+  // The forward direction now WARNS instead of dropping it in silence
+  // (`table-row-head-outside-leading-run`), which is the whole of what can be
+  // done short of a slot pandoc does not have.
+  '256-table-cell-padding-must-be-a-space-18.crv',
   '273-the-inline-attribute-interior-is-space-only-the-attribute-line-is-not.crv',
   '274-a-quoted-attribute-value-stops-at-the-newline-2.crv',
   '275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-4.crv',
@@ -117,6 +132,34 @@ const KNOWN_LOSSY = new Set([
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
   '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
   '375-a-table-cell-can-inherit-horizontal-alignment.crv',
+  // A PIPE TABLE STATING `header-rows` / `footer-rows` COMES BACK AS A
+  // `::: list-table`. The reverse writer leaves the pipe form whenever the
+  // table has a foot, so the head and foot survive structurally but the
+  // rendered output is a list-table div rather than a table, and the leading
+  // attribute block is written outside it.
+  //
+  // NOT recorded as a settled loss: the pipe form demonstrably CAN spell this -
+  // the source document is a pipe table - so this is a choice about what the
+  // writer should emit, not a limit of any model. It is the same question the
+  // row-head case already answered in the other direction (see the note in
+  // test/row-groups.test.mjs), and it is tracked separately in #138 rather than
+  // decided inside a pin bump.
+  '376-pipe-tables-can-state-head-and-foot-row-counts.crv',
+  // PANDOC'S `Math` HAS NO ATTRIBUTE SLOT. The constructor is `Math MathType
+  // Text` - two children, no `Attr` (src/pandoc.ts `MathInline`) - so an
+  // attribute block on an inline math span has nowhere to live:
+  //
+  //     An inline $`x = 1` and a named $`y`{aria-label="why"} one.
+  //
+  // comes back without the name, and `-7` loses a `ROLE="img"` the same way
+  // while the `ARIA-LABEL` on the div beside it survives - only the math span's
+  // attributes go. Carrying them would mean inventing a slot pandoc does not
+  // have or leaking them onto a neighbouring node, so this is a model loss
+  // rather than a bridge defect. The forward direction now warns
+  // (`math-attributes-dropped`) rather than dropping an accessible name in
+  // silence.
+  '393-an-engine-written-shape-says-what-it-is-called-5.crv',
+  '393-an-engine-written-shape-says-what-it-is-called-7.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
   // One cause under all of them. A pandoc LineBlock is a list of lines and may hold
@@ -152,6 +195,9 @@ const KNOWN_LOSSY = new Set([
   '45-inline-extensions-12.crv',
   '45-inline-extensions-13.crv',
   '45-inline-extensions-7.crv',
+  // The same shape as `256-...-18` above: `|=<< Note |= Plain |` leaves the
+  // first cell literal and marks only the second as a row header.
+  '53-table-doubled-alignment-marker.crv',
   '46-symbols-4.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',

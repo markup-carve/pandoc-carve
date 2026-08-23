@@ -319,6 +319,7 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
                 if (payload?.kind === 'comment' && payload.node.type === 'comment') return [payload.node as CNode];
                 if (payload?.kind === 'unknown-inline' && typeof payload.node.type === 'string') return [payload.node as CNode];
                 if (payload?.kind === 'citation' && payload.node.type === 'citation_group') return [payload.node as CNode];
+                if (payload?.kind === 'literal-inline' && payload.node.type === 'literal_inline') return [payload.node as CNode];
                 return span(ctx, c);
             }
         default:

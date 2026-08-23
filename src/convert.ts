@@ -15,6 +15,7 @@ import * as P from './pandoc.js';
 import { readRowGroups } from './row-groups.js';
 import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
 import { provenanceAttr } from './provenance.js';
+import { SMART_PUNCTUATION_GLYPHS } from '@markup-carve/carve';
 
 // The Carve AST is plain data; we type the parts we read.
 interface CNode {
@@ -280,30 +281,18 @@ function labelKv(ctx: Ctx, n: CNode): [string, string][] {
     return ctx.roundtrip && hasLabel(n) ? [['carve.label', n.label]] : [];
 }
 
-/** Split text into Str/Space the way pandoc readers do. */
 // Glyphs for the smart-typography kinds that do not carry one on the node.
 // A quote's glyph is locale-dependent and is chosen during parsing, so the node
 // records it; the rest are fixed and resolvable from the kind.
 //
-// Duplicated from carve-js, which exports SMART_PUNCTUATION_GLYPHS from ast.ts
-// but not from the package root - see carve#355. Drop this table once the
-// export lands.
-const SMART_PUNCTUATION_GLYPHS: Record<string, string> = {
-    ellipsis: '\u2026',
-    em_dash: '\u2014',
-    en_dash: '\u2013',
-    left_right_arrow: '\u2194',
-    rightwards_arrow: '\u2192',
-    leftwards_arrow: '\u2190',
-    rightwards_double_arrow: '\u21D2',
-    less_than_or_equal: '\u2264',
-    greater_than_or_equal: '\u2265',
-    not_equal: '\u2260',
-    plus_minus: '\u00B1',
-    copyright: '\u00A9',
-    registered: '\u00AE',
-    trademark: '\u2122',
-};
+// Imported, not copied. This table used to be duplicated here because the
+// engine exported it from `ast.ts` and not from the package root (carve#355,
+// now closed and the export landed). The copy drifted exactly as a copy does:
+// it was two entries short - `leftwards_double_arrow` and
+// `left_right_double_arrow` - so `<==` and `<=>` fell through to the author's
+// source run instead of their glyph, and the reverse writer then escaped the
+// leading `<` of what it saw as literal text. Importing removes the whole
+// drift class rather than the two entries the corpus happened to catch.
 
 function smartPunctuationText(n: CNode): string {
     const glyph = n.glyph as string | undefined;
@@ -331,6 +320,7 @@ function resolvedSpaces(value: string): string {
     return value.replace(RESOLVED_NBSP, '\u00A0');
 }
 
+/** Split text into Str/Space the way pandoc readers do. */
 function textInlines(raw: string): P.Inline[] {
     const value = resolvedSpaces(raw);
     const out: P.Inline[] = [];
@@ -350,11 +340,19 @@ function textInlines(raw: string): P.Inline[] {
 function verbatimInlines(raw: string): P.Inline[] {
     const value = resolvedSpaces(raw);
     const out: P.Inline[] = [];
-    for (const part of value.split(/( )/)) {
-        if (part === '') continue;
-        if (part === ' ') out.push(P.Space);
-        else out.push(P.Str(part));
-    }
+    // A LITERAL MAY SPAN A LINE BREAK, and a newline left inside a Str reaches
+    // every writer verbatim - the same defect the missing-reference fallback
+    // above already fixed. `!` + "b\nc d" produced Str("b\nc"), which is not a
+    // shape pandoc's model admits: a Str holds no whitespace, breaks are nodes.
+    // Split on the newline first, then on spaces within each line.
+    value.split(/\r?\n/).forEach((line, at) => {
+        if (at > 0) out.push(P.SoftBreak);
+        for (const part of line.split(/( )/)) {
+            if (part === '') continue;
+            if (part === ' ') out.push(P.Space);
+            else out.push(P.Str(part));
+        }
+    });
     return out;
 }
 
@@ -635,6 +633,14 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // verbatimInlines, not textInlines: the content is captured verbatim,
             // so runs of spaces must survive rather than collapse to one Space.
             const text = verbatimInlines(String(n.content ?? ''));
+            // IN ROUNDTRIP MODE THE CONSTRUCT ITSELF HAS TO SURVIVE, not only
+            // its characters. Plain text loses the capture: `::: |` + "a !`b\nc
+            // d" came back as two line-block lines, because what suppressed the
+            // break was the literal, and nothing downstream could tell that the
+            // newline had been inside one. The text stays visible inside the
+            // Span, so a non-roundtrip consumer of this same document reads
+            // exactly what it read before.
+            if (ctx.roundtrip) return [P.Span(provenanceAttr('literal-inline', n), text)];
             return hasAttrs(n.attrs as CAttrs | undefined)
                 ? [P.Span(toAttr(n.attrs), text)]
                 : text;
@@ -772,6 +778,21 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             return [note];
         }
         case 'math':
+            // PANDOC'S `Math` IS `Math MathType Text` - two children and no
+            // `Attr`, so an attribute block on a math span has nowhere to live.
+            // It cannot be carried without inventing a slot pandoc does not
+            // have or leaking it onto a neighbouring node, so it goes; what it
+            // must not do is go quietly, which is what it did until now. An
+            // accessible name is exactly the kind of attribute whose silent
+            // loss nobody notices until the output is read by a screen reader.
+            if (hasAttrs(n.attrs as CAttrs | undefined)) {
+                warn(
+                    ctx,
+                    "math: attributes on a math span are dropped - pandoc's Math node has no Attr slot",
+                    { construct: 'math', display: n.display === true },
+                    n.pos,
+                );
+            }
             return [
                 n.display
                     ? P.MathDisplay(String(n.content ?? ''))
@@ -1523,6 +1544,37 @@ function table(
             while (n < row.length && row[n]!.header === true) n++;
             return Math.min(n, width);
         };
+        // A ROW HEADER OUTSIDE THE LEADING RUN HAS NOWHERE TO GO, and until now
+        // it went nowhere QUIETLY. `RowHeadColumns` is a count of the row's
+        // FIRST cells, so `| =h |= i |` - a data cell, then a row header -
+        // cannot be said at all: pandoc's `Cell` carries no header flag, and
+        // splitting into more bodies only partitions ROWS, never columns.
+        //
+        // Splitting the run (below) fixed the rows that disagreed with each
+        // other. This is the remaining case, where the cells disagree WITHIN a
+        // row, and it is a limit of pandoc's model rather than something the
+        // bridge can spell. Reporting it is the whole of what can be done, and
+        // it is worth more than it looks: the silence is what let the loss ride
+        // along unnoticed while the corpus round trip was computed with an
+        // engine too old to produce the shape in the first place.
+        for (let r = headCount; r < rows.length; r++) {
+            const row = rows[r]!;
+            const lead = leadOf(row);
+            const strays = row.reduce(
+                (count, cell, at) => (at >= lead && cell.header === true ? count + 1 : count),
+                0,
+            );
+            if (strays > 0) {
+                warn(
+                    ctx,
+                    `table: a row header outside the leading run is dropped - pandoc's RowHeadColumns ` +
+                        `counts a row's FIRST cells, and row ${r + 1} marks ${strays} header cell(s) after ` +
+                        `${lead} unmarked one(s), which its model cannot express`,
+                    { construct: 'table', row: r + 1, rowHeadColumns: lead, dropped: strays },
+                    n.pos,
+                );
+            }
+        }
         let at = headCount;
         while (at < rows.length) {
             const lead = leadOf(rows[at]!);
