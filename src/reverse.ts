@@ -907,7 +907,26 @@ function table(
     // readable, needs no extension, and round-trips. Block cells remain the one
     // reason to leave, because a Carve `table_cell` holds INLINES and there is
     // no pipe form for a cell holding blocks at all.
-    const useListTable = hasBlockCells || (ctx.target === 'source' && footRaw.length > 0);
+    //
+    // A FOOT USED TO BE A SECOND REASON, AND IT WAS A REAL ONE AT THE TIME.
+    // The clause read `|| (ctx.target === 'source' && footRaw.length > 0)`.
+    // Measured on the engine each side of the change, on the same source:
+    //
+    //     {header-rows=1 footer-rows=1}
+    //     |= Region |= Total |
+    //     |= North | 11 |
+    //     | All | 33 |
+    //
+    // carve-js 0.1.3 (the pin in force when the clause was written) produced no
+    // `rowGroups` at all and leaked the keys as literal HTML attributes -
+    // `<table header-rows="1" footer-rows="1">` with every row in one `<tbody>`.
+    // carve-js 0.1.4 (the pin now) produces
+    // `{headRows:1, bodies:[{headRows:0, bodyRows:1}], footRows:1}` and renders
+    // a real `<tfoot>`. The spelling landed in the spec one day AFTER the clause
+    // (corpus 376, spec f074372), so at the time the pipe form genuinely could
+    // not carry a foot and the list-table detour was the only way to keep it.
+    // The limitation is gone, so the detour is too.
+    const useListTable = hasBlockCells;
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -987,7 +1006,6 @@ function table(
             attrs: fromAttr(a),
             colAligns,
             colWidths: columns.map((column) => column.width),
-            reason: hasBlockCells ? 'block-cells' : 'foot',
         });
     }
 
@@ -1002,7 +1020,19 @@ function table(
         node.rowGroups = groups;
         reportUnspellableGroups(ctx, groups);
     }
-    const attrs = fromAttr(a);
+    // BOTH OF THESE ARE THE SOURCE WRITER'S BUSINESS ONLY. On the `ast` target
+    // the partition stays in `rowGroups`, where it is exact: there is no
+    // attribute line to state it on, so stating it would invent attributes the
+    // pandoc table never carried, and no read-back to merge the bodies, so the
+    // merge has no cost to report.
+    const stated = ctx.target === 'source' && footRaw.length > 0;
+    reportRunsAStatedPartitionMerges(ctx, {
+        leads: allRaw.map((_, r) => (isHeaderRow[r] === true ? nCols : rowHeadCols[r] ?? 0)),
+        from: headRaw.length,
+        to: allRaw.length - footRaw.length,
+        stated,
+    });
+    const attrs = ctx.target === 'source' ? statePartition(fromAttr(a), groups) : fromAttr(a);
     if (attrs) node.attrs = attrs;
     const captionInlines = captionInlinesFor();
     if (captionInlines?.length) node.caption = captionInlines;
@@ -1013,16 +1043,117 @@ function table(
 }
 
 /**
+ * A STATED PARTITION IS ONE BODY, and one body carries one row-header count.
+ *
+ * The count is not written down anywhere - `RowHeadColumns` has no spelling on
+ * the attribute line - so the reader derives it from the leading `|=` run of the
+ * body rows. It can only take a count every row agrees on: a declared body's
+ * boundaries were stated, so it cannot split at a change the way the derived
+ * bodies do. Rows that disagree therefore come back as data cells.
+ *
+ * That only bites once the partition IS stated, which here means once there is a
+ * foot. Without one the reader splits freely and every run survives, which is
+ * why the pipe path's loss report does not name row-head columns in general.
+ *
+ * Reported from the writer because the writer is the only side that knows the
+ * runs it just wrote: by the time the source is read back, the disagreement is
+ * all that is left of them.
+ */
+function reportRunsAStatedPartitionMerges(
+    ctx: Ctx,
+    input: { leads: number[]; from: number; to: number; stated: boolean },
+): void {
+    const { leads, from, to, stated } = input;
+    if (!stated) return;
+    const distinct = new Set(leads.slice(from, to));
+    if (distinct.size < 2) return;
+    warn(
+        ctx,
+        'table: the body rows disagree on how many leading cells are row headers '
+        + `(${[...distinct].sort((x, y) => x - y).join(', ')}), and stating the foot states `
+        + 'the whole partition as ONE body - the reader takes a count every row agrees on, so '
+        + 'those cells come back as data cells',
+    );
+}
+
+/**
+ * State the head and foot row counts on the pipe table's attribute line.
+ *
+ * A FOOT HAS NO OTHER SPELLING, and stating it states the whole partition.
+ * Measured on the engine, on a table whose first row is marked `|= ... |= ... |`:
+ *
+ *     {footer-rows=1}
+ *     |= Region |= Total |
+ *     | North | 11 |
+ *     | All | 33 |
+ *
+ * comes back `{headRows: 0, bodies: [{headRows: 0, bodyRows: 2}], footRows: 1}`
+ * - the header row falls into the body and its cells become `<th scope="row">`.
+ * The counts are read as the partition, not as a correction to the one the
+ * markers imply, so `header-rows` has to be stated alongside `footer-rows` or
+ * the head is lost to the very block that saved the foot.
+ *
+ * Nothing is stated when there is no foot: a leading run of header rows is
+ * spelled by the `|=` markers on those rows and needs no count. Measured, two
+ * such rows with no attribute line render a two-row `<thead>`. The reserved keys
+ * are still dropped in that case - see below.
+ *
+ * BOTH KEYS ARE DROPPED FIRST, WHATEVER THE PARTITION IS. A pandoc document
+ * that arrived from outside can carry them on the table's `Attr` - the forward
+ * direction filters its own copies out, but nothing filters someone else's - and
+ * the emitted pipe table would then be partitioned by a number that describes no
+ * row of it. Measured on a head-and-two-body-rows table whose `Attr` said
+ * `footer-rows=1` and whose structure had no foot: the writer emitted
+ * `{footer-rows=1}` above it and the read-back came back head 0, foot 1. Keeping
+ * a key only because the partition has nothing to say about it is how a stale
+ * number outranks the rows.
+ */
+function statePartition(attrs: CAttrs | undefined, groups: RowGroups): CAttrs | undefined {
+    const keyValues: Record<string, string> = { ...(attrs?.keyValues ?? {}) };
+    delete keyValues['header-rows'];
+    delete keyValues['footer-rows'];
+    if (groups.footRows > 0) {
+        if (groups.headRows > 0) keyValues['header-rows'] = String(groups.headRows);
+        keyValues['footer-rows'] = String(groups.footRows);
+    }
+    const order = [...(attrs?.order ?? [])];
+    const hasKeys = Object.keys(keyValues).length > 0;
+    if (hasKeys && !order.includes('key')) order.push('key');
+    if (!hasKeys) {
+        const at = order.indexOf('key');
+        if (at >= 0) order.splice(at, 1);
+    }
+    if (!order.length) return undefined;
+    const out: CAttrs = { order };
+    if (attrs?.id) out.id = attrs.id;
+    if (attrs?.classes?.length) out.classes = attrs.classes;
+    if (hasKeys) out.keyValues = keyValues;
+    return out;
+}
+
+/**
  * What a `rowGroups` partition says that the PIPE form cannot say back.
  *
  * The partition itself is not a degradation - it reaches the exchange AST
  * intact, and `pandocToCarveAst` hands it on whole. The loss happens one step
- * later, in the source writer: PART 9 §16's pipe table spells a leading run of
- * header rows and nothing else, so a foot, a second body group, a body's own
- * intermediate header rows, its row-head columns and its attributes all come
- * out as ordinary body rows. PART 12 §15 says so in as many words and asks for
- * exactly this - "a canonical Carve writer loses it ... conversion APIs with
- * diagnostics should report that loss".
+ * later, in the source writer: a pipe table states the head and the foot on its
+ * attribute line and nothing else, so a second body group, a body's own
+ * intermediate header rows and its attributes come out as ordinary body rows.
+ * PART 12 §15 says so in as many words and asks for exactly this - "a canonical
+ * Carve writer loses it ... conversion APIs with diagnostics should report that
+ * loss".
+ *
+ * THE FOOT IS NOT ON THAT LIST ANY MORE, AND IT WAS. `{header-rows=N
+ * footer-rows=M}` before a pipe table is what the `rowGroups` note in
+ * docs/ast-json.md calls "the simple partition spelled by `header-rows` /
+ * `footer-rows`", and the engine synthesizes it - measured, see the note beside
+ * `useListTable`. Naming it here reported a loss that no longer happens, on the
+ * one construct the writer had just started spelling.
+ *
+ * ROW-HEAD COLUMNS ARE NOT ON IT EITHER, for the reason the note beside
+ * `rowHeadCols` gives: the pipe table marks those cells (`|= North | 11 |`) and
+ * the forward direction reads the count back off exactly that run. Measured in
+ * both shapes, with a foot and without.
  *
  * The wording follows the `shortCaption` precedent: it names where the value
  * DOES survive, because on the `pandocToCarveAst` path nothing is lost at all
@@ -1032,16 +1163,14 @@ function table(
  */
 function reportUnspellableGroups(ctx: Ctx, groups: RowGroups): void {
     const lost: string[] = [];
-    if (groups.footRows > 0) lost.push(`a foot of ${groups.footRows} row(s)`);
     if (groups.bodies.length > 1) lost.push(`${groups.bodies.length} body groups`);
     if (groups.bodies.some((b) => b.headRows > 0)) lost.push("a body's intermediate header rows");
-    if (groups.bodies.some((b) => (b.rowHeadColumns ?? 0) > 0)) lost.push('row-head columns');
     if (groups.bodies.some((b) => b.attrs !== undefined)) lost.push("a body group's attributes");
     if (!lost.length) return;
     warn(
         ctx,
         `table: ${lost.join(', ')} - preserved in the Carve AST as \`rowGroups\`, `
-        + 'but a pipe table spells only a leading run of header rows, so the '
+        + 'but a pipe table states only its head and foot row counts, so the '
         + 'emitted source flattens them into body rows',
     );
 }
@@ -1070,8 +1199,6 @@ interface ListTableInput {
     attrs: CAttrs | undefined;
     colAligns: string[];
     colWidths: Array<number | undefined>;
-    /** Why the pipe form was left, which is what the opening diagnostic says. */
-    reason: 'block-cells' | 'row-head-columns' | 'foot';
 }
 
 /**
@@ -1090,12 +1217,14 @@ interface ListTableInput {
  * each intermediate header row.
  */
 function listTable(ctx: Ctx, input: ListTableInput): CNode {
-    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, colWidths, reason } = input;
-    if (reason !== 'foot') warn(
+    const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, colWidths } = input;
+    // One reason is left to be here, so the diagnostic states it rather than
+    // selecting between three strings two of which nothing could reach: row-head
+    // columns are marked on the cells and a foot is stated on the attribute
+    // line, both in the pipe form.
+    warn(
         ctx,
-        reason === 'block-cells'
-            ? 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)'
-            : 'table: row-head columns, which a pipe table cannot spell - emitted as a `::: list-table` with `header-cols` (structure preserved)',
+        'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)',
     );
     if (bodies.some((b) => b.attrs)) {
         warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');

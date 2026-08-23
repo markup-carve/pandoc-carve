@@ -207,13 +207,14 @@ a processor with neither extension enabled would render.
   against `resources/ast-schema.json` can still be incoherent - the bridge
   checks it itself rather than trusting a green validator.
 - A pandoc table with block content in a cell (a list, two paragraphs, a code
-  block) is imported as `::: list-table` rather than a pipe table. PART 9 §16's
-  pipe-table cell holds inlines, so there is no pipe form for it, and the
-  extension's cells are list items that hold full blocks. Structure is
-  preserved; three things the extension does not spell are reported instead -
-  per-column alignment, a foot, and a body group's intermediate header rows.
-  It converts back to the pandoc table by default; `listTable: false` returns
-  the degraded div instead.
+  block) is imported as `::: list-table` rather than a pipe table, and that is
+  now the ONLY reason a table leaves the pipe form. PART 9 §16's pipe-table cell
+  holds inlines, so there is no pipe form for it, and the extension's cells are
+  list items that hold full blocks. Structure is preserved; what the extension
+  cannot spell is reported instead - a body group's attributes, a body boundary
+  no header row marks, and body groups that disagree on their row-head column
+  count. It converts back to the pandoc table by default; `listTable: false`
+  returns the degraded div instead.
 - A pandoc table with ROW-HEAD COLUMNS stays a pipe table. `RowHeadColumns` says
   the leading N cells of every body row are row headers, and a pipe table says
   that per cell: `|= Mercury | 4,879.4 |` is a `<th scope="row">`. Marking the
@@ -278,11 +279,18 @@ a processor with neither extension enabled would render.
   lists, lists of maps, scalars, booleans - round-trips too.
 - A `rowGroups` partition (a foot, several body groups, a body's own header
   rows or row-head columns) survives into the exchange AST, so
-  `pandocToCarveAst` hands it on whole - but PART 9 section 16's pipe table
-  spells only a leading run of header rows, so `pandocToCarve` flattens the
-  rest into body rows and says so. Row-head columns are the exception - the pipe
-  table marks them on the cells (above). Use the AST entry point when a foot or
-  a second body group has to survive.
+  `pandocToCarveAst` hands it on whole. `pandocToCarve` spells most of it too: a
+  pipe table states its head and foot row counts on its attribute line
+  (`{header-rows=2 footer-rows=1}`) and marks its row headers on the cells, so
+  what flattens into body rows is a second body group and a body's own
+  intermediate header rows and attributes - reported, not dropped quietly. Use
+  the AST entry point when a second body group has to survive.
+- Stating the foot states the whole partition, and a stated partition is ONE
+  body. A body carries one `RowHeadColumns`, so when the body rows disagree on
+  how many leading cells are row headers, a table with a foot cannot keep them:
+  the reader takes a count every row agrees on, and the disagreement is reported
+  from both directions. Without a foot the reader splits a body at every change
+  and every run survives.
 - A marker on a HEAD cell (`|=> Name |`) is the column's alignment and becomes
   pandoc's `ColSpec`; a marker on a BODY cell (`|> 12 |`) aligns that cell alone
   and becomes the cell's own `Alignment`. The two are not interchangeable: a
