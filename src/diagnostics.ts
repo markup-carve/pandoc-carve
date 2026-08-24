@@ -41,6 +41,7 @@ const RULES: Rule[] = [
     { test: /^frontmatter: value/, code: 'frontmatter-value-skipped', severity: 'lossy' },
     { test: /^meta: .*empty/, code: 'metadata-empty-blocks-skipped', severity: 'lossy' },
     { test: /^meta:/, code: 'metadata-value-skipped', severity: 'lossy' },
+    { test: /^definition list: looseness/, code: 'definition-list-looseness-widened', severity: 'normalized' },
     { test: /^definition list:/, code: 'definition-entry-skipped', severity: 'lossy' },
     { test: /^ordered list:/, code: 'ordered-list-marker-normalized', severity: 'normalized' },
     { test: /^math: attributes/, code: 'math-attributes-dropped', severity: 'lossy' },

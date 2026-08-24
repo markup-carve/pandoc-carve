@@ -179,31 +179,6 @@ const KNOWN_LOSSY = new Set([
   '345-a-line-block-s-hard-break-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash-2.crv',
   '346-a-line-block-s-last-body-line-keeps-its-backslash.crv',
-  // A DEFINITION LIST'S SPELLED LOOSENESS IS NOT PUBLISHED BY THE ENGINE YET.
-  //
-  // PART 9 section 17's consumed `loose` boolean is the only way to say that a
-  // one-block description renders as blocks - a blank line needs two blocks to
-  // stand between, so `<dd><p>x</p></dd>` has no blank-line spelling at any
-  // entry count (carve#1623). PART 12 section 8 publishes the fact as
-  // `definition_list.loose`, and spec/resources/ast-schema.json at this pin
-  // carries the property.
-  //
-  // The engine does not write it. Measured against carve-js 0.1.4, the build
-  // this package pins, with no pandoc in the loop at all:
-  //
-  //     carveToAstJson('{loose}\n:: T\n:  a\n').children[0]
-  //       -> { type, items, pos }        // no `loose`
-  //     renderHtml(fromAstJson(that))    // <dd>a</dd>, not <dd><p>a</p></dd>
-  //
-  // src/ast-json.ts hands the structural mapping to the engine's own
-  // `toAstJson`, so the flag is gone before this bridge sees a node, and
-  // nothing here can put it back: `convert.ts` reads the wire shape. The LIST
-  // half of the same ruling round-trips fine, because `list` has carried
-  // `tight` all along and pandoc spells it as Plain versus Para.
-  //
-  // Filed upstream as markup-carve/carve-js#1409. This entry comes off the
-  // moment that lands - the "no longer lossy" check below requires it.
-  '407-one-consumed-boolean-spells-the-looseness-no-blank-line-can-2.crv',
   '45-inline-extensions-12.crv',
   '45-inline-extensions-13.crv',
   '45-inline-extensions-7.crv',
