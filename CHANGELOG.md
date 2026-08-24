@@ -31,23 +31,39 @@
   `main`. The previous engine rendered 1141 of 1370 corpus documents correctly,
   so the round trip computed both of its sides with it and wrong readings
   cancelled; the two documents #135 reported now round-trip on the fixed engine
-  (#135, #137, markup-carve/carve-js#1342, markup-carve/carve-js#1359).
+  (#135, #137, #139, markup-carve/carve-js#1342, markup-carve/carve-js#1359).
 
 ### Fixed
 
+- A pandoc table with a foot comes back as a pipe table again instead of
+  detouring through `::: list-table`: the pipe form states its head and foot row
+  counts on the table's attribute line, which the engine could not read when the
+  detour was written. Block cells are now the only reason a table leaves the
+  pipe form (#138, #141).
+- A table that states a partition keeps its row headers. `RowHeadColumns` was
+  derived only when nothing declared one, so a table with a foot lost every
+  `|= North | 11 |` in silence while the same table without a foot kept them
+  (#138, #141).
+- `header-rows` and `footer-rows` on a Carve table no longer travel to Pandoc as
+  literal table attributes as well as the partition, where a stale count
+  outranked every row of the table on the way back (#141).
+- The pipe path stops reporting a table's foot and its row-head columns as lost,
+  because neither is lost now. Two shapes Pandoc genuinely cannot hold are
+  reported instead of dropped in silence: a foot row's row header, and body rows
+  that disagree on their row-head column count under a stated partition (#141).
 - Inline literals survive the round trip: a literal spanning a line break no
   longer puts a newline inside a Pandoc `Str` and no longer gains a hard break,
   and a literal of nothing but spaces is no longer collapsed away. Two documents
-  come off the known-loss ledger (#137).
+  come off the known-loss ledger (#137, #139).
 - `<==` and `<=>` reach Pandoc as their glyphs instead of the author's source
   run, so they no longer come back backslash-escaped. The bridge imports the
   engine's glyph table rather than keeping a copy of it
-  (markup-carve/carve#355) (#137).
+  (markup-carve/carve#355) (#137, #139).
 - Attributes on a math span, and a row header outside a row's leading run, are
   now reported as `math-attributes-dropped` and
   `table-row-head-outside-leading-run`. Neither can be carried - Pandoc's `Math`
   has no `Attr` and `RowHeadColumns` counts only a row's first cells - but both
-  used to be dropped with no diagnostic at all (#137).
+  used to be dropped with no diagnostic at all (#137, #139).
 - `package.json` is importable, so the installed version can be read back
   (#127, #126). The subpath was not in `exports`, so reading it threw
   `ERR_PACKAGE_PATH_NOT_EXPORTED` - which reads as the package being absent
