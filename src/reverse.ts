@@ -772,7 +772,48 @@ function definitionList(ctx: Ctx, c: never): CNode {
             definitions: defs.map((d) => blocks(ctx, d)),
         };
     });
-    return { type: 'definition_list', items };
+    const node: CNode = { type: 'definition_list', items };
+    if (needsLooseKey(ctx, rawItems)) node.loose = true;
+    return node;
+}
+
+/*
+ * A description renders as an inline run or as blocks, and Carve spells the
+ * difference with a blank line. A blank line needs two blocks to stand between,
+ * so a description that is ONE loose block has no blank-line spelling at all -
+ * PART 9 section 17's consumed `loose` boolean is the only way to say it
+ * (carve#1623, corpus 407).
+ *
+ * Pandoc keeps the fact as `Plain` versus `Para` inside the definition, and
+ * convert.ts writes that distinction rather than `Para` for everything, so it
+ * survives the forward trip. Without the key here the reverse direction dropped
+ * it and a wrapped description came back unwrapped, silently - nothing in the
+ * pandoc tree was missing.
+ *
+ * The key is CONTAINER-WIDE, and a description of two or more blocks is already
+ * loose from the blank line between them, so it is set only when some
+ * description cannot spell its own looseness: exactly one block, and that block
+ * a `Para`. Redundant use is a legal no-op, which is what makes the mixed case
+ * below expressible at all.
+ */
+function needsLooseKey(ctx: Ctx, rawItems: [PandocNode[], PandocNode[][]][]): boolean {
+    const definitions = rawItems.flatMap(([, defs]) => defs);
+    const unspellable = definitions.filter((d) => d.length === 1 && d[0]?.t === 'Para');
+    if (!unspellable.length) return false;
+    // The key loosens EVERY description, so a `Plain` one beside an unspellable
+    // `Para` cannot keep its inline run. Carve has no per-entry spelling for
+    // that - no Carve document reaches the shape, only a pandoc tree from
+    // elsewhere does - so it is reported rather than silently widened.
+    const inline = definitions.filter((d) => d.length === 1 && d[0]?.t === 'Plain');
+    if (inline.length) {
+        warn(
+            ctx,
+            'definition list: looseness is a property of the whole list in Carve, so '
+            + inline.length + ' inline description(s) gain a paragraph wrapper alongside '
+            + 'the ' + unspellable.length + ' that need the loose key',
+        );
+    }
+    return true;
 }
 
 // --- Tables ---

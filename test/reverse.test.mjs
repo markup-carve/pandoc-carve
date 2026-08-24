@@ -21,6 +21,44 @@ test('reverse: emphasis family round-trips to source syntax', () => {
   }
 });
 
+test("reverse: a description's looseness comes back, in both spellings", () => {
+  // A blank line can stand between two blocks, so that spelling returns as itself.
+  assert.ok(roundtrip(':: Term\n:  first\n\n   second').includes('\n\n'));
+
+  // One block has nowhere to put a blank line, so the consumed `loose` key is
+  // the only spelling and the reverse direction has to write it back. Without
+  // it a wrapped description returned unwrapped and nothing said so.
+  const back = roundtrip('{loose}\n:: Term\n:  only');
+  assert.ok(back.startsWith('{loose}'), back);
+
+  // Not written where a blank line already says it, or where nothing does.
+  assert.ok(!roundtrip(':: Term\n:  only').includes('{loose}'));
+});
+
+test('reverse: a pandoc list mixing inline and block descriptions is reported', () => {
+  // Carve's key is container-wide, so this shape has no per-entry spelling. No
+  // Carve document reaches it; a pandoc tree from elsewhere does.
+  const doc = {
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [
+      {
+        t: 'DefinitionList',
+        c: [
+          [[{ t: 'Str', c: 'A' }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'inline' }] }]]],
+          [[{ t: 'Str', c: 'B' }], [[{ t: 'Para', c: [{ t: 'Str', c: 'block' }] }]]],
+        ],
+      },
+    ],
+  };
+  const { carve, warnings } = pandocToCarve(doc);
+  assert.ok(carve.startsWith('{loose}'), carve);
+  assert.ok(
+    warnings.some((w) => w.includes('looseness is a property of the whole list')),
+    warnings.join(' | '),
+  );
+});
+
 test('reverse: heading attrs, code block title, raw blocks', () => {
   const out = roundtrip('{#id .cls}\n## Head\n\n```python "f.py"\nx=1\n```\n\n```=html\n<hr>\n```');
   assert.ok(out.includes('{#id .cls}'));

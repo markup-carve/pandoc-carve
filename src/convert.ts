@@ -1193,6 +1193,14 @@ function untight<T>(ctx: Ctx, fn: () => T): T {
     return result;
 }
 
+function withTight<T>(ctx: Ctx, tight: boolean, fn: () => T): T {
+    const prev = ctx.tight;
+    ctx.tight = tight;
+    const result = fn();
+    ctx.tight = prev;
+    return result;
+}
+
 // --- Lists ---
 
 const OL_TYPE: Record<string, P.ListNumberStyle> = {
@@ -1249,6 +1257,9 @@ function prefixTaskMarker(itemBlocks: P.Block[], checked: boolean): P.Block[] {
  */
 function definitionList(ctx: Ctx, n: CNode): P.Block {
     const entries = (n.items as CNode[] | undefined) ?? [];
+    // PART 9 section 17's consumed `loose` boolean, published on the wire as
+    // `definition_list.loose` (PART 12 section 8).
+    const spelledLoose = n.loose === true;
     const converted: [P.Inline[], P.Block[][]][] = [];
     let terms: P.Inline[][] = [];
     let defs: P.Block[][] = [];
@@ -1270,7 +1281,19 @@ function definitionList(ctx: Ctx, n: CNode): P.Block {
             if (defs.length) flush();
             terms.push(inlines(ctx, entry.children as CNode[] | undefined));
         } else if (entry?.type === 'definition_description') {
-            defs.push(untight(ctx, () => blocks(ctx, entry.children as CNode[] | undefined)));
+            // A DESCRIPTION IS AN INLINE RUN OR A SEQUENCE OF BLOCKS, and pandoc
+            // spells that difference the same way Carve renders it: `Plain`
+            // versus `Para`, which is the distinction its own markdown reader
+            // makes for a compact versus a loose definition list.
+            //
+            // Two spellings reach the loose reading. A blank line between two
+            // blocks is one, and it needs two blocks to stand between - so a
+            // ONE-block description has no blank-line spelling and the consumed
+            // `loose` key is the only way to say it (carve#1623). This read
+            // `untight` unconditionally, which wrote `Para` for every
+            // description and lost the axis before the tree left the bridge.
+            const children = (entry.children as CNode[] | undefined) ?? [];
+            defs.push(withTight(ctx, !spelledLoose && children.length <= 1, () => blocks(ctx, children)));
         } else {
             warn(ctx, `definition list: unknown entry type "${String(entry?.type)}" - skipped`);
         }

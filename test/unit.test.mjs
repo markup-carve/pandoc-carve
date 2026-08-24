@@ -232,7 +232,22 @@ test('definition list', () => {
   assert.equal(dl.t, 'DefinitionList');
   const [term, defs] = dl.c[0];
   assert.deepEqual(term[0], { t: 'Str', c: 'Term' });
-  assert.equal(defs[0][0].t, 'Para');
+  // The SAME distinction the list test above pins: an inline-run description
+  // is `Plain`, exactly as `<dd>Definition body</dd>` renders it. This asserted
+  // `Para` for every description, which is what the converter used to write,
+  // and it is what made a spelled-loose list indistinguishable from this one.
+  assert.equal(defs[0][0].t, 'Plain');
+});
+
+test("a definition description's looseness reaches pandoc, in both spellings", () => {
+  // Two blocks: the blank line between them is the loose spelling.
+  const [twoBlocks] = blocks(':: Term\n:  first\n\n   second');
+  assert.deepEqual(twoBlocks.c[0][1][0].map((b) => b.t), ['Para', 'Para']);
+
+  // One block: no blank line can stand anywhere, so PART 9 section 17's
+  // consumed `loose` key is the only spelling, and it must still arrive.
+  const [spelled] = blocks('{loose}\n:: Term\n:  only');
+  assert.equal(spelled.c[0][1][0][0].t, 'Para');
 });
 
 test('blockquote and thematic break', () => {
