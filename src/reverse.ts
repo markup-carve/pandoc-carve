@@ -667,9 +667,19 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
 function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: boolean } {
     let tight = true;
     const converted = items.map((item) => {
-        if (item.some((b) => b.t === 'Para')) tight = false;
-        const children = blocks(ctx, item);
+        let source = item;
+        let attrs: CAttrs | undefined;
+        if (item.length === 1 && item[0]?.t === 'Div') {
+            const [attr, inner] = item[0].c as [Attr, PandocNode[]];
+            if (attr[2].some(([key, value]) => key === 'carve-list-item' && value === 'true')) {
+                attrs = fromAttr([attr[0], attr[1], attr[2].filter(([key]) => key !== 'carve-list-item')]);
+                source = inner;
+            }
+        }
+        if (source.some((b) => b.t === 'Para')) tight = false;
+        const children = blocks(ctx, source);
         const node: CNode = { type: 'list_item', children };
+        if (attrs) node.attrs = attrs;
         stripTaskMarker(node);
         return node;
     });
