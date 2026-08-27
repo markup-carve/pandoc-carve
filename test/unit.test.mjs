@@ -599,9 +599,11 @@ test('a stanza break is an empty line', () => {
   assert.deepEqual(lb.c.map((line) => line.length === 0), [false, false, true, false]);
 });
 
-test('the div spelling of a line block is recognized too', () => {
-  const [lb] = blocks('{.line-block}\n:::\none\ntwo\n:::');
-  assert.equal(lb.t, 'LineBlock');
+test('a generic div called line-block keeps its soft newline semantics', () => {
+  const [div] = blocks('{.line-block}\n:::\none\ntwo\n:::');
+  assert.equal(div.t, 'Div');
+  assert.equal(div.c[1][0].t, 'Para');
+  assert.equal(div.c[1][0].c.some((inline) => inline.t === 'LineBreak'), false);
 });
 
 // Pandoc's LineBlock has no attribute slot, so an attributed div stays a Div

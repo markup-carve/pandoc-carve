@@ -94,10 +94,6 @@ const WITHDRAWN = new Map([
     'test/spec-citations.test.mjs',
     new Map([
       ['PART 9 §4a', 'named by this ledger and by the self-check below, which pins it as absent.'],
-      [
-        'PART 11 §10d',
-        'the writer-side half of the same withdrawal (markup-carve/carve#1213); PART 11 runs 10c then 10e. Named by the self-check below, which pins it as absent.',
-      ],
     ]),
   ],
 ])
@@ -161,7 +157,7 @@ test('the grammar splits into PARTs the way this test assumes', () => {
   // future pin brings either back, this says so at the one place that explains
   // why the repo talks about them in the past tense.
   assert.ok(!clauseExists(9, '4a'), 'PART 9 §4a resolved, but it was withdrawn by markup-carve/carve#1213')
-  assert.ok(!clauseExists(11, '10d'), 'PART 11 §10d resolved, but it was withdrawn by markup-carve/carve#1213')
+  assert.ok(clauseExists(11, '10d'), 'PART 11 §10d did not resolve after the clause label was reused')
 })
 
 test('every spec clause this repo cites still exists', () => {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-08-27
+
 ### Added
 
 - Pandoc table columns and feet cross the bridge: `ColSpec` alignment and widths
@@ -23,17 +25,28 @@
 
 ### Changed
 
-- The Carve engine dependency is a `github:` commit pin again rather than the
-  `^0.1.4` registry range that 0.1.2 shipped, so installing this package clones
-  carve-js over git once more, with no integrity hash and git reachable at
-  install time (#110, #115).
-- The Carve engine pin and the spec corpus submodule advance to current
-  `main`. The previous engine rendered 1141 of 1370 corpus documents correctly,
-  so the round trip computed both of its sides with it and wrong readings
-  cancelled; the two documents #135 reported now round-trip on the fixed engine
-  (#135, #137, #139, markup-carve/carve-js#1342, markup-carve/carve-js#1359).
+- The Carve engine moves to published `@markup-carve/carve 0.1.5`, which now
+  carries the table-column metadata and ListTable local headers that originally
+  required a Git pin. Installation is registry-backed again: no Git clone at
+  install time, an integrity hash is recorded, and the release guard needs no
+  dependency exemption.
+- The spec corpus submodule advances to the exact commit carve-js 0.1.5 pins.
+  All 1538 documents convert, validate against the current AST schema, avoid
+  unknown-node degradation, and pass the maintained round-trip ledger. The two
+  documents #135 reported now round-trip on the fixed engine (#135, #137, #139,
+  markup-carve/carve-js#1342, markup-carve/carve-js#1359).
 
 ### Fixed
+
+- List-item attributes now survive the Pandoc round trip, including task items,
+  nested lists and loose ordered items. The engine's current AST exposes these
+  attributes directly; the bridge had silently discarded them.
+- An ordinary div whose author chose the class `line-block` remains an ordinary
+  div. Only the structural `line_block` node becomes Pandoc `LineBlock`, avoiding
+  the hard line breaks that changed the generic div's rendered output.
+- The round-trip ledger drops ten cases fixed by the current engine and the
+  list-item mapping, including the two nested-definition cases, and the spec
+  citation gate recognizes the reused PART 11 §10d clause.
 
 - A pandoc table with a foot comes back as a pipe table again instead of
   detouring through `::: list-table`: the pipe form states its head and foot row

@@ -70,16 +70,11 @@ const KNOWN_LOSSY = new Set([
   '107-colspan-marker-scans-left-past-a-consumed-cell.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
-  '172-attribute-braces-on-a-list-item-marker-line.crv',
   '173-implicit-heading-references-with-no-definition.crv',
-  '174-bare-dot-ordered-markers-3.crv',
   '21-math-2.crv',
-  '215-a-marker-attribute-may-hold-a-quoted-brace.crv',
   '22-footnotes-4.crv',
   '22-footnotes-5.crv',
   '221-a-heading-reference-folds-unicode-normalization-but-not-compatibility.crv',
-  '227-a-definition-inside-a-definition-list-dd-is-collected-and-the-entry-keeps-no-trace-2.crv',
-  '227-a-definition-inside-a-definition-list-dd-is-collected-and-the-entry-keeps-no-trace.crv',
   '23-inline-footnotes-2.crv',
   '252-a-tab-separates-two-attributes-and-pads-a-block-as-a-space-does-2.crv',
   // A ROW HEADER OUTSIDE THE LEADING RUN cannot be said in pandoc's model.
@@ -120,7 +115,6 @@ const KNOWN_LOSSY = new Set([
   '318-composite-figures-11.crv',
   '318-composite-figures-2.crv',
   '318-composite-figures-9.crv',
-  '322-an-attribute-block-reaches-the-nested-list-it-precedes-10.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
   // Pandoc ColSpec carries horizontal alignment and width, but has no vertical
@@ -189,10 +183,6 @@ const KNOWN_LOSSY = new Set([
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',
   '80-trailing-attribute-block-edge-cases.crv',
-  '90-list-item-attributes-2.crv',
-  '90-list-item-attributes-3.crv',
-  '90-list-item-attributes-4.crv',
-  '90-list-item-attributes.crv',
 ]);
 
 test('the round trip is measured against the whole corpus, not a sample', () => {

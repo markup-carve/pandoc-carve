@@ -1045,18 +1045,6 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
 }
 
 /**
- * True for the div form of a line block: the `line-block` class and nothing else
- * to preserve. A div that ALSO carries an id, other classes or key/values is a
- * div the author attributed, and Pandoc's LineBlock has no attribute slot to put
- * them in - so those stay a Div rather than lose the attributes.
- */
-function isLineBlockDiv(n: CNode, classes: string[]): boolean {
-    if (!classes.includes('line-block')) return false;
-    const [id, , kvs] = toAttr(n.attrs);
-    return classes.length === 1 && id === '' && kvs.length === 0;
-}
-
-/**
  * A line block's stanzas are its child paragraphs; within a stanza the lines are
  * separated by hard breaks. Pandoc's LineBlock is a flat list of lines, and a
  * blank line between stanzas is an EMPTY line - the same shape pandoc's own
@@ -1139,18 +1127,13 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         // its own and the leading whitespace is preserved. Pandoc has `LineBlock`
         // for exactly that.
         //
-        // BOTH spellings are handled, because the arm for the node type alone was
-        // unreachable: the PINNED published engine models `::: |` as a div
-        // carrying the `line-block` class, and only carve-js main emits a
-        // dedicated `line_block` node. So every line block a user could actually
-        // produce fell through to the Div branch and reached the writers as a
-        // classed paragraph, while the code that would have handled it sat
-        // waiting for a pin bump.
+        // The published 0.1.5 engine gives this construct its own node. A generic
+        // Div whose author chose the class `line-block` remains a Div: class
+        // names do not change the source construct's newline semantics.
         case 'line_block':
             return [lineBlock(ctx, n)];
         case 'div': {
             const [id, classes, kvs] = toAttr(n.attrs);
-            if (isLineBlockDiv(n, classes)) return [lineBlock(ctx, n)];
             return [
                 P.Div([id, classes, [...kvs, ...labelKv(ctx, n)]], [
                     ...labelCaption(ctx, n),
@@ -1220,6 +1203,13 @@ function list(ctx: Ctx, n: CNode): P.Block {
         ctx.tight = prev;
         if (typeof item.checked === 'boolean') {
             itemBlocks = prefixTaskMarker(itemBlocks, item.checked);
+        }
+        if (hasAttrs(item.attrs as CAttrs | undefined)) {
+            const [id, classes, kvs] = toAttr(item.attrs);
+            const marked: [string, string][] = ctx.roundtrip
+                ? [...kvs, ['carve-list-item', 'true']]
+                : kvs;
+            itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
         }
         return itemBlocks;
     });
