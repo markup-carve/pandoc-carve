@@ -669,10 +669,12 @@ function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: bo
     const converted = items.map((item) => {
         let source = item;
         let attrs: CAttrs | undefined;
+        let taskState: string | null = null;
         if (item.length === 1 && item[0]?.t === 'Div') {
             const [attr, inner] = item[0].c as [Attr, PandocNode[]];
             if (attr[2].some(([key, value]) => key === 'carve-list-item' && value === 'true')) {
-                attrs = fromAttr([attr[0], attr[1], attr[2].filter(([key]) => key !== 'carve-list-item')]);
+                taskState = readTaskState(attr[2]);
+                attrs = fromAttr([attr[0], attr[1], attr[2].filter(([key]) => key !== 'carve-list-item' && key !== TASK_STATE_KEY)]);
                 source = inner;
             }
         }
@@ -681,9 +683,22 @@ function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: bo
         const node: CNode = { type: 'list_item', children };
         if (attrs) node.attrs = attrs;
         stripTaskMarker(node);
+        // Only over a marker the forward direction actually wrote: the state
+        // pins `checked`, and PART 12 rejects an extended state on a checked
+        // item, so a hand-built envelope cannot make an unsatisfiable pair.
+        if (taskState && node.checked === false) node.taskState = taskState;
         return node;
     });
     return { items: converted, tight };
+}
+
+/** The roundtrip envelope's task-state slot; `src/convert.ts` writes it. */
+const TASK_STATE_KEY = 'carve-task-state';
+
+/** The extended states of PART 12's `taskState` enum, or null for anything else. */
+function readTaskState(kvs: [string, string][]): string | null {
+    const value = kvs.find(([key]) => key === TASK_STATE_KEY)?.[1];
+    return value && ['-', '_', '>', '?'].includes(value) ? value : null;
 }
 
 /** Detect the ballot-box prefix convert.ts (and pandoc's gfm reader) emit. */
