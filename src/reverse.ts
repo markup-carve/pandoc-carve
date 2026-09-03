@@ -687,9 +687,45 @@ function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: bo
         // pins `checked`, and PART 12 rejects an extended state on a checked
         // item, so a hand-built envelope cannot make an unsatisfiable pair.
         if (taskState && node.checked === false) node.taskState = taskState;
+        if (ctx.target === 'source' && rendersEmpty(node.children as CNode[])) spellEmptyItem(ctx, node);
         return node;
     });
     return { items: converted, tight };
+}
+
+/**
+ * Whether an item would reach the writer with nothing to put after the marker.
+ *
+ * `[].every` is true, so an item pandoc gave no blocks at all is empty; so is
+ * one holding only paragraphs with no inlines, which is what a `☐`-only task
+ * item leaves behind once the marker is stripped.
+ */
+function rendersEmpty(children: CNode[] | undefined): boolean {
+    return (children ?? []).every(
+        (child) => child.type === 'paragraph' && !(child.children as CNode[] | undefined)?.length,
+    );
+}
+
+/**
+ * Give an empty item the one spelling Carve has for invisible content.
+ *
+ * A content-less marker is NOT a list item - PART 9 is stricter than
+ * CommonMark here, and `spec/resources/examples/core.md` says so - so
+ * `renderCarve` writes a `+` after the marker rather than nothing. That `+`
+ * survives an ordered item as literal text: `1. +` comes back `<li>+</li>`
+ * where the source had `<li></li>` (#159). A comment is content the reader
+ * removes before any inline run, so `1. %%` is an item whose body is empty on
+ * both engines measured, and it is the same shape the corpus reaches through a
+ * definition line that gets collected out.
+ *
+ * Source path only. `pandocToCarveAst` hands the tree on whole, and an empty
+ * item is expressible there - inventing a comment would be a field the
+ * consumer never had.
+ */
+function spellEmptyItem(ctx: Ctx, node: CNode): void {
+    node.children = [{ type: 'comment', block: false, content: '' }];
+    warn(ctx, 'list: an empty item has no bare spelling in Carve - written as a comment, ' +
+        'which renders as the empty item it came from');
 }
 
 /** The roundtrip envelope's task-state slot; `src/convert.ts` writes it. */
