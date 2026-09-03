@@ -92,6 +92,26 @@ exchange AST could offer.
 One of them needs no envelope at all: pandoc's `OrderedList` carries
 `ListAttributes`, so `1.` versus `1)` survives natively.
 
+## List items, which have no Attr and no envelope either
+
+A list ITEM is a bare block list in pandoc - not a node, so it can hold neither
+an `Attr` nor a `carve-provenance` wrapper. Roundtrip mode therefore wraps an
+item whose Carve-only information must survive in a `Div` marked
+`carve-list-item="true"`, and states the information as plain keys beside it:
+
+| key | carries |
+| --- | --- |
+| `carve-list-item` | that this `Div` is the wrapper, not authored content |
+| `carve-task-state` | `taskState` when it is `-`, `_`, `>` or `?` |
+
+The item's authored attributes sit in the same `Attr`; both private keys are
+removed on the way back. `taskState` is only carried where it says something
+`checked` does not: PART 12 defines `" "` and `"x"` as the defaults for
+`checked`, which pandoc's `☐` and `☒` already spell. The four extended states
+have no pandoc equivalent, so converting WITHOUT `roundtrip: true` writes them
+as an unchecked box and reports a `task-state-dropped` diagnostic rather than
+losing them in silence.
+
 Local wrappers were chosen over a positional document sidecar: they travel with
 a node when a Pandoc filter reorders content. A filter that replaces the
 wrapper or edits only its visible fallback intentionally breaks the exact

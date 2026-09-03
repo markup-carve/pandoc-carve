@@ -1204,10 +1204,17 @@ function list(ctx: Ctx, n: CNode): P.Block {
         if (typeof item.checked === 'boolean') {
             itemBlocks = prefixTaskMarker(itemBlocks, item.checked);
         }
-        if (hasAttrs(item.attrs as CAttrs | undefined)) {
+        const state = extendedTaskState(item);
+        if (state && !ctx.roundtrip) {
+            warn(ctx, `task state: "${state}" has no pandoc equivalent - the item is written as an ` +
+                'unchecked box; convert with roundtrip: true to carry it', { taskState: state }, item.pos);
+        }
+        const carried = state && ctx.roundtrip;
+        if (hasAttrs(item.attrs as CAttrs | undefined) || carried) {
             const [id, classes, kvs] = toAttr(item.attrs);
             const marked: [string, string][] = ctx.roundtrip
-                ? [...kvs, ['carve-list-item', 'true']]
+                ? [...kvs, ['carve-list-item', 'true'],
+                    ...(carried ? [[TASK_STATE_KEY, state] as [string, string]] : [])]
                 : kvs;
             itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
         }
@@ -1221,6 +1228,29 @@ function list(ctx: Ctx, n: CNode): P.Block {
         return P.OrderedList(Number(n.start ?? 1), style, converted, delim);
     }
     return P.BulletList(converted);
+}
+
+/**
+ * The roundtrip envelope's slot for a task state pandoc cannot say.
+ *
+ * Spelled as a plain kv beside `carve-list-item` rather than through the
+ * base64 provenance envelope: a list item has no Attr of its own, so the Div
+ * that carries `carve-list-item` is already the item's only slot, and a single
+ * enum character needs no encoding to survive an attribute value.
+ * `src/reverse.ts` reads the same literal.
+ */
+const TASK_STATE_KEY = 'carve-task-state';
+
+/**
+ * A task state that `checked` alone cannot say, or null.
+ *
+ * PART 12 pins `taskState` to `" " x - _ > ?` and defines the first two as the
+ * defaults for `checked` - those two are already carried by the ballot box, and
+ * only the other four are Carve-only information.
+ */
+function extendedTaskState(item: CNode): string | null {
+    const state = item.taskState;
+    return typeof state === 'string' && ['-', '_', '>', '?'].includes(state) ? state : null;
 }
 
 /** GFM-style task markers: pandoc renders `- [x]` as a leading ballot-box Str. */

@@ -44,6 +44,7 @@ const RULES: Rule[] = [
     { test: /^definition list: looseness/, code: 'definition-list-looseness-widened', severity: 'normalized' },
     { test: /^definition list:/, code: 'definition-entry-skipped', severity: 'lossy' },
     { test: /^ordered list:/, code: 'ordered-list-marker-normalized', severity: 'normalized' },
+    { test: /^task state:/, code: 'task-state-dropped', severity: 'lossy' },
     { test: /^math: attributes/, code: 'math-attributes-dropped', severity: 'lossy' },
     { test: /^symbol:/, code: 'symbol-unresolved', severity: 'degraded' },
     { test: /^extension:/, code: 'inline-extension-degraded', severity: 'degraded' },
