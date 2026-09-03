@@ -68,6 +68,28 @@ test('the spec corpus submodule is checked out', () => {
   );
 });
 
+const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/**
+ * An attribute value as the author wrote it, character references resolved.
+ *
+ * The writer escapes an attribute and the AST does not, so `/a?x=1&y=2` is
+ * `href="/a?x=1&amp;y=2"` in the sidecar and `/a?x=1&y=2` in the Pandoc target.
+ * Comparing those raw reports a divergence on a URL both sides agree about, and
+ * a gate with false entries in it is a gate that gets switched off. One pass
+ * rather than successive replacements, so `&amp;lt;` resolves to `&lt;` and not
+ * to `<`.
+ */
+function decodeEntities(value) {
+  return value.replace(/&(#x[0-9a-fA-F]+|#\d+|\w+);/g, (whole, body) => {
+    if (body[0] !== '#') return NAMED[body.toLowerCase()] ?? whole;
+    const code = body[1] === 'x' || body[1] === 'X'
+      ? Number.parseInt(body.slice(2), 16)
+      : Number.parseInt(body.slice(1), 10);
+    return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+  });
+}
+
 /**
  * The link and image targets a corpus sidecar states, fragments dropped.
  *
@@ -77,8 +99,8 @@ test('the spec corpus submodule is checked out', () => {
  */
 export function htmlTargets(html) {
   const found = [];
-  for (const m of html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)) found.push(m[1]);
-  for (const m of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) found.push(m[1]);
+  for (const m of html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)) found.push(decodeEntities(m[1]));
+  for (const m of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) found.push(decodeEntities(m[1]));
   return found.filter((target) => !target.startsWith('#')).sort();
 }
 
@@ -132,6 +154,10 @@ const PROBES = [
   // And a pair that genuinely agrees must not be reported, or the gate is
   // red on everything and its ledger means nothing.
   ['a matching pair is not reported', '[t](/probe)\n', '<p><a href="/probe">t</a></p>\n', false],
+  // The escaped attribute the writer produces is the same target the AST
+  // carries. No corpus document exercises it today, which is exactly why it is
+  // asserted here rather than left to be discovered as a false ledger entry.
+  ['an escaped attribute is the target it decodes to', '[t](/a?x=1&y=2)\n', '<p><a href="/a?x=1&amp;y=2">t</a></p>\n', false],
 ];
 
 for (const [what, source, html, shouldDisagree] of PROBES) {
