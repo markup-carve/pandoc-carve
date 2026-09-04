@@ -211,9 +211,17 @@ jobs:
 
       - run: npm ci
 
-      # The range, resolved fresh, rather than the lockfile's pin. `--no-save`
-      # so package.json and the lockfile are not rewritten under the test.
-      - name: Install the engine the range actually takes
+      # THE RANGE, RESOLVED FRESH, WITHOUT TOUCHING node_modules.
+      #
+      # `npm install --no-save` was the obvious spelling and it HANGS: it
+      # re-resolves the whole tree against the registry rather than fetching the
+      # one package, and the job sat in that step past ten minutes with nothing
+      # to show. `npm pack` fetches exactly one tarball in seconds, and leaving
+      # the installed tree alone means the build under test is the one `npm ci`
+      # produced - only the engine the assertions read is swapped, through
+      # CARVE_ENGINE_DIR.
+      - name: Unpack the engine the range actually takes
+        id: engine
         run: |
           set -euo pipefail
           pkg='@markup-carve/carve'
@@ -222,10 +230,25 @@ jobs:
             '') echo "::error::${pkg} is not a runtime dependency - this job is watching nothing"; exit 1 ;;
             *://*|git+*|github:*) echo "the engine is a git pin, which does not float - nothing to compare"; exit 0 ;;
           esac
-          npm install --no-save "${pkg}@${spec}"
-          node -p "'testing against engine ' + require('${pkg}/package.json').version"
+
+          dir="${RUNNER_TEMP}/range-engine"
+          mkdir -p "${dir}"
+          npm pack "${pkg}@${spec}" --pack-destination "${dir}" >/dev/null
+          tar -xzf "${dir}"/*.tgz -C "${dir}"
+
+          # Checked rather than assumed: a `tar` that unpacked nothing usable
+          # would otherwise leave the test measuring the INSTALLED engine and
+          # reporting a pass for a comparison it never made (carve#755).
+          test -f "${dir}/package/package.json"
+          version="$(node -p "require('${dir}/package/package.json').version")"
+          installed="$(node -p "require('${pkg}/package.json').version")"
+          echo "lockfile installs ${installed}; the range ${spec} takes ${version}"
+          echo "dir=${dir}/package" >> "${GITHUB_OUTPUT}"
 
       - run: npm run build
 
       - name: The mirrored denylist still matches that engine
+        if: steps.engine.outputs.dir != ''
+        env:
+          CARVE_ENGINE_DIR: ${{ steps.engine.outputs.dir }}
         run: node --test test/url-scheme.test.mjs
