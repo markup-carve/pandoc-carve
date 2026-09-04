@@ -55,7 +55,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import * as carve from '@markup-carve/carve';
 import { carveToPandoc } from '../dist/index.js';
 import {
   DANGEROUS_URL_SCHEMES,
@@ -95,11 +94,11 @@ const unsafe = (result) => result.diagnostics.filter((d) => d.code === 'unsafe-u
  * escapes an attribute and the AST does not - and emptiness is the whole
  * question.
  */
-function engineKeeps(url, kind = 'link') {
+function engineKeeps(renderHtml, url, kind = 'link') {
   const node = kind === 'link'
     ? { type: 'link', href: url, children: [{ type: 'text', value: 'x' }] }
     : { type: 'image', src: url, alt: 'x' };
-  const html = carve.renderHtml({
+  const html = renderHtml({
     type: 'document',
     children: [{ type: 'paragraph', children: [node] }],
   });
@@ -152,20 +151,53 @@ const LEGITIMATE = [
  * this THROWS, and a loud failure asking someone to re-derive the mirror is the
  * correct outcome for a security policy that has stopped being verifiable.
  */
-async function enginePolicy() {
+/**
+ * The engine's `dist/` this run measures against.
+ *
+ * `CARVE_ENGINE_DIR` points at an UNPACKED engine package - the engine-drift
+ * workflow sets it to whatever `@markup-carve/carve@<the range in
+ * package.json>` resolves to on the registry, which is the engine a CONSUMER
+ * installs and not the one this repo's lockfile pins. Unset, it is the
+ * installed engine, which is what an ordinary `npm test` should measure.
+ */
+function engineDist() {
+  const override = process.env.CARVE_ENGINE_DIR;
+  if (override) {
+    assert.ok(
+      existsSync(join(override, 'package.json')),
+      `CARVE_ENGINE_DIR=${override} holds no package.json - it must point at an ` +
+        'unpacked engine package, not at its tarball or its dist/',
+    );
+    return join(override, 'dist');
+  }
   const require = createRequire(import.meta.url);
-  const dist = join(dirname(require.resolve('@markup-carve/carve/package.json')), 'dist');
+  return join(dirname(require.resolve('@markup-carve/carve/package.json')), 'dist');
+}
+
+/**
+ * One of the engine's §25 modules, read out of that dist by `file:` URL.
+ *
+ * Neither is in the engine's export map, so this is a private path on purpose,
+ * and the failure mode is deliberate: if a future engine renames or moves the
+ * module this THROWS. A loud failure asking someone to re-derive the mirror is
+ * the correct outcome for a security policy that has stopped being verifiable.
+ */
+async function engineModule(file) {
+  const path = join(engineDist(), file);
   try {
-    return await import(pathToFileURL(join(dist, 'render-html.js')).href);
+    return await import(pathToFileURL(path).href);
   } catch (cause) {
     throw new Error(
-      "the engine's render-html.js could not be read, so src/url-scheme.ts is a " +
-        'mirror of nothing. Re-derive DANGEROUS_URL_SCHEMES and ' +
-        'SCHEME_PROBE_STRIP_RE from the installed engine and repoint this test.',
+      `the engine's ${file} could not be read at ${path}, so src/url-scheme.ts ` +
+        'is a mirror of nothing. Re-derive DANGEROUS_URL_SCHEMES and ' +
+        'SCHEME_PROBE_STRIP_RE from the engine and repoint this test.',
       { cause },
     );
   }
 }
+
+const enginePolicy = () => engineModule('render-html.js');
+
 
 test('the mirror holds exactly the schemes the engine denies, no more and no fewer', async () => {
   const engine = await enginePolicy();
@@ -199,9 +231,7 @@ test("the mirror probes with the engine's own strip class", async () => {
 test("the mirror answers as the engine's shared helper does", async () => {
   // The helper the engine's own non-HTML writers use, which is the closest
   // analogue to what this bridge is: a target that emits a resolvable URL.
-  const require = createRequire(import.meta.url);
-  const dist = join(dirname(require.resolve('@markup-carve/carve/package.json')), 'dist');
-  const shared = await import(pathToFileURL(join(dist, 'deny-listed-destination.js')).href);
+  const shared = await engineModule('deny-listed-destination.js');
   for (const url of [...OBFUSCATIONS, ...LEGITIMATE, ...DANGEROUS_URL_SCHEMES.map((s) => `${s}:x`)]) {
     assert.equal(
       blankDeniedDestination(url),
@@ -211,7 +241,8 @@ test("the mirror answers as the engine's shared helper does", async () => {
   }
 });
 
-test('the mirrored denylist agrees with the engine, scheme for scheme', () => {
+test('the mirrored denylist agrees with the engine, scheme for scheme', async () => {
+  const { renderHtml } = await enginePolicy();
   assert.ok(DANGEROUS_URL_SCHEMES.length >= 20, 'the mirrored denylist is suspiciously short');
   for (const scheme of DANGEROUS_URL_SCHEMES) {
     const url = `${scheme}:payload`;
@@ -221,7 +252,7 @@ test('the mirrored denylist agrees with the engine, scheme for scheme', () => {
       `the mirror keeps ${url}, which it names as denied`,
     );
     assert.equal(
-      engineKeeps(url),
+      engineKeeps(renderHtml, url),
       false,
       `the mirror denies ${scheme}: and the engine does not - the mirror has drifted ` +
         'ahead of the engine, or the engine dropped the scheme',
@@ -229,12 +260,13 @@ test('the mirrored denylist agrees with the engine, scheme for scheme', () => {
   }
 });
 
-test('the mirror and the engine agree on obfuscated and legitimate destinations', () => {
+test('the mirror and the engine agree on obfuscated and legitimate destinations', async () => {
+  const { renderHtml } = await enginePolicy();
   for (const url of [...OBFUSCATIONS, ...LEGITIMATE]) {
     for (const kind of ['link', 'image']) {
       assert.equal(
         blankDeniedDestination(url) !== '',
-        engineKeeps(url, kind),
+        engineKeeps(renderHtml, url, kind),
         `mirror and engine disagree on ${JSON.stringify(url)} as a ${kind} destination`,
       );
     }
@@ -383,7 +415,8 @@ test('a scheme-less destination is not probed as one', () => {
   }
 });
 
-test('an obfuscated scheme authored in Carve SOURCE is blanked', () => {
+test('an obfuscated scheme authored in Carve SOURCE is blanked', async () => {
+  const { renderHtml } = await enginePolicy();
   // Not the unit battery above: these go through the parser, so they measure
   // what an AUTHOR can actually get into the AST. Corpus 121's leading
   // separator does not survive the parse - a control character inside the
@@ -407,6 +440,6 @@ test('an obfuscated scheme authored in Carve SOURCE is blanked', () => {
     assert.ok(diagnostic, JSON.stringify(source) + ': no diagnostic');
     assert.equal(diagnostic.details.construct, construct);
     // And the engine agrees, asked directly rather than assumed.
-    assert.equal(engineKeeps(diagnostic.details.destination, construct), false);
+    assert.equal(engineKeeps(renderHtml, diagnostic.details.destination, construct), false);
   }
 });
