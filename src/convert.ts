@@ -15,6 +15,7 @@ import * as P from './pandoc.js';
 import { readRowGroups } from './row-groups.js';
 import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
 import { provenanceAttr } from './provenance.js';
+import { blankDeniedDestination, probeScheme } from './url-scheme.js';
 import { SMART_PUNCTUATION_GLYPHS } from '@markup-carve/carve';
 
 // The Carve AST is plain data; we type the parts we read.
@@ -182,6 +183,31 @@ interface Ctx {
 function warn(ctx: Ctx, msg: string, details?: Record<string, unknown>, sourceLocation?: unknown): void {
     ctx.warnings.push(msg);
     ctx.diagnostics.push(diagnostic('carve-to-pandoc', msg, details, sourceLocation));
+}
+
+/**
+ * A destination with a PART 9 §25 scheme blanked, and said out loud.
+ *
+ * The engine's writers blank it and the AST keeps what the author wrote, so
+ * without this the scheme reaches pandoc intact and `pandoc -f json -t html`
+ * puts it straight back into an `href` (markup-carve/pandoc-carve#157). Only
+ * schemes the engine denies are touched, and it denies none that a LaTeX or
+ * Typst document has a legitimate use for.
+ *
+ * `lossy`, not `normalized`: the author's destination does not survive, and
+ * `--fail-on-loss` is the switch a caller who would rather stop than lose it
+ * already reaches for.
+ */
+function safeDestination(ctx: Ctx, url: string, kind: 'link' | 'image'): string {
+    const blanked = blankDeniedDestination(url);
+    if (blanked === url) return url;
+    warn(
+        ctx,
+        `url: a denied scheme on a ${kind} destination is blanked - ` +
+            `"${truncateForWarning(url)}"`,
+        { scheme: probeScheme(url), destination: url, construct: kind },
+    );
+    return blanked;
 }
 
 /**
@@ -656,7 +682,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             if (unresolved) return unresolved;
             return [
                 P.Link(toAttr(n.attrs), kids(ctx, n), [
-                    String(n.href ?? ''),
+                    safeDestination(ctx, String(n.href ?? ''), 'link'),
                     String(n.title ?? ''),
                 ]),
             ];
@@ -674,7 +700,13 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // added one of their own.
             const [id, classes, kvs] = toAttr(n.attrs);
             return [
-                P.Link([id, [cls, ...classes], kvs], [P.Str(String(n.text ?? href))], [href, '']),
+                P.Link(
+                    [id, [cls, ...classes], kvs],
+                    [P.Str(String(n.text ?? href))],
+                    // The autolink's TEXT is the URL and stays visible, exactly
+                    // as the HTML writer leaves it: only the destination goes.
+                    [safeDestination(ctx, href, 'link'), ''],
+                ),
             ];
         }
         case 'image': {
@@ -682,7 +714,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             if (unresolved) return unresolved;
             return [
                 P.Image(toAttr(n.attrs), textInlines(String(n.alt ?? '')), [
-                    String(n.src ?? ''),
+                    safeDestination(ctx, String(n.src ?? ''), 'image'),
                     String(n.title ?? ''),
                 ]),
             ];

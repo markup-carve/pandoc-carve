@@ -216,19 +216,6 @@ const KNOWN_DIVERGENT = new Map([
   ['03-links-12.crv', 'model: an autolink inside a link label survives in the AST, flattened by the HTML writer'],
   ['275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-5.crv', 'model: a collapsed reference repeats the heading label, so its inner link appears twice in the AST and once in the writer output'],
   ['288-heading-index-plain-text-covers-visible-leaves-and-rejects-an-empty-key.crv', 'model: as 275-...-5, with an autolink in the heading'],
-  // model: URL SCHEME SANITIZATION IS A RENDERER DEFENSE. Carve's HTML writer
-  // blanks a dangerous scheme (spec section 25); the AST carries the target the
-  // author wrote, and the bridge hands it to pandoc, whose targets are not
-  // HTML. Recorded rather than normalized away, because what a non-HTML target
-  // format should do with these is a question this bridge has not answered -
-  // markup-carve/pandoc-carve#157.
-  ['108-security-hardening.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
-  ['108-security-hardening-2.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
-  ['108-security-hardening-3.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
-  ['108-security-hardening-4.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
-  ['108-security-hardening-5.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
-  ['108-security-hardening-7.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
-  ['121-scheme-probe-strips-unicode-whitespace.crv', 'model: the HTML writer blanks a dangerous URL scheme, the AST keeps it'],
   // pin: THE SIX #155 DOCUMENTS. carve#1906 pins the marker fold window - a
   // marker folds into an open item's lead text only STRICTLY between the item's
   // base and content column - and the published engine reads that window as a

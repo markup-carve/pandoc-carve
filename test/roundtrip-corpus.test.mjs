@@ -68,7 +68,25 @@ const KNOWN_LOSSY = new Set([
   '101-table-header-cell-rowspan.crv',
   '106-blocked-span-marker-renders-as-empty-cell.crv',
   '107-colspan-marker-scans-left-past-a-consumed-cell.crv',
+  // A BLANKED DESTINATION HAS NO CARVE SPELLING. The bridge now applies PART 9
+  // §25 on the way out, so a denied scheme leaves as an empty target and says
+  // so with an `unsafe-url-scheme` diagnostic (#157). Coming back,
+  // `pandocToCarve` writes `[click here]()`, which is not a link at all - Carve
+  // has no way to author an empty destination, the same limit the `[t]: <>`
+  // note in src/convert.ts records - so it renders as literal text.
+  //
+  // The loss is the ruling, not a defect in it: what does not survive is a
+  // `javascript:` target nothing was ever meant to resolve, and the diagnostic
+  // is what makes it visible to `--fail-on-loss`. `108-security-hardening-2`
+  // is absent because an autolink carries its URL in its TEXT, so the reverse
+  // direction rebuilds it and that document still round-trips.
+  '108-security-hardening.crv',
+  '108-security-hardening-3.crv',
+  '108-security-hardening-4.crv',
+  '108-security-hardening-5.crv',
+  '108-security-hardening-7.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
+  '121-scheme-probe-strips-unicode-whitespace.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
   '173-implicit-heading-references-with-no-definition.crv',
   '21-math-2.crv',
