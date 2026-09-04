@@ -16,6 +16,7 @@ import { readRowGroups } from './row-groups.js';
 import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
 import { provenanceAttr } from './provenance.js';
 import { blankDeniedDestination, probeScheme } from './url-scheme.js';
+import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
 import { SMART_PUNCTUATION_GLYPHS } from '@markup-carve/carve';
 
 // The Carve AST is plain data; we type the parts we read.
@@ -219,9 +220,20 @@ function truncateForWarning(content: string): string {
     return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
 }
 
-function toAttr(attrs: unknown): P.Attr {
+function toAttr(ctx: Ctx, attrs: unknown): P.Attr {
     const a = (attrs ?? {}) as CAttrs;
-    const kvs = Object.entries(a.keyValues ?? {});
+    const kvs: [string, string][] = [];
+    for (const [name, value] of Object.entries(a.keyValues ?? {})) {
+        if (isDangerousAttrName(name)) {
+            warn(ctx, `attribute: unsafe name "${name}" is dropped`, { attribute: name });
+            continue;
+        }
+        const safe = renderedAttrValue(name, value);
+        if (safe !== value) {
+            warn(ctx, `attribute: unsafe value for "${name}" is blanked`, { attribute: name, value });
+        }
+        kvs.push([name, safe]);
+    }
     return P.attr(a.id, a.classes, kvs);
 }
 
@@ -647,7 +659,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'superscript':
             return [P.Superscript(kids(ctx, n))];
         case 'code':
-            return [P.Code(toAttr(n.attrs), String(n.value ?? ''))];
+            return [P.Code(toAttr(ctx, n.attrs), String(n.value ?? ''))];
         case 'literal_inline': {
             // PART 9 SS27: verbatim capture rendered as ORDINARY PROSE. The
             // `<code>` wrapper is deliberately dropped, so Pandoc `Code` would
@@ -668,7 +680,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // exactly what it read before.
             if (ctx.roundtrip) return [P.Span(provenanceAttr('literal-inline', n), text)];
             return hasAttrs(n.attrs as CAttrs | undefined)
-                ? [P.Span(toAttr(n.attrs), text)]
+                ? [P.Span(toAttr(ctx, n.attrs), text)]
                 : text;
         }
         case 'link': {
@@ -676,12 +688,12 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // it is tried before the missing-definition path reports one.
             const heading = String(n.href ?? '') === '' ? collapsedHeadingRef(ctx, n) : undefined;
             if (heading !== undefined) {
-                return [P.Link(toAttr(n.attrs), kids(ctx, n), ['#' + heading, ''])];
+                return [P.Link(toAttr(ctx, n.attrs), kids(ctx, n), ['#' + heading, ''])];
             }
             const unresolved = unresolvedReference(ctx, n, 'link');
             if (unresolved) return unresolved;
             return [
-                P.Link(toAttr(n.attrs), kids(ctx, n), [
+                P.Link(toAttr(ctx, n.attrs), kids(ctx, n), [
                     safeDestination(ctx, String(n.href ?? ''), 'link'),
                     String(n.title ?? ''),
                 ]),
@@ -698,7 +710,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // replace it: the class says what KIND of link this is, and a
             // consumer keying on it should not lose that because the author
             // added one of their own.
-            const [id, classes, kvs] = toAttr(n.attrs);
+            const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
                 P.Link(
                     [id, [cls, ...classes], kvs],
@@ -713,7 +725,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             const unresolved = unresolvedReference(ctx, n, 'image');
             if (unresolved) return unresolved;
             return [
-                P.Image(toAttr(n.attrs), textInlines(String(n.alt ?? '')), [
+                P.Image(toAttr(ctx, n.attrs), textInlines(String(n.alt ?? '')), [
                     safeDestination(ctx, String(n.src ?? ''), 'image'),
                     String(n.title ?? ''),
                 ]),
@@ -863,7 +875,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'citation_group':
             return [citationGroup(ctx, n)];
         case 'span':
-            return [smallCapsOrSpan(toAttr(n.attrs), kids(ctx, n))];
+            return [smallCapsOrSpan(toAttr(ctx, n.attrs), kids(ctx, n))];
         case 'insert':
             return [P.Span(P.attr(undefined, ['insertion']), kids(ctx, n))];
         case 'delete':
@@ -1009,7 +1021,7 @@ function citationSuffix(ctx: Ctx, item: CCitation): P.Inline[] {
  */
 function citationDefinition(ctx: Ctx, n: CNode): P.Block {
     const key = String(n.key ?? '');
-    const [id, classes, kvs] = toAttr(n.attrs);
+    const [id, classes, kvs] = toAttr(ctx, n.attrs);
     const entry = inlines(ctx, n.children as CNode[] | undefined);
     return P.Div(
         [id || (key ? `ref-${key}` : ''), ['csl-entry', ...classes], kvs],
@@ -1067,7 +1079,7 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
     if (!ATTR_CARRYING.has(n.type) && hasAttrs(a)) {
         // In roundtrip mode the carve-block marker lets the reverse direction
         // restore the attrs onto the inner block instead of keeping a wrapper.
-        const [id, classes, kvs] = toAttr(a);
+        const [id, classes, kvs] = toAttr(ctx, a);
         const marked: [string, string][] = ctx.roundtrip
             ? [...kvs, ['carve-block', n.type]]
             : kvs;
@@ -1109,15 +1121,14 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return [ctx.tight ? P.Plain(xs) : P.Para(xs)];
         }
         case 'heading':
-            return [P.Header(Number(n.level ?? 1), toAttr(n.attrs), kids(ctx, n))];
+            return [P.Header(Number(n.level ?? 1), toAttr(ctx, n.attrs), kids(ctx, n))];
         case 'block_quote':
             return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
             const lang = n.lang ? [String(n.lang)] : [];
-            const a = (n.attrs ?? {}) as CAttrs;
-            const kvs = Object.entries(a.keyValues ?? {});
+            const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
-                P.CodeBlock(P.attr(a.id, [...lang, ...(a.classes ?? [])], kvs), String(n.content ?? '')),
+                P.CodeBlock(P.attr(id, [...lang, ...classes], kvs), String(n.content ?? '')),
             ];
         }
         case 'raw_block':
@@ -1147,7 +1158,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
                 ? [P.Para([P.Strong(inlines(ctx, n.title as CNode[]))])]
                 : [];
             const body = untight(ctx, () => blocks(ctx, n.children as CNode[]));
-            const [id, classes, kvs] = toAttr(n.attrs);
+            const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
                 P.Div(
                     [id, ['admonition', kind, ...classes], [...kvs, ...labelKv(ctx, n)]],
@@ -1165,7 +1176,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         case 'line_block':
             return [lineBlock(ctx, n)];
         case 'div': {
-            const [id, classes, kvs] = toAttr(n.attrs);
+            const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
                 P.Div([id, classes, [...kvs, ...labelKv(ctx, n)]], [
                     ...labelCaption(ctx, n),
@@ -1243,7 +1254,7 @@ function list(ctx: Ctx, n: CNode): P.Block {
         }
         const carried = state && ctx.roundtrip;
         if (hasAttrs(item.attrs as CAttrs | undefined) || carried) {
-            const [id, classes, kvs] = toAttr(item.attrs);
+            const [id, classes, kvs] = toAttr(ctx, item.attrs);
             const marked: [string, string][] = ctx.roundtrip
                 ? [...kvs, ['carve-list-item', 'true'],
                     ...(carried ? [[TASK_STATE_KEY, state] as [string, string]] : [])]
@@ -1558,7 +1569,7 @@ function table(
             const cellAlign: P.Alignment = firstRowIsHead && r === 0
                 ? 'AlignDefault'
                 : ALIGN[cc.align ?? ''] ?? 'AlignDefault';
-            const pc = P.cell(cellBlocks, cellAlign, toAttr(cc.attrs));
+            const pc = P.cell(cellBlocks, cellAlign, toAttr(ctx, cc.attrs));
             origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;
         }
@@ -1569,7 +1580,7 @@ function table(
         for (let r = from; r < to; r++) {
             const cells = emitted[r]!.filter((x): x is P.PCell => x !== null);
             const rowAttrs = (n.rows as CNode[])[r]?.attrs as CAttrs | undefined;
-            out.push(P.row(cells, hasAttrs(rowAttrs) ? toAttr(rowAttrs) : undefined));
+            out.push(P.row(cells, hasAttrs(rowAttrs) ? toAttr(ctx, rowAttrs) : undefined));
         }
         return out;
     };
@@ -1589,7 +1600,7 @@ function table(
             const headTo = at + body.headRows;
             const bodyTo = headTo + body.bodyRows;
             const converted: P.TableBody = {
-                attr: toAttr(body.attrs),
+                attr: toAttr(ctx, body.attrs),
                 headRows: toRows(at, headTo),
                 bodyRows: toRows(headTo, bodyTo),
             };
@@ -1697,7 +1708,7 @@ function table(
         // reached `groups` above - leaving them here would state the same fact
         // twice and put a stray attribute on the table in every pandoc writer.
         // The list-table reader already filters its own copies of both.
-        toAttrWithout(n.attrs as CAttrs | undefined,
+        toAttrWithout(ctx, n.attrs as CAttrs | undefined,
             ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows']),
         caption,
         colAligns,
@@ -1743,8 +1754,8 @@ function agreedLead(
     return first;
 }
 
-function toAttrWithout(attrs: CAttrs | undefined, omitted: string[]): P.Attr {
-    const [id, classes, pairs] = toAttr(attrs);
+function toAttrWithout(ctx: Ctx, attrs: CAttrs | undefined, omitted: string[]): P.Attr {
+    const [id, classes, pairs] = toAttr(ctx, attrs);
     return [id, classes, pairs.filter(([key]) => !omitted.includes(key))];
 }
 
@@ -1844,7 +1855,7 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
             const pc = P.cell(
                 untight(ctx, () => blocks(ctx, cellBlocks)),
                 'AlignDefault',
-                toAttr((cellItems[r]![c]!.attrs ?? {}) as CAttrs),
+                toAttr(ctx, (cellItems[r]![c]!.attrs ?? {}) as CAttrs),
             );
             origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;
@@ -1860,7 +1871,7 @@ function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
     };
 
     const head = Math.min(headerRows, grid.length);
-    const [id, classes, kvs] = toAttr(a);
+    const [id, classes, kvs] = toAttr(ctx, a);
     const foot = Math.min(footerRows, Math.max(0, grid.length - head));
     const bodyEnd = grid.length - foot;
     const hasBareMarker = (item: CNode | undefined, key: string): boolean =>
@@ -1956,13 +1967,13 @@ function figure(ctx: Ctx, n: CNode): P.Block[] {
     }
     if (target.type === 'image') {
         const img = inline(ctx, target);
-        return [P.Figure(toAttr(n.attrs), caption, [P.Plain(img)], shortCaption)];
+        return [P.Figure(toAttr(ctx, n.attrs), caption, [P.Plain(img)], shortCaption)];
     }
     // Any other captionable target, a QUOTE INCLUDED - this is the arm a
     // captioned quote takes, at document level and as a §4c panel alike. It
     // used to be unreachable for a quote outside a group, because §4a rerouted
     // that case; nothing reroutes it now.
-    return [P.Figure(toAttr(n.attrs), caption, untight(ctx, () => block(ctx, target)), shortCaption)];
+    return [P.Figure(toAttr(ctx, n.attrs), caption, untight(ctx, () => block(ctx, target)), shortCaption)];
 }
 
 /** The §4c panels of a group: its `figure` and `table` children, in order. */
@@ -2016,7 +2027,7 @@ function figureGroup(ctx: Ctx, n: CNode): P.Block[] {
             }
         }),
     );
-    return [P.Figure(toAttr(n.attrs), caption, body)];
+    return [P.Figure(toAttr(ctx, n.attrs), caption, body)];
 }
 
 // --- Metadata (frontmatter) ---

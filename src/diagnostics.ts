@@ -49,6 +49,8 @@ const RULES: Rule[] = [
     { test: /^math: attributes/, code: 'math-attributes-dropped', severity: 'lossy' },
     { test: /^symbol:/, code: 'symbol-unresolved', severity: 'degraded' },
     { test: /^url: a denied scheme/, code: 'unsafe-url-scheme', severity: 'lossy' },
+    { test: /^attribute: unsafe name/, code: 'unsafe-attribute-name', severity: 'lossy' },
+    { test: /^attribute: unsafe value/, code: 'unsafe-attribute-value', severity: 'lossy' },
     { test: /^extension:/, code: 'inline-extension-degraded', severity: 'degraded' },
     { test: /missing definition/, code: 'reference-unresolved', severity: 'degraded' },
     { test: /^crossref:/, code: 'crossref-unresolved', severity: 'degraded' },
