@@ -184,3 +184,48 @@ jobs:
           if [ "${behind}" -gt 0 ]; then
             echo "::warning::the PUBLISHED engine ${latest} is ${behind} commit(s) behind carve-js main - every repo installing from the registry is that far behind the language, however current its range is"
           fi
+
+  # THE ONE DRIFT THAT IS A DEFECT HERE, NOT UPSTREAM NEWS.
+  #
+  # src/url-scheme.ts restates the engine's PART 9 §25 denylist, because the
+  # engine's export map reaches neither `render-html.js` nor
+  # `deny-listed-destination.js`. test/url-scheme.test.mjs compares the two, but
+  # `npm ci` installs the LOCKFILE, so on a normal CI run it compares the mirror
+  # against the engine this repo pinned - not against the engine a CONSUMER
+  # gets, which the `^` range lets float ahead.
+  #
+  # A scheme the newer engine denies and this bridge passes through is a hole in
+  # code THIS repo ships, so this job FAILS where the rest of the file warns.
+  # The distinction is the file's own: it warns when upstream moved, and fails
+  # when an install here is broken. A stale sanitizer is the second kind.
+  scheme-denylist-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      # The range, resolved fresh, rather than the lockfile's pin. `--no-save`
+      # so package.json and the lockfile are not rewritten under the test.
+      - name: Install the engine the range actually takes
+        run: |
+          set -euo pipefail
+          pkg='@markup-carve/carve'
+          spec="$(node -p "const p=require('./package.json');(p.dependencies||{})['${pkg}']||''")"
+          case "${spec}" in
+            '') echo "::error::${pkg} is not a runtime dependency - this job is watching nothing"; exit 1 ;;
+            *://*|git+*|github:*) echo "the engine is a git pin, which does not float - nothing to compare"; exit 0 ;;
+          esac
+          npm install --no-save "${pkg}@${spec}"
+          node -p "'testing against engine ' + require('${pkg}/package.json').version"
+
+      - run: npm run build
+
+      - name: The mirrored denylist still matches that engine
+        run: node --test test/url-scheme.test.mjs

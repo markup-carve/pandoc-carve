@@ -160,6 +160,35 @@ The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs
 degrade for print formats - are in [`examples/`](examples/README.md).
 
+## Dangerous URL schemes are blanked
+
+A link or image destination whose scheme Carve's spec denies (PART 9 §25 -
+`javascript:`, `vbscript:`, `data:`, `file:`, and the OS protocol-handler class
+such as `ms-msdt:`, `search-ms:`, `shell:`, `vscode:` and `jar:`) leaves this
+bridge as an **empty target**, and an `unsafe-url-scheme` diagnostic is emitted
+naming the scheme and the destination that was refused.
+
+Carve's own HTML, Markdown and ANSI writers all blank it, and the clause binds
+every target that emits a resolvable URL. Pandoc's targets are not HTML, but
+`pandoc -f json -t html` is one command away - passing the scheme through here
+would not be a narrower policy, it would be the same sink one step removed.
+
+The diagnostic is `lossy`, so `--fail-on-loss` stops on it and a caller reading
+`diagnostics` can act on it. The scheme list and the scheme probe are mirrored
+from the engine rather than invented, and a test drives the engine's own writer
+over both to keep the mirror honest - the probe strips control characters and
+Unicode whitespace before it reads a scheme, so `<U+202F>javascript:` and
+`java<DEL>script:` are caught along with the plain spelling.
+
+Nothing else is touched. An `https:`, `mailto:`, `tel:`, `ftp:`, relative or
+fragment destination reaches pandoc exactly as written, and emits no
+diagnostic.
+
+> [!NOTE]
+> This covers link and image **destinations**. An `{onclick=…}`, `{style=…}` or
+> `{srcdoc=…}` attribute, which Carve's HTML writer also refuses, still reaches
+> pandoc - see [#163](https://github.com/markup-carve/pandoc-carve/issues/163).
+
 ## Why a bridge, not a pandoc reader?
 
 A native `Text.Pandoc.Readers.Carve` upstream would be a fourth full Carve
