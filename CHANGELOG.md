@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## 0.1.4 - 2026-09-09
+
+### Security
+
+- Link, autolink and image destinations whose URL scheme the engine's policy
+  (PART 9 section 25) denies are now blanked on the way to pandoc, matching what
+  Carve's own writers do. A `javascript:` destination previously reached pandoc
+  intact and could be put straight back into an `href`. The refusal emits an
+  `unsafe-url-scheme` diagnostic naming the scheme and destination, and is lossy,
+  so `--fail-on-loss` stops on it (#164).
+- Authored attributes are sanitized before they cross into the Pandoc AST: event
+  handlers, `srcdoc` and `formaction` are dropped, and dangerous URL and CSS
+  values are blanked. Every removed name or neutralized value is reported as a
+  lossy diagnostic (#163, #166).
+
+### Fixed
+
+- An empty ordered list item no longer comes back holding a literal `+`. The
+  reverse direction gives a content-less item a comment the reader strips before
+  any inline run, and reports the normalization (#162).
+- Extended task states (`- _ > ?`, beyond the checked and unchecked defaults) are
+  carried through round-trip mode as `carve-task-state` metadata on the item's
+  Div instead of collapsing to the same ballot box. Without round-trip mode there
+  is nowhere to keep the state, so the conversion reports a `task-state-dropped`
+  diagnostic rather than dropping it silently (#161).
+
 ## 0.1.3 - 2026-08-27
 
 ### Added
