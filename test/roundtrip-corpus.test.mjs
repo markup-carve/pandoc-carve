@@ -197,6 +197,18 @@ const KNOWN_LOSSY = new Set([
   // The same shape as `256-...-18` above: `|=<< Note |= Plain |` leaves the
   // first cell literal and marks only the second as a row header.
   '53-table-doubled-alignment-marker.crv',
+  // ARRIVED WITH A CORPUS BUMP, both losses in the WRITER rather than in the
+  // reading. `445-...-6` holds a degraded comment fence spelled `%%%`; the
+  // comment's content is a lone `%`, and the writer separates marker from
+  // content with a space, so it comes back as `%% %` - a fence at the inner
+  // item's column 0 respelled into one that is not, which moves the follower
+  // from the outer item into the inner one. Filed as #168.
+  '445-a-degraded-comment-fence-at-a-container-s-column-0-keeps-the-follower-in-the-item-6.crv',
+  // `447-...-20` loses the FRAMING of an item's continuation line: the
+  // definition inside the item is consumed and rebuilt as an inline link, and
+  // what follows it comes back attached to the item's lead rather than as its
+  // own framed line. The rendered text is identical; the `li`'s shape is not.
+  '447-the-host-does-not-change-which-column-a-definition-reaches-20.crv',
   '46-symbols-4.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',

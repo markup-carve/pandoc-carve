@@ -229,6 +229,14 @@ const KNOWN_DIVERGENT = new Map([
   ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-7.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
   ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-8.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
   ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-9.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
+  // pin: carve#1937 rules that a definition written past an inner container's
+  // content column is consumed under some hosts and not others; the pinned
+  // build reads consumption the other way and resolves the reference the
+  // spec's expected HTML leaves as text. Fixed on carve-js main by
+  // markup-carve/carve-js#1637; clears when the pin moves past it. Declared
+  // upstream in spec/resources/engine-pin-drift.txt, which names this
+  // document and five of its siblings.
+  ['451-a-container-in-a-host-body-owns-a-line-past-its-own-content-column.crv', 'pin: definition consumption past an inner content column (carve-js#1637)'],
 ]);
 
 test('the sidecar comparison runs over the whole corpus, not a sample', () => {
