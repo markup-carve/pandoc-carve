@@ -68,9 +68,26 @@ test('cli: structured diagnostics stay separate from converted output', () => {
   const result = run(['-', '-t', 'json', '--diagnostics', report], 'a :heart: b\n');
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).blocks[0].t, 'Para');
-  const diagnostics = JSON.parse(readFileSync(report, 'utf8'));
-  assert.equal(diagnostics[0].code, 'symbol-unresolved');
+  const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(reportEnvelope.schemaVersion, 2);
+  assert.equal(reportEnvelope.sourceFormat, 'carve');
+  assert.equal(reportEnvelope.diagnostics[0].code, 'symbol-unresolved');
   assert.equal(result.stderr, '');
+});
+
+test('cli: inbound diagnostics name the original source format', () => {
+  const report = join(tmpdir(), `pandoc-carve-inbound-${process.pid}.json`);
+  const input = JSON.stringify({
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'plain' }] }],
+  });
+  const result = run(['-', '-f', 'json', '--diagnostics', report], input);
+  assert.equal(result.status, 0, result.stderr);
+  const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(reportEnvelope.schemaVersion, 2);
+  assert.equal(reportEnvelope.sourceFormat, 'json');
+  assert.deepEqual(reportEnvelope.diagnostics, []);
 });
 
 test('cli: fail-on-loss ignores degradation but fails on actual loss', () => {

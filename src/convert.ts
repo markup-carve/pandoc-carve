@@ -13,7 +13,7 @@
 import type { CarveAstDocument } from './ast-json.js';
 import * as P from './pandoc.js';
 import { readRowGroups } from './row-groups.js';
-import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
+import { diagnostic, migrationReport, type ConversionDiagnostic, type MigrationReport } from './diagnostics.js';
 import { provenanceAttr } from './provenance.js';
 import { blankDeniedDestination, probeScheme } from './url-scheme.js';
 import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
@@ -35,6 +35,7 @@ export interface ConvertResult {
     doc: P.PandocDoc;
     warnings: string[];
     diagnostics: ConversionDiagnostic[];
+    report: MigrationReport;
 }
 
 export interface ConvertOptions {
@@ -2341,6 +2342,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
 
     const meta = parseMeta(ctx, frontmatter);
 
+    const diagnostics = ctx.diagnostics;
     return {
         doc: {
             'pandoc-api-version': [...P.PANDOC_API_VERSION],
@@ -2348,7 +2350,8 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
             blocks: blocks(ctx, body),
         },
         warnings: ctx.warnings,
-        diagnostics: ctx.diagnostics,
+        diagnostics,
+        report: migrationReport(diagnostics, 'carve'),
     };
 }
 

@@ -11,7 +11,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { carveAstToPandoc, carveToPandoc } from './index.js';
-import { hasLoss, type ConversionDiagnostic } from './diagnostics.js';
+import { hasLoss, migrationReport, type ConversionDiagnostic } from './diagnostics.js';
 
 function usage(exitCode: number): never {
     const text = `Usage: pandoc-carve <input | -> [options] [-- pandoc-args...]
@@ -221,7 +221,7 @@ async function importToCarve(args: Args): Promise<void> {
 
 function report(args: Args, warnings: string[], diagnostics: ConversionDiagnostic[]): void {
     if (args.diagnosticsFile !== undefined) {
-        const json = JSON.stringify(diagnostics, null, 2) + '\n';
+        const json = JSON.stringify(migrationReport(diagnostics, args.from ?? 'carve'), null, 2) + '\n';
         if (args.diagnosticsFile === '-') process.stderr.write(json);
         else writeFileSync(args.diagnosticsFile, json);
         return;

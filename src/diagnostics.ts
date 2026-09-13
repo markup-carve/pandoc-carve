@@ -1,11 +1,15 @@
 export type DiagnosticDirection = 'carve-to-pandoc' | 'pandoc-to-carve';
 export type DiagnosticSeverity = 'lossy' | 'degraded' | 'normalized' | 'unsupported';
+export type MigrationFidelity = 'preserved' | 'normalized' | 'degraded' | 'dropped';
+export type MigrationConfidence = 'exact' | 'inferred' | 'fallback';
 
 export interface ConversionDiagnostic {
     /** Stable, machine-readable identifier. */
     code: string;
     direction: DiagnosticDirection;
     severity: DiagnosticSeverity;
+    fidelity: MigrationFidelity;
+    confidence: MigrationConfidence;
     message: string;
     /** Construct-specific values useful to migration tooling. */
     details?: Record<string, unknown>;
@@ -82,10 +86,26 @@ export function diagnostic(
         code: rule.code,
         direction,
         severity: rule.severity,
+        fidelity: rule.severity === 'normalized'
+            ? 'normalized'
+            : rule.severity === 'degraded'
+                ? 'degraded'
+                : 'dropped',
+        confidence: 'exact',
         message,
         ...(Object.keys(inferred).length ? { details: inferred } : {}),
         ...(sourceLocation !== undefined ? { sourceLocation } : {}),
     };
+}
+
+export interface MigrationReport {
+    schemaVersion: 2;
+    sourceFormat: string;
+    diagnostics: ConversionDiagnostic[];
+}
+
+export function migrationReport(diagnostics: ConversionDiagnostic[], sourceFormat = 'pandoc-json'): MigrationReport {
+    return { schemaVersion: 2, sourceFormat, diagnostics };
 }
 
 function inferDetails(message: string): Record<string, unknown> {

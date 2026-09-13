@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Every conversion result and CLI diagnostics file now exposes the version 2
+  migration envelope, with shared `preserved`, `normalized`, `degraded`, and
+  `dropped` fidelity plus confidence on each diagnostic. Legacy `warnings` and
+  `diagnostics` result fields remain available.
+
 ## 0.1.4 - 2026-09-09
 
 ### Security
