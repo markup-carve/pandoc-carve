@@ -67,7 +67,9 @@ automation, `--diagnostics report.json` writes the same findings in a versioned
 `{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
 them into document output. `--fail-on-loss` exits with code
 3 for `lossy` or `unsupported` findings, while harmless `normalized` findings
-do not fail CI. Use `--diagnostics -` for JSON on stderr.
+do not fail CI. Imports through a Pandoc reader other than `-f json` also exit
+3 because fidelity before the Pandoc JSON boundary cannot be verified; stderr
+names that worst-case gate explicitly. Use `--diagnostics -` for JSON on stderr.
 
 ## API
 

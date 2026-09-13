@@ -1,0 +1,10 @@
+{
+  "id": "pandoc-preserved",
+  "sourceFormat": "pandoc-json",
+  "runner": "external",
+  "repository": "markup-carve/pandoc-carve",
+  "input": "{\"pandoc-api-version\":[1,23,1],\"meta\":{},\"blocks\":[]}",
+  "expected": {
+    "diagnostics": []
+  }
+}

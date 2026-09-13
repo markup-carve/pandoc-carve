@@ -141,7 +141,7 @@ async function main(): Promise<void> {
         args.from === 'carve-json'
             ? carveAstToPandoc(source, options)
             : carveToPandoc(source, options);
-    report(args, warnings, diagnostics);
+    report(args, warnings, diagnostics, 'carve');
     const json = JSON.stringify(doc);
 
     if (args.to === 'json') {
@@ -213,20 +213,36 @@ async function importToCarve(args: Args): Promise<void> {
 
     const { pandocToCarve } = await import('./index.js');
     const { carve, warnings, diagnostics } = pandocToCarve(json);
-    report(args, warnings, diagnostics);
+    const reportDiagnostics = args.from === 'json' ? diagnostics : [
+        ...diagnostics,
+        {
+            code: 'fidelity-unverified',
+            direction: 'pandoc-to-carve' as const,
+            severity: 'unsupported' as const,
+            fidelity: 'dropped' as const,
+            confidence: 'fallback' as const,
+            message: 'Fidelity before the Pandoc JSON boundary was not reported; dropped is a conservative worst-case release-gate classification',
+        },
+    ];
+    report(args, warnings, reportDiagnostics, 'pandoc-json');
     if (args.output) writeFileSync(args.output, carve);
     else process.stdout.write(carve);
-    if (args.failOnLoss && hasLoss(diagnostics)) process.exitCode = 3;
+    if (args.failOnLoss && hasLoss(reportDiagnostics)) process.exitCode = 3;
 }
 
-function report(args: Args, warnings: string[], diagnostics: ConversionDiagnostic[]): void {
+function report(args: Args, warnings: string[], diagnostics: ConversionDiagnostic[], sourceFormat: string): void {
     if (args.diagnosticsFile !== undefined) {
-        const json = JSON.stringify(migrationReport(diagnostics, args.from ?? 'carve'), null, 2) + '\n';
+        const json = JSON.stringify(migrationReport(diagnostics, sourceFormat), null, 2) + '\n';
         if (args.diagnosticsFile === '-') process.stderr.write(json);
         else writeFileSync(args.diagnosticsFile, json);
         return;
     }
     for (const warning of warnings) process.stderr.write(`pandoc-carve: degraded: ${warning}\n`);
+    for (const diagnostic of diagnostics) {
+        if (diagnostic.code === 'fidelity-unverified') {
+            process.stderr.write(`pandoc-carve: dropped: ${diagnostic.message}\n`);
+        }
+    }
 }
 
 main().catch((err: unknown) => {

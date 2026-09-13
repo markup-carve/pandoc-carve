@@ -86,8 +86,38 @@ test('cli: inbound diagnostics name the original source format', () => {
   assert.equal(result.status, 0, result.stderr);
   const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
   assert.equal(reportEnvelope.schemaVersion, 2);
-  assert.equal(reportEnvelope.sourceFormat, 'json');
+  assert.equal(reportEnvelope.sourceFormat, 'pandoc-json');
   assert.deepEqual(reportEnvelope.diagnostics, []);
+});
+
+test('cli: replays the shared empty Pandoc fidelity fixture', () => {
+  // Synced from markup-carve/carve@1dfbd60a, tests/importer-fidelity/manifest.json.
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/importer-fidelity.json', import.meta.url)));
+  const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}.json`);
+  const result = run(['-', '-f', 'json', '--diagnostics', report], fixture.input);
+  assert.equal(result.status, 0, result.stderr);
+  const actual = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(actual.schemaVersion, 2);
+  assert.equal(actual.sourceFormat, fixture.sourceFormat);
+  assert.equal(fixture.runner, 'external');
+  assert.equal(fixture.repository, 'markup-carve/pandoc-carve');
+  assert.deepEqual(
+    actual.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
+    fixture.expected.diagnostics,
+  );
+});
+
+test('cli: a Pandoc reader boundary fails closed', () => {
+  const report = join(tmpdir(), `pandoc-carve-reader-${process.pid}.json`);
+  const result = run(['-', '-f', 'markdown', '--diagnostics', report, '--fail-on-loss'], 'plain');
+  if (!pandoc) return assert.equal(result.status, 2);
+  assert.equal(result.status, 3, result.stderr);
+  const envelope = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(envelope.sourceFormat, 'pandoc-json');
+  assert.deepEqual(
+    envelope.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
+    [{ code: 'fidelity-unverified', fidelity: 'dropped', confidence: 'fallback' }],
+  );
 });
 
 test('cli: fail-on-loss ignores degradation but fails on actual loss', () => {

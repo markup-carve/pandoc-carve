@@ -2,12 +2,16 @@
 
 ## Unreleased
 
-### Added
+### Changed
 
-- Every conversion result and CLI diagnostics file now exposes the version 2
+- **Breaking:** CLI `--diagnostics` output changes from a JSON array to the
+  version 2 report envelope, and conversion result types gain required report,
+  fidelity, and confidence fields. Every conversion result and CLI diagnostics file now exposes the version 2
   migration envelope, with shared `preserved`, `normalized`, `degraded`, and
   `dropped` fidelity plus confidence on each diagnostic. Legacy `warnings` and
-  `diagnostics` result fields remain available.
+  `diagnostics` library result fields remain available. Imports through a
+  Pandoc reader fail closed with a dropped/fallback finding because fidelity
+  before the Pandoc JSON boundary cannot be measured.
 
 ## 0.1.4 - 2026-09-09
 
