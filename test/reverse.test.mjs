@@ -395,23 +395,33 @@ test('a Figure-wrapped quote keeps its short caption in the AST and says so', ()
   assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'nav' }]);
 });
 
-test('a comment whose content opens with a percent keeps its marker run (#168)', () => {
-  // `%%%` at the inner item's column 0 is a degraded comment fence: it ENDS
-  // that item, so `y` belongs to the OUTER one. The engine's writer separates
-  // marker from content unconditionally, which spells the same node `%% %` -
-  // an ordinary comment line, which ends nothing, so `y` moves into the inner
-  // item and the document says something else.
+test('a comment whose content opens with a percent survives the round trip (#168)', () => {
+  // THE CONTRACT IS THE RENDERED DOCUMENT, NOT THE BYTES. The engine's writer
+  // separates a line comment's marker from its content unconditionally, so a
+  // content that itself opens with a percent comes back spelled `%% %` rather
+  // than `%%%`. Under 0.1.5 that was a different document - `%%%` at the inner
+  // item's column 0 ended that item and `%% %` did not, so the follower moved
+  // between items, which is what #168 reported and what the ledger carried.
+  //
+  // carve-js#1601 rules the fold window strictly between an item's base and
+  // content column, and under that rule neither spelling ends the item: the two
+  // read the same, and the corpus sidecar for this document agrees with the new
+  // reading rather than the old one. The loss was the pin, not the writer.
+  //
+  // So this pins what the round trip owes - the same rendered document - and
+  // deliberately not the spelling, which the writer is free to choose. It is a
+  // regression guard against the engine reading the marker run as significant
+  // again without the sidecar saying so.
   const src = '- - x\n  %%%\n  y\n';
-  assert.equal(roundtrip(src), src);
   assert.equal(carveToHtml(roundtrip(src)), carveToHtml(src));
 });
 
-test('the percent respelling leaves a code block and a plain comment alone (#168)', () => {
-  // The rewrite only fires where the writer's own spelling puts a comment in a
-  // different container than the AST had. A `%% %` that re-reads the same
-  // either way - inside fenced code, or as a comment nothing nests - is
-  // already a match, so nothing is rewritten and the separator stays.
-  assert.equal(roundtrip('```\n%% %fake\n```\n'), '```\n%% %fake\n```\n');
-  assert.equal(roundtrip('%% %note\n'), '%% %note\n');
-  assert.equal(roundtrip('- x\n  %% %y\n  z\n'), '- x\n  %% %y\n  z\n');
+test('a percent-leading comment says the same thing in either spelling (#168)', () => {
+  // The reader takes the marker as exactly `%%` and strips at most one
+  // following space, so the separator never moves the CONTENT - only, under the
+  // old fold rule, which container the comment closed.
+  for (const [a, b] of [['%% %', '%%%'], ['%% %foo', '%%%foo'], ['%% % x', '%%% x']]) {
+    assert.equal(carveToHtml(a + '\n'), carveToHtml(b + '\n'));
+    assert.equal(roundtrip(a + '\n'), roundtrip(b + '\n'));
+  }
 });

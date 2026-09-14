@@ -216,27 +216,6 @@ const KNOWN_DIVERGENT = new Map([
   ['03-links-12.crv', 'model: an autolink inside a link label survives in the AST, flattened by the HTML writer'],
   ['275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-5.crv', 'model: a collapsed reference repeats the heading label, so its inner link appears twice in the AST and once in the writer output'],
   ['288-heading-index-plain-text-covers-visible-leaves-and-rejects-an-empty-key.crv', 'model: as 275-...-5, with an autolink in the heading'],
-  // pin: THE SIX #155 DOCUMENTS. carve#1906 pins the marker fold window - a
-  // marker folds into an open item's lead text only STRICTLY between the item's
-  // base and content column - and the published engine reads that window as a
-  // fixed column. Four are a definition that should register and does not, two
-  // are a definition that registers and should have stayed lead text. Fixed on
-  // carve-js main by markup-carve/carve-js#1601; these clear when the pin moves
-  // past it. Declared upstream in spec/resources/engine-pin-drift.txt.
-  ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-3.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
-  ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-4.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
-  ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-5.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
-  ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-7.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
-  ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-8.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
-  ['442-a-marker-folds-only-strictly-between-the-item-s-base-and-content-column-9.crv', 'pin: marker fold window read as a fixed column (carve-js#1601)'],
-  // pin: carve#1937 rules that a definition written past an inner container's
-  // content column is consumed under some hosts and not others; the pinned
-  // build reads consumption the other way and resolves the reference the
-  // spec's expected HTML leaves as text. Fixed on carve-js main by
-  // markup-carve/carve-js#1637; clears when the pin moves past it. Declared
-  // upstream in spec/resources/engine-pin-drift.txt, which names this
-  // document and five of its siblings.
-  ['451-a-container-in-a-host-body-owns-a-line-past-its-own-content-column.crv', 'pin: definition consumption past an inner content column (carve-js#1637)'],
 ]);
 
 test('the sidecar comparison runs over the whole corpus, not a sample', () => {
