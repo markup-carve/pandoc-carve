@@ -6,9 +6,15 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findPandoc } from './helpers.mjs';
+import Ajv2020 from 'ajv/dist/2020.js';
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
 const pandoc = findPandoc();
+const reportSchema = JSON.parse(readFileSync(new URL('./fixtures/migration-report-schema.json', import.meta.url)));
+const validateMigrationReport = new Ajv2020({ strict: true }).compile(reportSchema);
+const assertMigrationReport = report => assert.equal(
+  validateMigrationReport(report), true, JSON.stringify(validateMigrationReport.errors),
+);
 
 function run(args, input) {
   return spawnSync(process.execPath, [cli, ...args], {
@@ -69,6 +75,7 @@ test('cli: structured diagnostics stay separate from converted output', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).blocks[0].t, 'Para');
   const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
+  assertMigrationReport(reportEnvelope);
   assert.equal(reportEnvelope.schemaVersion, 2);
   assert.equal(reportEnvelope.sourceFormat, 'carve');
   assert.equal(reportEnvelope.diagnostics[0].code, 'symbol-unresolved');
@@ -85,6 +92,7 @@ test('cli: inbound diagnostics name the original source format', () => {
   const result = run(['-', '-f', 'json', '--diagnostics', report], input);
   assert.equal(result.status, 0, result.stderr);
   const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
+  assertMigrationReport(reportEnvelope);
   assert.equal(reportEnvelope.schemaVersion, 2);
   assert.equal(reportEnvelope.sourceFormat, 'pandoc-json');
   assert.deepEqual(reportEnvelope.diagnostics, []);
@@ -99,6 +107,7 @@ test('cli: replays every shared Pandoc fidelity fixture', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, fixture.expected.output, fixture.id);
     const actual = JSON.parse(readFileSync(report, 'utf8'));
+    assertMigrationReport(actual);
     assert.equal(actual.schemaVersion, 2);
     assert.equal(actual.sourceFormat, fixture.sourceFormat);
     assert.equal(fixture.runner, 'external');
@@ -117,6 +126,7 @@ test('cli: a Pandoc reader boundary fails closed', () => {
   if (!pandoc) return assert.equal(result.status, 2);
   assert.equal(result.status, 3, result.stderr);
   const envelope = JSON.parse(readFileSync(report, 'utf8'));
+  assertMigrationReport(envelope);
   assert.equal(envelope.sourceFormat, 'pandoc-json');
   assert.deepEqual(
     envelope.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
