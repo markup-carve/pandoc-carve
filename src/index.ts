@@ -2,7 +2,7 @@ import * as carve from '@markup-carve/carve';
 import { normalizeCarveAst, parseCarveAst, toCarveAst, type CarveAstDocument } from './ast-json.js';
 import { convert, type ConvertOptions, type ConvertResult } from './convert.js';
 import { parseExtensions, type ParseOptions } from './parse-options.js';
-import { pandocToCarve as reverse } from './reverse.js';
+import { pandocToCarve as reverse, renderCarveSource } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
 import type { ConversionDiagnostic } from './diagnostics.js';
 import { migrationReport, type MigrationReport } from './diagnostics.js';
@@ -102,7 +102,7 @@ export function pandocToCarve(doc: PandocDoc | string): { carve: string; warning
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
     const { ast, warnings, diagnostics } = reverse(parsed);
     return {
-        carve: carve.renderCarve(ast as unknown as Parameters<typeof carve.renderCarve>[0]),
+        carve: renderCarveSource(ast),
         warnings,
         diagnostics,
         report: migrationReport(diagnostics),

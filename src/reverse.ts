@@ -1780,9 +1780,7 @@ function yamlKey(key: string): string {
 function blockScalarBody(ctx: Ctx, pandocBlocks: PandocNode[], depth: number): string[] | null {
     const children = blocks(ctx, pandocBlocks ?? []);
     if (!children.length) return null;
-    const source = renderCarve(
-        { type: 'document', children } as unknown as Parameters<typeof renderCarve>[0],
-    );
+    const source = renderCarveSource({ type: 'document', children });
     const pad = '  '.repeat(depth);
     const body = source.replace(/\n+$/, '').split('\n');
     if (!body.length) return null;
@@ -1889,4 +1887,91 @@ function containsShortCaption(value: unknown): boolean {
     const record = value as Record<string, unknown>;
     if (Array.isArray(record.shortCaption) && record.shortCaption.length > 0) return true;
     return Object.values(record).some(containsShortCaption);
+}
+
+// --- Source serialization ---
+
+/**
+ * Lines `renderCarve` writes as `%% <content>` where the content itself opens
+ * with a percent, which is the only content for which the separator is not
+ * free. See {@link renderCarveSource}.
+ */
+const SEPARATED_PERCENT_COMMENT = /^([ \t>]*)%% (%.*)$/;
+
+/**
+ * Where every comment node sits, as a path of container types and indices.
+ *
+ * The oracle for {@link renderCarveSource}: built the same way from the AST
+ * handed to the writer and from the parse of what the writer produced, so a
+ * comment that lands in a different container is visible without comparing
+ * trees whose inline runs the writer is free to normalize.
+ */
+function commentPaths(node: unknown, path = ''): string[] {
+    if (Array.isArray(node)) return node.flatMap((child, i) => commentPaths(child, `${path}[${i}]`));
+    if (!node || typeof node !== 'object') return [];
+    const record = node as Record<string, unknown>;
+    const here = typeof record.type === 'string' ? `${path}/${record.type}` : path;
+    const found = record.type === 'comment' ? [here] : [];
+    return [
+        ...found,
+        ...commentPaths(record.children, here),
+        ...commentPaths(record.items, here),
+    ];
+}
+
+/**
+ * The engine's writer, with the one comment spelling it cannot choose.
+ *
+ * `renderCarve` writes a line comment as `%% ` plus its content, unconditionally.
+ * The separator is free for every content but one: when the content itself opens
+ * with a percent, the marker the reader sees is shorter than the one the source
+ * had. `%%%` at a nested item's column 0 is a degraded comment fence, which ENDS
+ * that item, and `%% %` is an ordinary comment line, which does not - so the
+ * follower moves from the outer item into the inner one and the document says
+ * something else (#168).
+ *
+ * The separator is the engine's to emit and this bridge cannot pass a content
+ * that avoids it, so the spelling is decided HERE, after the writer has run: drop
+ * the separator, re-read, and keep the shorter spelling only when it puts the
+ * comment back where the AST had it and the writer's own spelling does not.
+ *
+ * Conservative by construction, and that is what makes it safe to run over a
+ * whole document. A `%% %` inside a code block re-reads to the same comment
+ * paths either way, so the writer's line is already a match and nothing is
+ * rewritten. Nothing is rewritten either when the re-read agrees with neither.
+ *
+ * Both spellings carry the same content - `%%%foo` and `%% %foo` both read as
+ * the content `%foo`, because the reader takes the marker as exactly `%%` and
+ * strips at most one following space - so this changes where a comment sits,
+ * never what it says.
+ */
+export function renderCarveSource(ast: CNode): string {
+    const rendered = renderCarve(ast as unknown as Parameters<typeof renderCarve>[0]);
+    const lines = rendered.split('\n');
+    const candidates = lines
+        .map((line, i) => (SEPARATED_PERCENT_COMMENT.test(line) ? i : -1))
+        .filter((i) => i >= 0);
+    if (!candidates.length) return rendered;
+
+    const target = commentPaths(ast).join('\n');
+    const readBack = (source: string): string | null => {
+        try {
+            return commentPaths(parseCarve(source)).join('\n');
+        } catch {
+            return null;
+        }
+    };
+
+    let current = lines;
+    let currentPaths = readBack(current.join('\n'));
+    for (const index of candidates) {
+        if (currentPaths === target) break;
+        const trial = current.slice();
+        trial[index] = current[index]!.replace(SEPARATED_PERCENT_COMMENT, '$1%%$2');
+        const trialPaths = readBack(trial.join('\n'));
+        if (trialPaths !== target) continue;
+        current = trial;
+        currentPaths = trialPaths;
+    }
+    return current === lines ? rendered : current.join('\n');
 }
