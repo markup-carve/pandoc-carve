@@ -38,7 +38,8 @@
   "scripts": {
     "build": "tsc",
     "examples:build": "npm run build && node scripts/build-examples.mjs",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "check:importer-fixtures": "node scripts/check-importer-fixtures.mjs",
+    "test": "npm run check:importer-fixtures && npm run build && node --test test/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "repository": {
