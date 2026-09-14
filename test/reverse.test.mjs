@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { carveToHtml } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const roundtrip = (src) => pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc).carve;
@@ -392,4 +393,25 @@ test('a Figure-wrapped quote keeps its short caption in the AST and says so', ()
   assert.equal(carve, '> wise\n^ Author\n');
   const { ast } = pandocToCarveAst(doc);
   assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'nav' }]);
+});
+
+test('a comment whose content opens with a percent keeps its marker run (#168)', () => {
+  // `%%%` at the inner item's column 0 is a degraded comment fence: it ENDS
+  // that item, so `y` belongs to the OUTER one. The engine's writer separates
+  // marker from content unconditionally, which spells the same node `%% %` -
+  // an ordinary comment line, which ends nothing, so `y` moves into the inner
+  // item and the document says something else.
+  const src = '- - x\n  %%%\n  y\n';
+  assert.equal(roundtrip(src), src);
+  assert.equal(carveToHtml(roundtrip(src)), carveToHtml(src));
+});
+
+test('the percent respelling leaves a code block and a plain comment alone (#168)', () => {
+  // The rewrite only fires where the writer's own spelling puts a comment in a
+  // different container than the AST had. A `%% %` that re-reads the same
+  // either way - inside fenced code, or as a comment nothing nests - is
+  // already a match, so nothing is rewritten and the separator stays.
+  assert.equal(roundtrip('```\n%% %fake\n```\n'), '```\n%% %fake\n```\n');
+  assert.equal(roundtrip('%% %note\n'), '%% %note\n');
+  assert.equal(roundtrip('- x\n  %% %y\n  z\n'), '- x\n  %% %y\n  z\n');
 });
