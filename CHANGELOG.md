@@ -11,7 +11,12 @@
   `dropped` fidelity plus confidence on each diagnostic. Legacy `warnings` and
   `diagnostics` library result fields remain available. Imports through a
   Pandoc reader fail closed with a dropped/fallback finding because fidelity
-  before the Pandoc JSON boundary cannot be measured.
+  before the Pandoc JSON boundary cannot be measured. Diagnostic `severity`
+  is now the shared `info`/`warning`/`error` level; the previous Pandoc-specific
+  category is retained as `class`. `--fail-on-loss` rejects both degraded and
+  dropped content. Known table normalizations retain the released
+  `table-groups-normalized` code; newly distinguished table losses use specific
+  codes, while unknown future table diagnostics fail closed.
 
 ## 0.1.4 - 2026-09-09
 

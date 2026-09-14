@@ -11,7 +11,7 @@ export { PANDOC_API_VERSION, type PandocDoc } from './pandoc.js';
 export type { ConvertOptions, ConvertResult } from './convert.js';
 export type { ParseOptions } from './parse-options.js';
 export type { ReverseResult } from './reverse.js';
-export type { ConversionDiagnostic, DiagnosticDirection, DiagnosticSeverity, MigrationConfidence, MigrationFidelity, MigrationReport } from './diagnostics.js';
+export type { ConversionDiagnostic, DiagnosticClass, DiagnosticDirection, DiagnosticSeverity, MigrationConfidence, MigrationFidelity, MigrationReport } from './diagnostics.js';
 export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
 
 /**

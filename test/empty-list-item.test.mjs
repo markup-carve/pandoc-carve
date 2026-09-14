@@ -65,7 +65,8 @@ for (const [kind, build] of [['ordered', ordered], ['bullet', bullet]]) {
     assert.ok(!/^\s*(?:1\.|-)\s*\+/m.test(result.carve), 'the marker is followed by a literal plus:\n' + result.carve);
     assert.deepEqual(items(result.carve), [''], 'the item did not come back empty: ' + JSON.stringify(result.carve));
     assert.deepEqual(codes(result), ['empty-list-item-spelled']);
-    assert.equal(result.diagnostics[0].severity, 'normalized');
+    assert.equal(result.diagnostics[0].class, 'normalized');
+    assert.equal(result.diagnostics[0].severity, 'info');
   });
 }
 

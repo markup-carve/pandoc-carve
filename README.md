@@ -65,9 +65,9 @@ Anything Carve cannot map faithfully is reported on stderr as a
 `pandoc-carve: degraded ...` warning - nothing degrades silently. For migration
 automation, `--diagnostics report.json` writes the same findings in a versioned
 `{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
-them into document output. `--fail-on-loss` exits with code
-3 for `lossy` or `unsupported` findings, while harmless `normalized` findings
-do not fail CI. Imports through a Pandoc reader other than `-f json` also exit
+them into document output. `--fail-on-loss` exits with code 3 for degraded or
+dropped findings, while preserved and normalized findings do not fail CI.
+Imports through a Pandoc reader other than `-f json` also exit
 3 because fidelity before the Pandoc JSON boundary cannot be verified; stderr
 names that worst-case gate explicitly. Use `--diagnostics -` for JSON on stderr.
 
@@ -79,7 +79,7 @@ import { carveToPandoc, carveToPandocJson } from '@markup-carve/pandoc-carve';
 const { doc, warnings, diagnostics, report } = carveToPandoc('Hello /world/!');
 // doc = { 'pandoc-api-version': [1, 23, 1], meta: {...}, blocks: [...] }
 // warnings = ['degraded: ...'] for lossy constructs
-// diagnostics = [{ code, direction, severity, fidelity, confidence, message, ... }]
+// diagnostics = [{ code, direction, class, severity, fidelity, confidence, message, ... }]
 // report = { schemaVersion: 2, sourceFormat: 'carve', diagnostics }
 
 const json = carveToPandocJson('Hello /world/!'); // stringified doc
@@ -177,7 +177,8 @@ every target that emits a resolvable URL. Pandoc's targets are not HTML, but
 `pandoc -f json -t html` is one command away - passing the scheme through here
 would not be a narrower policy, it would be the same sink one step removed.
 
-The diagnostic is `lossy`, so `--fail-on-loss` stops on it and a caller reading
+The diagnostic class is `lossy`, so `--fail-on-loss` stops on its dropped
+fidelity and a caller reading
 `diagnostics` can act on it. The scheme list and the scheme probe are mirrored
 from the engine rather than invented, and a test drives the engine's own writer
 over both to keep the mirror honest - the probe strips control characters and

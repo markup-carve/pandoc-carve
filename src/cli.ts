@@ -218,7 +218,8 @@ async function importToCarve(args: Args): Promise<void> {
         {
             code: 'fidelity-unverified',
             direction: 'pandoc-to-carve' as const,
-            severity: 'unsupported' as const,
+            class: 'unsupported' as const,
+            severity: 'error' as const,
             fidelity: 'dropped' as const,
             confidence: 'fallback' as const,
             message: 'Fidelity before the Pandoc JSON boundary was not reported; dropped is a conservative worst-case release-gate classification',

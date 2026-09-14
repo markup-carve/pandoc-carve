@@ -90,21 +90,25 @@ test('cli: inbound diagnostics name the original source format', () => {
   assert.deepEqual(reportEnvelope.diagnostics, []);
 });
 
-test('cli: replays the shared empty Pandoc fidelity fixture', () => {
-  // Synced from markup-carve/carve@1dfbd60a, tests/importer-fidelity/manifest.json.
-  const fixture = JSON.parse(readFileSync(new URL('./fixtures/importer-fidelity.json', import.meta.url)));
-  const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}.json`);
-  const result = run(['-', '-f', 'json', '--diagnostics', report], fixture.input);
-  assert.equal(result.status, 0, result.stderr);
-  const actual = JSON.parse(readFileSync(report, 'utf8'));
-  assert.equal(actual.schemaVersion, 2);
-  assert.equal(actual.sourceFormat, fixture.sourceFormat);
-  assert.equal(fixture.runner, 'external');
-  assert.equal(fixture.repository, 'markup-carve/pandoc-carve');
-  assert.deepEqual(
-    actual.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
-    fixture.expected.diagnostics,
-  );
+test('cli: replays every shared Pandoc fidelity fixture', () => {
+  // Synced from markup-carve/carve@b1bcb5fa, tests/importer-fidelity/manifest.json.
+  const fixtures = JSON.parse(readFileSync(new URL('./fixtures/importer-fidelity.json', import.meta.url)));
+  for (const fixture of fixtures) {
+    const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}-${fixture.id}.json`);
+    const result = run(['-', '-f', 'json', '--diagnostics', report], fixture.input);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, fixture.expected.output, fixture.id);
+    const actual = JSON.parse(readFileSync(report, 'utf8'));
+    assert.equal(actual.schemaVersion, 2);
+    assert.equal(actual.sourceFormat, fixture.sourceFormat);
+    assert.equal(fixture.runner, 'external');
+    assert.equal(fixture.repository, 'markup-carve/pandoc-carve');
+    assert.deepEqual(
+      actual.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
+      fixture.expected.diagnostics,
+      fixture.id,
+    );
+  }
 });
 
 test('cli: a Pandoc reader boundary fails closed', () => {
@@ -120,9 +124,9 @@ test('cli: a Pandoc reader boundary fails closed', () => {
   );
 });
 
-test('cli: fail-on-loss ignores degradation but fails on actual loss', () => {
+test('cli: fail-on-loss rejects both degradation and dropped content', () => {
   const degraded = run(['-', '-t', 'json', '--fail-on-loss'], 'a :heart: b\n');
-  assert.equal(degraded.status, 0, degraded.stderr);
+  assert.equal(degraded.status, 3, degraded.stderr);
   const lossy = run(['-', '-t', 'json', '--fail-on-loss'], 'visible %% secret\n');
   assert.equal(lossy.status, 3, lossy.stderr);
   assert.doesNotThrow(() => JSON.parse(lossy.stdout), 'converted output is still complete');
