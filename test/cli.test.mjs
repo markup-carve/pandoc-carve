@@ -99,7 +99,7 @@ test('cli: inbound diagnostics name the original source format', () => {
 });
 
 test('cli: replays every shared Pandoc fidelity fixture', () => {
-  // Synced from markup-carve/carve@b1bcb5fa, tests/importer-fidelity/manifest.json.
+  // Synced from the pinned spec submodule, tests/importer-fidelity/manifest.json.
   const fixtures = JSON.parse(readFileSync(new URL('./fixtures/importer-fidelity.json', import.meta.url)));
   for (const fixture of fixtures) {
     const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}-${fixture.id}.json`);
