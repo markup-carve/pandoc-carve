@@ -331,7 +331,8 @@ if (existsSync(corpusDir)) {
         `${file}: the diagnostics do not name the schemes the document carries`,
       );
       for (const diagnostic of diagnostics) {
-        assert.equal(diagnostic.severity, 'lossy', `${file}: the diagnostic must reach --fail-on-loss`);
+        assert.equal(diagnostic.class, 'lossy', `${file}: the diagnostic must reach --fail-on-loss`);
+        assert.equal(diagnostic.severity, 'error', `${file}: the diagnostic severity is standardized`);
         assert.equal(diagnostic.direction, 'carve-to-pandoc');
         assert.match(diagnostic.message, /^url: a denied scheme on a (link|image) destination is blanked/);
       }

@@ -24,7 +24,8 @@ test('a row header outside the leading run is reported', () => {
 	// `|=h|` the literal text `=h`, leaving only the second cell a header.
 	const result = carveToPandoc('|=h|=  i |\n|a|  b  |\n', { roundtrip: true });
 	assert.deepEqual(result.diagnostics.map((d) => d.code), ['table-row-head-outside-leading-run']);
-	assert.equal(result.diagnostics[0].severity, 'lossy');
+	assert.equal(result.diagnostics[0].class, 'lossy');
+	assert.equal(result.diagnostics[0].severity, 'error');
 	assert.match(result.warnings[0], /RowHeadColumns/);
 });
 
@@ -40,7 +41,8 @@ test('attributes on a math span are reported', () => {
 	// `393-...-5`, where the lost attribute is an accessible name.
 	const result = carveToPandoc('An inline $`x = 1` and a named $`y`{aria-label="why"} one.\n', { roundtrip: true });
 	assert.deepEqual(result.diagnostics.map((d) => d.code), ['math-attributes-dropped']);
-	assert.equal(result.diagnostics[0].severity, 'lossy');
+	assert.equal(result.diagnostics[0].class, 'lossy');
+	assert.equal(result.diagnostics[0].severity, 'error');
 });
 
 test('and a math span with no attributes is not', () => {

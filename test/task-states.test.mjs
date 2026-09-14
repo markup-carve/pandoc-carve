@@ -85,7 +85,8 @@ for (const state of EXTENDED) {
     assert.equal(carriedState(dropped.doc), null, 'the envelope is roundtrip-only');
     const [diagnostic] = stateDiagnostics(dropped);
     assert.ok(diagnostic, 'a state written as an unchecked box must say so');
-    assert.equal(diagnostic.severity, 'lossy');
+    assert.equal(diagnostic.class, 'lossy');
+    assert.equal(diagnostic.severity, 'error');
     assert.deepEqual(diagnostic.details, { taskState: state });
     assert.ok(
       dropped.warnings.some((w) => w.includes(`"${state}"`)),

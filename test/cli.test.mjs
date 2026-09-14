@@ -68,14 +68,65 @@ test('cli: structured diagnostics stay separate from converted output', () => {
   const result = run(['-', '-t', 'json', '--diagnostics', report], 'a :heart: b\n');
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).blocks[0].t, 'Para');
-  const diagnostics = JSON.parse(readFileSync(report, 'utf8'));
-  assert.equal(diagnostics[0].code, 'symbol-unresolved');
+  const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(reportEnvelope.schemaVersion, 2);
+  assert.equal(reportEnvelope.sourceFormat, 'carve');
+  assert.equal(reportEnvelope.diagnostics[0].code, 'symbol-unresolved');
   assert.equal(result.stderr, '');
 });
 
-test('cli: fail-on-loss ignores degradation but fails on actual loss', () => {
+test('cli: inbound diagnostics name the original source format', () => {
+  const report = join(tmpdir(), `pandoc-carve-inbound-${process.pid}.json`);
+  const input = JSON.stringify({
+    'pandoc-api-version': [1, 23, 1],
+    meta: {},
+    blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'plain' }] }],
+  });
+  const result = run(['-', '-f', 'json', '--diagnostics', report], input);
+  assert.equal(result.status, 0, result.stderr);
+  const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(reportEnvelope.schemaVersion, 2);
+  assert.equal(reportEnvelope.sourceFormat, 'pandoc-json');
+  assert.deepEqual(reportEnvelope.diagnostics, []);
+});
+
+test('cli: replays every shared Pandoc fidelity fixture', () => {
+  // Synced from markup-carve/carve@b1bcb5fa, tests/importer-fidelity/manifest.json.
+  const fixtures = JSON.parse(readFileSync(new URL('./fixtures/importer-fidelity.json', import.meta.url)));
+  for (const fixture of fixtures) {
+    const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}-${fixture.id}.json`);
+    const result = run(['-', '-f', 'json', '--diagnostics', report], fixture.input);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, fixture.expected.output, fixture.id);
+    const actual = JSON.parse(readFileSync(report, 'utf8'));
+    assert.equal(actual.schemaVersion, 2);
+    assert.equal(actual.sourceFormat, fixture.sourceFormat);
+    assert.equal(fixture.runner, 'external');
+    assert.equal(fixture.repository, 'markup-carve/pandoc-carve');
+    assert.deepEqual(
+      actual.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
+      fixture.expected.diagnostics,
+      fixture.id,
+    );
+  }
+});
+
+test('cli: a Pandoc reader boundary fails closed', () => {
+  const report = join(tmpdir(), `pandoc-carve-reader-${process.pid}.json`);
+  const result = run(['-', '-f', 'markdown', '--diagnostics', report, '--fail-on-loss'], 'plain');
+  if (!pandoc) return assert.equal(result.status, 2);
+  assert.equal(result.status, 3, result.stderr);
+  const envelope = JSON.parse(readFileSync(report, 'utf8'));
+  assert.equal(envelope.sourceFormat, 'pandoc-json');
+  assert.deepEqual(
+    envelope.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
+    [{ code: 'fidelity-unverified', fidelity: 'dropped', confidence: 'fallback' }],
+  );
+});
+
+test('cli: fail-on-loss rejects both degradation and dropped content', () => {
   const degraded = run(['-', '-t', 'json', '--fail-on-loss'], 'a :heart: b\n');
-  assert.equal(degraded.status, 0, degraded.stderr);
+  assert.equal(degraded.status, 3, degraded.stderr);
   const lossy = run(['-', '-t', 'json', '--fail-on-loss'], 'visible %% secret\n');
   assert.equal(lossy.status, 3, lossy.stderr);
   assert.doesNotThrow(() => JSON.parse(lossy.stdout), 'converted output is still complete');

@@ -63,20 +63,24 @@ carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
 
 Anything Carve cannot map faithfully is reported on stderr as a
 `pandoc-carve: degraded ...` warning - nothing degrades silently. For migration
-automation, `--diagnostics report.json` writes the same findings as structured
-JSON without mixing them into document output. `--fail-on-loss` exits with code
-3 for `lossy` or `unsupported` findings, while harmless `normalized` findings
-do not fail CI. Use `--diagnostics -` for JSON on stderr.
+automation, `--diagnostics report.json` writes the same findings in a versioned
+`{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
+them into document output. `--fail-on-loss` exits with code 3 for degraded or
+dropped findings, while preserved and normalized findings do not fail CI.
+Imports through a Pandoc reader other than `-f json` also exit
+3 because fidelity before the Pandoc JSON boundary cannot be verified; stderr
+names that worst-case gate explicitly. Use `--diagnostics -` for JSON on stderr.
 
 ## API
 
 ```js
 import { carveToPandoc, carveToPandocJson } from '@markup-carve/pandoc-carve';
 
-const { doc, warnings, diagnostics } = carveToPandoc('Hello /world/!');
+const { doc, warnings, diagnostics, report } = carveToPandoc('Hello /world/!');
 // doc = { 'pandoc-api-version': [1, 23, 1], meta: {...}, blocks: [...] }
 // warnings = ['degraded: ...'] for lossy constructs
-// diagnostics = [{ code, direction, severity, message, details?, path?, sourceLocation? }]
+// diagnostics = [{ code, direction, class, severity, fidelity, confidence, message, ... }]
+// report = { schemaVersion: 2, sourceFormat: 'carve', diagnostics }
 
 const json = carveToPandocJson('Hello /world/!'); // stringified doc
 ```
@@ -103,7 +107,7 @@ serializer), so output formatting carries fmt's guarantees:
 ```js
 import { pandocToCarve, pandocToCarveAst } from '@markup-carve/pandoc-carve';
 
-const { carve, warnings, diagnostics } = pandocToCarve(pandocJsonString);
+const { carve, warnings, diagnostics, report } = pandocToCarve(pandocJsonString);
 
 // Preserve structured fields that Carve 0.1 source cannot spell, including
 // Pandoc's optional short figure/table caption.
@@ -173,7 +177,8 @@ every target that emits a resolvable URL. Pandoc's targets are not HTML, but
 `pandoc -f json -t html` is one command away - passing the scheme through here
 would not be a narrower policy, it would be the same sink one step removed.
 
-The diagnostic is `lossy`, so `--fail-on-loss` stops on it and a caller reading
+The diagnostic class is `lossy`, so `--fail-on-loss` stops on its dropped
+fidelity and a caller reading
 `diagnostics` can act on it. The scheme list and the scheme probe are mirrored
 from the engine rather than invented, and a test drives the engine's own writer
 over both to keep the mirror honest - the probe strips control characters and

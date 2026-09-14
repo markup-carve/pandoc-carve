@@ -21,7 +21,8 @@ test('roundtrip provenance preserves adjacent inline and block comments exactly'
 test('normal mode still drops comments and reports a stable diagnostic', () => {
   const result = carveToPandoc('visible %% secret\n');
   assert.equal(result.diagnostics[0].code, 'comment-dropped');
-  assert.equal(result.diagnostics[0].severity, 'lossy');
+  assert.equal(result.diagnostics[0].class, 'lossy');
+  assert.equal(result.diagnostics[0].severity, 'error');
   assert.equal(result.diagnostics[0].sourceLocation.startLine, 1);
   assert.deepEqual(result.warnings, result.diagnostics.map(({ message }) => message));
 });

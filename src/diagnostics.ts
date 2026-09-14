@@ -1,11 +1,17 @@
 export type DiagnosticDirection = 'carve-to-pandoc' | 'pandoc-to-carve';
-export type DiagnosticSeverity = 'lossy' | 'degraded' | 'normalized' | 'unsupported';
+export type DiagnosticClass = 'lossy' | 'degraded' | 'normalized' | 'unsupported';
+export type DiagnosticSeverity = 'info' | 'warning' | 'error';
+export type MigrationFidelity = 'preserved' | 'normalized' | 'degraded' | 'dropped';
+export type MigrationConfidence = 'exact' | 'inferred' | 'fallback';
 
 export interface ConversionDiagnostic {
     /** Stable, machine-readable identifier. */
     code: string;
     direction: DiagnosticDirection;
+    class: DiagnosticClass;
     severity: DiagnosticSeverity;
+    fidelity: MigrationFidelity;
+    confidence: MigrationConfidence;
     message: string;
     /** Construct-specific values useful to migration tooling. */
     details?: Record<string, unknown>;
@@ -18,55 +24,63 @@ export interface ConversionDiagnostic {
 interface Rule {
     test: RegExp;
     code: string;
-    severity: DiagnosticSeverity;
+    class: DiagnosticClass;
 }
 
 // Ordered from specific to general. Codes are API: add rules, never rename them.
 const RULES: Rule[] = [
-    { test: /^comment:/, code: 'comment-dropped', severity: 'lossy' },
-    { test: /^inline: unknown node type/, code: 'unknown-carve-inline', severity: 'degraded' },
-    { test: /^block: unknown node type/, code: 'unknown-carve-block', severity: 'degraded' },
-    { test: /^inline: pandoc node/, code: 'unsupported-pandoc-inline', severity: 'unsupported' },
-    { test: /^block: pandoc node/, code: 'unsupported-pandoc-block', severity: 'unsupported' },
-    { test: /^citation: .*typed locator/, code: 'citation-locator-flattened', severity: 'normalized' },
-    { test: /^citation: .*suppresses its author/, code: 'citation-mode-normalized', severity: 'normalized' },
-    { test: /^Cite mixes /, code: 'citation-mode-normalized', severity: 'normalized' },
-    { test: /^Cite mapped /, code: 'citation-bibliography-not-emitted', severity: 'degraded' },
-    { test: /^SmallCaps /, code: 'smallcaps-degraded', severity: 'degraded' },
-    { test: /^short caption:/, code: 'short-caption-source-unavailable', severity: 'unsupported' },
-    { test: /^figure:/, code: 'figure-unwrapped', severity: 'degraded' },
-    { test: /^figure group: short caption/, code: 'figure-group-short-caption-dropped', severity: 'lossy' },
-    { test: /^frontmatter: format/, code: 'frontmatter-format-unsupported', severity: 'unsupported' },
-    { test: /^frontmatter: line/, code: 'frontmatter-line-skipped', severity: 'lossy' },
-    { test: /^frontmatter: value/, code: 'frontmatter-value-skipped', severity: 'lossy' },
-    { test: /^meta: .*empty/, code: 'metadata-empty-blocks-skipped', severity: 'lossy' },
-    { test: /^meta:/, code: 'metadata-value-skipped', severity: 'lossy' },
-    { test: /^definition list: looseness/, code: 'definition-list-looseness-widened', severity: 'normalized' },
-    { test: /^definition list:/, code: 'definition-entry-skipped', severity: 'lossy' },
-    { test: /^ordered list:/, code: 'ordered-list-marker-normalized', severity: 'normalized' },
-    { test: /^list: an empty item/, code: 'empty-list-item-spelled', severity: 'normalized' },
-    { test: /^task state:/, code: 'task-state-dropped', severity: 'lossy' },
-    { test: /^math: attributes/, code: 'math-attributes-dropped', severity: 'lossy' },
-    { test: /^symbol:/, code: 'symbol-unresolved', severity: 'degraded' },
-    { test: /^url: a denied scheme/, code: 'unsafe-url-scheme', severity: 'lossy' },
-    { test: /^attribute: unsafe name/, code: 'unsafe-attribute-name', severity: 'lossy' },
-    { test: /^attribute: unsafe value/, code: 'unsafe-attribute-value', severity: 'lossy' },
-    { test: /^extension:/, code: 'inline-extension-degraded', severity: 'degraded' },
-    { test: /missing definition/, code: 'reference-unresolved', severity: 'degraded' },
-    { test: /^crossref:/, code: 'crossref-unresolved', severity: 'degraded' },
-    { test: /^list-table: structure/, code: 'list-table-structure-degraded', severity: 'degraded' },
-    { test: /^list-table: the short caption/, code: 'list-table-short-caption-dropped', severity: 'lossy' },
-    { test: /^list-table: a body group's attributes/, code: 'list-table-body-attributes-dropped', severity: 'lossy' },
-    { test: /^list-table: the table's .* body groups/, code: 'list-table-body-groups-merged', severity: 'normalized' },
-    { test: /^list-table: the body groups disagree/, code: 'list-table-row-heads-normalized', severity: 'normalized' },
-    { test: /^list-table: rowspan/, code: 'list-table-rowspan-clipped', severity: 'lossy' },
-    { test: /^table: a row header outside/, code: 'table-row-head-outside-leading-run', severity: 'lossy' },
-    { test: /^table: block-level/, code: 'table-cell-blocks-flattened', severity: 'lossy' },
-    { test: /^table: attributes on/, code: 'table-continuation-attributes-dropped', severity: 'lossy' },
-    { test: /^table: colspan continuation/, code: 'table-colspan-origin-missing', severity: 'degraded' },
-    { test: /^table: rowspan crossing/, code: 'table-rowspan-clipped', severity: 'lossy' },
-    { test: /^table: rowspan continuation/, code: 'table-rowspan-origin-missing', severity: 'degraded' },
-    { test: /^table:/, code: 'table-groups-normalized', severity: 'normalized' },
+    { test: /^comment:/, code: 'comment-dropped', class: 'lossy' },
+    { test: /^inline: unknown node type/, code: 'unknown-carve-inline', class: 'degraded' },
+    { test: /^block: unknown node type/, code: 'unknown-carve-block', class: 'degraded' },
+    { test: /^inline: pandoc node/, code: 'unsupported-pandoc-inline', class: 'unsupported' },
+    { test: /^block: pandoc node/, code: 'unsupported-pandoc-block', class: 'unsupported' },
+    { test: /^citation: .*typed locator/, code: 'citation-locator-flattened', class: 'normalized' },
+    { test: /^citation: .*suppresses its author/, code: 'citation-mode-normalized', class: 'normalized' },
+    { test: /^Cite mixes /, code: 'citation-mode-normalized', class: 'normalized' },
+    { test: /^Cite mapped /, code: 'citation-bibliography-not-emitted', class: 'degraded' },
+    { test: /^SmallCaps /, code: 'smallcaps-degraded', class: 'degraded' },
+    { test: /^short caption:/, code: 'short-caption-source-unavailable', class: 'unsupported' },
+    { test: /^figure:/, code: 'figure-unwrapped', class: 'degraded' },
+    { test: /^figure group: short caption/, code: 'figure-group-short-caption-dropped', class: 'lossy' },
+    { test: /^frontmatter: format/, code: 'frontmatter-format-unsupported', class: 'unsupported' },
+    { test: /^frontmatter: block content/, code: 'frontmatter-block-content-dropped', class: 'lossy' },
+    { test: /^frontmatter: line/, code: 'frontmatter-line-skipped', class: 'lossy' },
+    { test: /^frontmatter: value/, code: 'frontmatter-value-skipped', class: 'lossy' },
+    { test: /^meta: .*empty/, code: 'metadata-empty-blocks-skipped', class: 'lossy' },
+    { test: /^meta:/, code: 'metadata-value-skipped', class: 'lossy' },
+    { test: /^definition list: looseness/, code: 'definition-list-looseness-widened', class: 'normalized' },
+    { test: /^definition list:/, code: 'definition-entry-skipped', class: 'lossy' },
+    { test: /^ordered list:/, code: 'ordered-list-marker-normalized', class: 'normalized' },
+    { test: /^list: an empty item/, code: 'empty-list-item-spelled', class: 'normalized' },
+    { test: /^task state:/, code: 'task-state-dropped', class: 'lossy' },
+    { test: /^math: attributes/, code: 'math-attributes-dropped', class: 'lossy' },
+    { test: /^symbol:/, code: 'symbol-unresolved', class: 'degraded' },
+    { test: /^url: a denied scheme/, code: 'unsafe-url-scheme', class: 'lossy' },
+    { test: /^attribute: unsafe name/, code: 'unsafe-attribute-name', class: 'lossy' },
+    { test: /^attribute: unsafe value/, code: 'unsafe-attribute-value', class: 'lossy' },
+    { test: /^extension:/, code: 'inline-extension-degraded', class: 'degraded' },
+    { test: /^(?:link|image|footnote): missing definition/, code: 'reference-unresolved', class: 'degraded' },
+    { test: /^crossref:/, code: 'crossref-unresolved', class: 'degraded' },
+    { test: /^list-table: structure/, code: 'list-table-structure-degraded', class: 'degraded' },
+    { test: /^list-table: the short caption/, code: 'list-table-short-caption-dropped', class: 'lossy' },
+    { test: /^list-table: a body group's attributes/, code: 'list-table-body-attributes-dropped', class: 'lossy' },
+    { test: /^list-table: the table's .* body groups/, code: 'list-table-body-groups-merged', class: 'normalized' },
+    { test: /^list-table: the body groups disagree/, code: 'list-table-row-heads-normalized', class: 'normalized' },
+    { test: /^list-table: rowspan/, code: 'list-table-rowspan-clipped', class: 'lossy' },
+    { test: /^table: a row header outside/, code: 'table-row-head-outside-leading-run', class: 'lossy' },
+    { test: /^table: block-level/, code: 'table-cell-blocks-flattened', class: 'lossy' },
+    { test: /^table: attributes on/, code: 'table-continuation-attributes-dropped', class: 'lossy' },
+    { test: /^table: colspan continuation/, code: 'table-colspan-origin-missing', class: 'degraded' },
+    { test: /^table: rowspan crossing/, code: 'table-rowspan-clipped', class: 'lossy' },
+    { test: /^table: rowspan continuation/, code: 'table-rowspan-origin-missing', class: 'degraded' },
+    { test: /^table: .*padded with empty cells/, code: 'table-groups-normalized', class: 'normalized' },
+    { test: /^table: a cell holds block content/, code: 'table-groups-normalized', class: 'normalized' },
+    { test: /^table: .*converted with the implicit head\/body split/, code: 'table-row-groups-invalid', class: 'degraded' },
+    { test: /^table: .*preserved in the Carve AST as `rowGroups`/, code: 'table-groups-flattened', class: 'degraded' },
+    { test: /^table: a foot row's row header is dropped/, code: 'table-foot-row-header-dropped', class: 'lossy' },
+    { test: /^table: the body rows disagree on how many leading cells/, code: 'table-row-heads-degraded', class: 'degraded' },
+    { test: /^table: the rows of a declared body group disagree/, code: 'table-row-heads-degraded', class: 'degraded' },
+    { test: /^table:/, code: 'table-unclassified-loss', class: 'unsupported' },
 ];
 
 export function diagnostic(
@@ -81,11 +95,28 @@ export function diagnostic(
     return {
         code: rule.code,
         direction,
-        severity: rule.severity,
+        class: rule.class,
+        severity: rule.class === 'normalized' ? 'info' : rule.class === 'degraded' ? 'warning' : 'error',
+        fidelity: rule.class === 'normalized'
+            ? 'normalized'
+            : rule.class === 'degraded'
+                ? 'degraded'
+                : 'dropped',
+        confidence: 'inferred',
         message,
         ...(Object.keys(inferred).length ? { details: inferred } : {}),
         ...(sourceLocation !== undefined ? { sourceLocation } : {}),
     };
+}
+
+export interface MigrationReport {
+    schemaVersion: 2;
+    sourceFormat: string;
+    diagnostics: ConversionDiagnostic[];
+}
+
+export function migrationReport(diagnostics: ConversionDiagnostic[], sourceFormat = 'pandoc-json'): MigrationReport {
+    return { schemaVersion: 2, sourceFormat, diagnostics };
 }
 
 function inferDetails(message: string): Record<string, unknown> {
@@ -104,5 +135,5 @@ function inferDetails(message: string): Record<string, unknown> {
 }
 
 export function hasLoss(diagnostics: ConversionDiagnostic[]): boolean {
-    return diagnostics.some((item) => item.severity === 'lossy' || item.severity === 'unsupported');
+    return diagnostics.some((item) => item.fidelity === 'degraded' || item.fidelity === 'dropped');
 }
