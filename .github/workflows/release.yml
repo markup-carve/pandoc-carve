@@ -8,6 +8,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       # `write`, not `read`, and the gate below is the whole reason: a DRAFT
       # release is invisible to a caller without push access, so under
