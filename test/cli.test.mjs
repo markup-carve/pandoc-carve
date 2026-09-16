@@ -41,6 +41,40 @@ test('cli: reads stdin with "-"', () => {
   assert.ok(result.stdout.includes('"Strong"'));
 });
 
+test('cli: stdin includes are opt-in through an absolute root', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  writeFileSync(join(dir, 'child.crv'), 'Included.\n');
+  const literal = run(['-', '-t', 'json'], '{{ child.crv }}\n');
+  assert.equal(literal.status, 0, literal.stderr);
+  assert.match(literal.stdout, /child\.crv/);
+  const expanded = run(['-', '-t', 'json', '--include-root', dir], '{{ child.crv }}\n');
+  assert.equal(expanded.status, 0, expanded.stderr);
+  assert.match(expanded.stdout, /Included/);
+});
+
+test('cli: named files expand from their directory and --no-includes opts out', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, '{{ child.crv }}\n');
+  writeFileSync(join(dir, 'child.crv'), 'Included.\n');
+  const expanded = run([file, '-t', 'json']);
+  assert.equal(expanded.status, 0, expanded.stderr);
+  assert.match(expanded.stdout, /Included/);
+  const literal = run([file, '-t', 'json', '--no-includes']);
+  assert.equal(literal.status, 0, literal.stderr);
+  assert.match(literal.stdout, /child\.crv/);
+});
+
+test('cli: include warnings expose no absolute containment path', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, '{{ ../outside.crv }}\n');
+  const result = run([file, '-t', 'json', '--include-root', dir]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /include-unresolved/);
+  assert.doesNotMatch(result.stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
 test('cli: -f carve-json converts a serialized AST from any engine', () => {
   // The wire form of `# Hi`, written by hand: no engine produced it, which is
   // the point - PART 12 is what the CLI reads here, not carve-js.

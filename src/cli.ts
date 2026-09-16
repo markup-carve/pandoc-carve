@@ -10,7 +10,10 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { carveAstToPandoc, carveToPandoc } from './index.js';
+import { carveToPandocWithIncludes } from './includes.js';
+import type { IncludeWarning } from '@markup-carve/carve';
 import { hasLoss, migrationReport, type ConversionDiagnostic } from './diagnostics.js';
 
 function usage(exitCode: number): never {
@@ -38,6 +41,8 @@ Common options:
                      human warnings are suppressed)
   --fail-on-loss     exit 3 when lossy or unsupported diagnostics are present
   --symbols FILE     JSON map resolving :name: symbols to text (export)
+  --include-root DIR containment root for includes (defaults to input folder)
+  --no-includes      leave include directives literal
   --pandoc PATH      pandoc executable (default: $PANDOC or "pandoc")
   -h, --help         show this help
 `;
@@ -55,6 +60,8 @@ interface Args {
     listTable: boolean;
     citations: boolean;
     symbolsFile?: string;
+    includeRoot?: string;
+    includes: boolean;
     diagnosticsFile?: string;
     failOnLoss: boolean;
     pandocPath: string;
@@ -69,6 +76,7 @@ function parseArgs(argv: string[]): Args {
         roundtrip: false,
         listTable: true,
         citations: true,
+        includes: true,
         failOnLoss: false,
         pandocPath: process.env.PANDOC ?? 'pandoc',
         passthrough: [],
@@ -97,6 +105,10 @@ function parseArgs(argv: string[]): Args {
             args.citations = false;
         } else if (a === '--symbols') {
             args.symbolsFile = argv[++i] ?? usage(1);
+        } else if (a === '--include-root') {
+            args.includeRoot = argv[++i] ?? usage(1);
+        } else if (a === '--no-includes') {
+            args.includes = false;
         } else if (a === '--diagnostics') {
             args.diagnosticsFile = argv[++i] ?? usage(1);
         } else if (a === '--fail-on-loss') {
@@ -137,10 +149,29 @@ async function main(): Promise<void> {
         citations: args.citations,
         symbols,
     };
-    const { doc, warnings, diagnostics } =
-        args.from === 'carve-json'
-            ? carveAstToPandoc(source, options)
+    if (args.includeRoot && !path.isAbsolute(args.includeRoot)) {
+        throw new Error('--include-root must be an absolute path');
+    }
+    let includeWarnings: IncludeWarning[] = [];
+    const converted = args.from === 'carve-json'
+        ? carveAstToPandoc(source, options)
+        : args.includes && (args.input !== '-' || args.includeRoot)
+            ? carveToPandocWithIncludes(source, {
+                includeRoot: path.resolve(args.includeRoot ?? path.dirname(args.input)),
+                ...(args.input === '-' ? {} : { sourcePath: path.resolve(args.input) }),
+            }, options)
             : carveToPandoc(source, options);
+    if ('includeWarnings' in converted) {
+        includeWarnings = converted.includeWarnings as IncludeWarning[];
+    }
+    const { doc, warnings, diagnostics } = converted;
+    for (const warning of includeWarnings) {
+        const root = args.includeRoot ?? (args.input === '-' ? undefined : path.dirname(path.resolve(args.input)));
+        const file = warning.file && root
+            ? `[include-root]/${path.relative(root, warning.file)}`
+            : args.input;
+        process.stderr.write(`pandoc-carve: ${file}:${warning.line}:${warning.column} ${warning.rule} - ${warning.message}\n`);
+    }
     report(args, warnings, diagnostics, 'carve');
     const json = JSON.stringify(doc);
 
