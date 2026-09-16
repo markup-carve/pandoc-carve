@@ -112,7 +112,10 @@ test('the engine under test is the engine the manifest pins', () => {
   const read = (p) => JSON.parse(readFileSync(join(root, p), 'utf8'));
   const dep = '@markup-carve/carve';
 
-  const manifest = read('package.json').dependencies[dep];
+  const manifestJson = read('package.json');
+  const manifest = manifestJson.dependencies?.[dep]
+    ?? manifestJson.devDependencies?.[dep]
+    ?? manifestJson.peerDependencies?.[dep];
   const locked = read('package-lock.json').packages[`node_modules/${dep}`].resolved;
   const installed = read('node_modules/.package-lock.json').packages[`node_modules/${dep}`].resolved;
 
