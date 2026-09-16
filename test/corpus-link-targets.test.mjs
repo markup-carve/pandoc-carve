@@ -216,6 +216,13 @@ const KNOWN_DIVERGENT = new Map([
   ['03-links-12.crv', 'model: an autolink inside a link label survives in the AST, flattened by the HTML writer'],
   ['275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-5.crv', 'model: a collapsed reference repeats the heading label, so its inner link appears twice in the AST and once in the writer output'],
   ['288-heading-index-plain-text-covers-visible-leaves-and-rejects-an-empty-key.crv', 'model: as 275-...-5, with an autolink in the heading'],
+  // pin: PART 9 section 9 E2a names a link destination and an autolink opaque
+  // to a bare closer (carve#2046). The pinned build closes the italic at the
+  // slash in `http:/`, so the reference the spec's expected HTML resolves is
+  // never built. Fixed on carve-js main by markup-carve/carve-js#1751; both
+  // entries clear when the pin moves past it.
+  ['467-a-bare-closer-does-not-reach-inside-a-link-destination.crv', 'pin: a bare closer reaches inside a link destination (carve-js#1751)'],
+  ['467-a-bare-closer-does-not-reach-inside-a-link-destination-2.crv', 'pin: a bare closer reaches inside an autolink (carve-js#1751)'],
 ]);
 
 test('the sidecar comparison runs over the whole corpus, not a sample', () => {

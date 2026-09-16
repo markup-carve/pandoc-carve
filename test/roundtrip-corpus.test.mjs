@@ -203,6 +203,15 @@ const KNOWN_LOSSY = new Set([
   // what follows it comes back attached to the item's lead rather than as its
   // own framed line. The rendered text is identical; the `li`'s shape is not.
   '447-the-host-does-not-change-which-column-a-definition-reaches-20.crv',
+  // ARRIVED WITH A CORPUS BUMP, and PINNED rather than lost: PART 11 section 7e
+  // puts a tight item's opening block on the marker line (carve#2034), and the
+  // pinned writer instead emits the body form with a private-use sentinel in
+  // front of the continuation marker, which nothing reads back. Fixed on
+  // carve-js main by markup-carve/carve-js#1731; all three clear when the pin
+  // moves past it.
+  '464-a-block-that-opens-a-tight-item-is-written-on-the-marker-line.crv',
+  '464-a-block-that-opens-a-tight-item-is-written-on-the-marker-line-2.crv',
+  '464-a-block-that-opens-a-tight-item-is-written-on-the-marker-line-3.crv',
   '46-symbols-4.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',
