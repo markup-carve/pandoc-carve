@@ -30,6 +30,17 @@ test('file-backed conversion expands nested includes and returns dependencies', 
   assert.doesNotMatch(json, /\{\{/);
   assert.deepEqual(result.dependencies.map(item => item.resolved), [true, true]);
   assert.deepEqual(result.includeWarnings, []);
+  assert.equal(result.suppressedIncludeWarnings, 0);
+}));
+
+test('file-backed conversion reports warnings suppressed by the engine cap', () => fixture(root => {
+  const source = Array.from({ length: 105 }, (_, index) => `{{ missing-${index}.crv }}`).join('\n');
+  const result = carveToPandocWithIncludes(source, {
+    includeRoot: root,
+    sourcePath: join(root, 'main.crv'),
+  });
+  assert.equal(result.includeWarnings.length + result.suppressedIncludeWarnings, 105);
+  assert.ok(result.suppressedIncludeWarnings > 0);
 }));
 
 test('string-only conversion keeps include directives literal', () => {

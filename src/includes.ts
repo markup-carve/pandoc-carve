@@ -13,6 +13,7 @@ export interface IncludeConversionOptions {
 
 export interface IncludeConversionResult extends ConvertResult {
     includeWarnings: carve.IncludeWarning[];
+    suppressedIncludeWarnings: number;
     dependencies: carve.IncludeDependency[];
 }
 
@@ -45,6 +46,7 @@ export function carveToPandocWithIncludes(
     return {
         ...converted,
         includeWarnings: expanded.warnings,
+        suppressedIncludeWarnings: expanded.suppressedWarnings,
         dependencies: expanded.dependencies,
     };
 }

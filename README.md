@@ -68,7 +68,9 @@ carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
 ```
 
 Anything Carve cannot map faithfully is reported on stderr as a
-`pandoc-carve: degraded ...` warning - nothing degrades silently. For migration
+`pandoc-carve: degraded ...` warning - nothing degrades silently. Unresolved or
+refused includes are reported as dropped, while safe include renames and heading
+clamps are normalized. For migration
 automation, `--diagnostics report.json` writes the same findings in a versioned
 `{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
 them into document output. `--fail-on-loss` exits with code 3 for degraded or
@@ -103,7 +105,8 @@ const result = carveToPandocWithIncludes(readFileSync(sourcePath, 'utf8'), {
   includeRoot: '/srv/book',
   sourcePath,
 });
-// result.includeWarnings and result.dependencies describe the expansion pass
+// includeWarnings and suppressedIncludeWarnings describe expansion diagnostics;
+// dependencies contains resolved and unresolved include identities.
 ```
 
 Both API paths must be absolute, and `sourcePath` must stay inside
