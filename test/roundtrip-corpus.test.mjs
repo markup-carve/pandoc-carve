@@ -88,11 +88,8 @@ const KNOWN_LOSSY = new Set([
   '110-empty-link-and-image-titles-are-preserved.crv',
   '121-scheme-probe-strips-unicode-whitespace.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
-  // These three documents arrived with the spec pin needed for substitution
-  // arrays. The published 0.1.6 engine predates their delimiter rulings, so it
-  // parses a different tree before the bridge sees it. Remove them when the
-  // engine dependency advances past the fixes already on carve-js main.
-  '12-inline-code-7.crv',
+  // The 0.1.6 engine parsed a different tree here before the bridge saw it.
+  // Only this one still does at 0.1.7.
   '152-leading-attribute-brace-before-an-inline-span-stays-literal-3.crv',
   '173-implicit-heading-references-with-no-definition.crv',
   '21-math-2.crv',
@@ -209,20 +206,6 @@ const KNOWN_LOSSY = new Set([
   // what follows it comes back attached to the item's lead rather than as its
   // own framed line. The rendered text is identical; the `li`'s shape is not.
   '447-the-host-does-not-change-which-column-a-definition-reaches-20.crv',
-  // ARRIVED WITH A CORPUS BUMP, and PINNED rather than lost: PART 11 section 7e
-  // puts a tight item's opening block on the marker line (carve#2034), and the
-  // pinned writer instead emits the body form with a private-use sentinel in
-  // front of the continuation marker, which nothing reads back. Fixed on
-  // carve-js main by markup-carve/carve-js#1731; all three clear when the pin
-  // moves past it.
-  '464-a-block-that-opens-a-tight-item-is-written-on-the-marker-line.crv',
-  '464-a-block-that-opens-a-tight-item-is-written-on-the-marker-line-2.crv',
-  '464-a-block-that-opens-a-tight-item-is-written-on-the-marker-line-3.crv',
-  '471-a-forced-opener-of-an-open-kind-is-literal-3.crv',
-  // The old renderer adapter preserves inline content as text, but the 0.1.6
-  // writer doubles the escaped substitution arrow's backslash. This is another
-  // engine-pin gap; the new public AST remains structured and schema-valid.
-  '472-substitution-content-is-inline-and-only-a-top-level-arrow-splits-it.crv',
   '46-symbols-4.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',

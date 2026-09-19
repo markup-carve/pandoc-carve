@@ -2,19 +2,8 @@
 
 ## Unreleased
 
-### Added
-
-- Contained file-backed include expansion through
-  `carveToPandocWithIncludes()` and `--include-root`, with structured warnings
-  and dependency identities. Named-file CLI conversion expands directives from
-  the file's directory by default; `--no-includes` opts out. String and stdin
-  conversion remain literal unless a root is supplied explicitly.
-
 ### Changed
 
-- **Breaking:** carve-js is now a `>=0.1.7 <0.2.0` peer dependency. Development pins the
-  merged include implementation without putting a Git dependency in the
-  published manifest.
 - **Breaking:** CLI `--diagnostics` output changes from a JSON array to the
   version 2 report envelope, and conversion result types gain required report,
   fidelity, and confidence fields. Every conversion result and CLI diagnostics file now exposes the version 2
