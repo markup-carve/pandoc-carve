@@ -71,6 +71,8 @@ const CHILD_FIELDS = [
     'shortCaption',
     'title',
     'target',
+    'old',
+    'new',
 ] as const;
 
 /** A runtime definition-list entry, before the wire flattens it. */
@@ -135,6 +137,19 @@ function normalize<T>(node: T): T {
             // reads the wire has no reason to know the other spelling existed.
             set('type', 'critic_comment');
             break;
+        case 'substitution': {
+            if (!Array.isArray(current['old']) && typeof current['oldText'] === 'string') {
+                set('old', [{ type: 'text', value: current['oldText'] }]);
+            }
+            if (!Array.isArray(current['new']) && typeof current['newText'] === 'string') {
+                set('new', [{ type: 'text', value: current['newText'] }]);
+            }
+            if (current['oldText'] !== undefined || current['newText'] !== undefined) {
+                const { oldText: _oldText, newText: _newText, ...rest } = out ?? { ...node };
+                out = rest;
+            }
+            break;
+        }
         case 'footnote': {
             // The pre-split inline node (carve#405), whose name COLLIDES with
             // the wire `footnote` - which is the DEFINITION block, carrying

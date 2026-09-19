@@ -882,13 +882,13 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'delete':
             return [P.Span(P.attr(undefined, ['deletion']), kids(ctx, n))];
         case 'substitution': {
-            const oldText = textInlines(String(n.oldText ?? ''));
-            const newText = textInlines(String(n.newText ?? ''));
+            const oldContent = Array.isArray(n.old) ? inlines(ctx, n.old as CNode[]) : [];
+            const newContent = Array.isArray(n.new) ? inlines(ctx, n.new as CNode[]) : [];
             return [
                 P.Span(P.attr(undefined, ['substitution']), [
-                    P.Span(P.attr(undefined, ['deletion']), oldText),
+                    P.Span(P.attr(undefined, ['deletion']), oldContent),
                     P.Str('→'),
-                    P.Span(P.attr(undefined, ['insertion']), newText),
+                    P.Span(P.attr(undefined, ['insertion']), newContent),
                 ]),
             ];
         }

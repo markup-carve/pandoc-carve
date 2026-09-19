@@ -27,6 +27,54 @@ export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
  */
 const engineSerializer = (carve as unknown as { toAstJson?: (doc: unknown) => unknown }).toAstJson;
 
+let rendererReadsInlineSubstitutions: boolean | undefined;
+
+function engineRenderTree(ast: unknown): unknown {
+    rendererReadsInlineSubstitutions ??= (() => {
+        const parsed = carve.parse('{~/old/~>/new/~}');
+        const probe = (engineSerializer ? engineSerializer(parsed) : parsed) as Record<string, unknown>;
+        const children = Array.isArray(probe['children']) ? probe['children'] : [];
+        const paragraph = children[0] as Record<string, unknown> | undefined;
+        const substitution = Array.isArray(paragraph?.['children'])
+            ? paragraph['children'].find((node) => node?.type === 'substitution')
+            : undefined;
+        return Array.isArray(substitution?.['old']) && Array.isArray(substitution?.['new']);
+    })();
+    return rendererReadsInlineSubstitutions ? ast : legacySubstitutions(ast);
+}
+
+function legacySubstitutions(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(legacySubstitutions);
+    if (typeof value !== 'object' || value === null) return value;
+    const node = value as Record<string, unknown>;
+    if (node['type'] === 'substitution') {
+        const { old, new: replacement, ...rest } = node;
+        const legacyRest = Object.fromEntries(
+            Object.entries(rest).map(([key, child]) => [key, legacySubstitutions(child)]),
+        );
+        return {
+            ...legacyRest,
+            // The published renderer cannot express inline structure in these
+            // fields. This lossy view exists only at that legacy API boundary;
+            // the returned and converted ASTs retain the arrays.
+            oldText: inlineText(old),
+            newText: inlineText(replacement),
+        };
+    }
+    return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, legacySubstitutions(child)]));
+}
+
+function inlineText(value: unknown): string {
+    if (!Array.isArray(value)) return '';
+    return value.map((node) => {
+        if (typeof node !== 'object' || node === null) return '';
+        const inline = node as Record<string, unknown>;
+        if (inline['type'] === 'text') return String(inline['value'] ?? '');
+        if (inline['type'] === 'soft_break' || inline['type'] === 'hard_break') return '\n';
+        return inlineText(inline['children']);
+    }).join('');
+}
+
 /**
  * Parse Carve source to the serialized AST of PART 12 - the shape
  * `resources/ast-schema.json` pins, and the shape every engine's `--to-json`
@@ -102,7 +150,7 @@ export function pandocToCarve(doc: PandocDoc | string): { carve: string; warning
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
     const { ast, warnings, diagnostics } = reverse(parsed);
     return {
-        carve: carve.renderCarve(ast as unknown as Parameters<typeof carve.renderCarve>[0]),
+        carve: carve.renderCarve(engineRenderTree(ast) as Parameters<typeof carve.renderCarve>[0]),
         warnings,
         diagnostics,
         report: migrationReport(diagnostics),
