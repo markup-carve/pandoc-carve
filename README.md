@@ -46,6 +46,12 @@ pandoc-carve doc.crv -t latex -s -o doc.tex
 # Just the Pandoc JSON AST (no pandoc needed)
 pandoc-carve doc.crv -t json
 
+# Expand contained includes; named files default to their own directory
+pandoc-carve book/main.crv -t json --include-root "$PWD/book"
+
+# Keep directives literal for a named file
+pandoc-carve book/main.crv -t json --no-includes
+
 # Read from stdin, pass extra args through to pandoc after --
 cat doc.crv | pandoc-carve - -t latex -- --toc
 
@@ -62,7 +68,9 @@ carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
 ```
 
 Anything Carve cannot map faithfully is reported on stderr as a
-`pandoc-carve: degraded ...` warning - nothing degrades silently. For migration
+`pandoc-carve: degraded ...` warning - nothing degrades silently. Unresolved or
+refused includes are reported as dropped, while safe include renames and heading
+clamps are normalized. For migration
 automation, `--diagnostics report.json` writes the same findings in a versioned
 `{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
 them into document output. `--fail-on-loss` exits with code 3 for degraded or
@@ -84,6 +92,26 @@ const { doc, warnings, diagnostics, report } = carveToPandoc('Hello /world/!');
 
 const json = carveToPandocJson('Hello /world/!'); // stringified doc
 ```
+
+String conversion leaves `{{ path }}` directives literal. File-backed hosts can
+opt into contained expansion and receive warnings and dependency identities:
+
+```js
+import { readFileSync } from 'node:fs';
+import { carveToPandocWithIncludes } from '@markup-carve/pandoc-carve/node';
+
+const sourcePath = '/srv/book/main.crv';
+const result = carveToPandocWithIncludes(readFileSync(sourcePath, 'utf8'), {
+  includeRoot: '/srv/book',
+  sourcePath,
+});
+// includeWarnings and suppressedIncludeWarnings describe expansion diagnostics;
+// dependencies contains resolved and unresolved include identities.
+```
+
+Both API paths must be absolute, and `sourcePath` must stay inside
+`includeRoot`. The CLI accepts ordinary relative input paths but requires an
+absolute `--include-root`. Stdin stays literal unless that option is supplied.
 
 What the converter reads is the **serialized AST of the Carve spec's PART 12**
 (the shape `resources/ast-schema.json` pins), not any implementation's runtime

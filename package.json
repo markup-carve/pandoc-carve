@@ -21,6 +21,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./node": {
+      "types": "./dist/includes.d.ts",
+      "import": "./dist/includes.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -51,7 +55,7 @@
     "source": "https://github.com/markup-carve/pandoc-carve"
   },
   "dependencies": {
-    "@markup-carve/carve": "^0.1.6"
+    "@markup-carve/carve": "^0.1.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

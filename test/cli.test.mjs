@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +41,98 @@ test('cli: reads stdin with "-"', () => {
   assert.ok(result.stdout.includes('"Strong"'));
 });
 
+test('cli: stdin includes are opt-in through an absolute root', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  writeFileSync(join(dir, 'child.crv'), 'Included.\n');
+  const literal = run(['-', '-t', 'json'], '{{ child.crv }}\n');
+  assert.equal(literal.status, 0, literal.stderr);
+  assert.match(literal.stdout, /child\.crv/);
+  const expanded = run(['-', '-t', 'json', '--include-root', dir], '{{ child.crv }}\n');
+  assert.equal(expanded.status, 0, expanded.stderr);
+  assert.match(expanded.stdout, /Included/);
+});
+
+test('cli: named files expand from their directory and --no-includes opts out', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, '{{ child.crv }}\n');
+  writeFileSync(join(dir, 'child.crv'), 'Included.\n');
+  const expanded = run([file, '-t', 'json']);
+  assert.equal(expanded.status, 0, expanded.stderr);
+  assert.match(expanded.stdout, /Included/);
+  const literal = run([file, '-t', 'json', '--no-includes']);
+  assert.equal(literal.status, 0, literal.stderr);
+  assert.match(literal.stdout, /child\.crv/);
+});
+
+test('cli: include warnings expose no absolute containment path', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, '{{ ../outside.crv }}\n');
+  const result = run([file, '-t', 'json', '--include-root', dir]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /include-unresolved/);
+  assert.doesNotMatch(result.stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('cli: include warnings remain contained when the root is a symlink', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const link = `${dir}-link`;
+  symlinkSync(dir, link, 'dir');
+  try {
+    const file = join(link, 'main.crv');
+    writeFileSync(file, '{{ missing.crv }}\n');
+    const result = run([file, '-t', 'json', '--include-root', link]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /\[include-root\]\/main\.crv/);
+    assert.doesNotMatch(result.stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  } finally {
+    rmSync(link);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cli: include failures participate in structured diagnostics and fail-on-loss', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, '{{ missing.crv }}\n');
+  const result = run([file, '-t', 'json', '--diagnostics', '-', '--fail-on-loss']);
+  assert.equal(result.status, 3, result.stderr);
+  const report = JSON.parse(result.stderr);
+  assertMigrationReport(report);
+  assert.equal(report.diagnostics[0].code, 'include-unresolved');
+  assert.equal(report.diagnostics[0].details.file, '[include-root]/main.crv');
+});
+
+test('cli: normalized include renames do not fail on loss', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, '{#dup}\n# Main\n\n{{ child.crv }}\n');
+  writeFileSync(join(dir, 'child.crv'), '{#dup}\n# Child\n');
+  const result = run([file, '-t', 'json', '--diagnostics', '-', '--fail-on-loss']);
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stderr);
+  const renamed = report.diagnostics.find(item => item.code === 'include-heading-id-rename');
+  assert.equal(renamed.fidelity, 'normalized');
+});
+
+test('cli: stdin include diagnostics omit an unknown file identity', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const result = run(['-', '-t', 'json', '--include-root', dir, '--diagnostics', '-'], '{{ missing.crv }}\n');
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stderr);
+  assert.equal(Object.hasOwn(report.diagnostics[0].details, 'file'), false);
+});
+
+test('cli: reports the count of suppressed include warnings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  const file = join(dir, 'main.crv');
+  writeFileSync(file, Array.from({ length: 105 }, (_, index) => `{{ missing-${index}.crv }}`).join('\n'));
+  const result = run([file, '-t', 'json']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /5 additional include warning\(s\) suppressed/);
+});
+
 test('cli: -f carve-json converts a serialized AST from any engine', () => {
   // The wire form of `# Hi`, written by hand: no engine produced it, which is
   // the point - PART 12 is what the CLI reads here, not carve-js.
@@ -60,6 +152,18 @@ test('cli: -f carve-json refuses a payload that is not a Carve AST', () => {
   const result = run(['-', '-f', 'carve-json', '-t', 'json'], '{"blocks":[]}');
   assert.equal(result.status, 1);
   assert.ok(result.stderr.includes('not a Carve AST document'), result.stderr);
+});
+
+test('cli: -f carve-json rejects source-only include options', () => {
+  const result = run(['-', '-f', 'carve-json', '--no-includes'], '{}');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /only apply to Carve source input/);
+});
+
+test('cli: Pandoc readers reject source-only include options', () => {
+  const result = run(['-', '-f', 'json', '--include-root', tmpdir()], '{}');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /only apply to Carve source input/);
 });
 
 test('cli: degradation warnings land on stderr', () => {
