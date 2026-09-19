@@ -216,6 +216,11 @@ const KNOWN_DIVERGENT = new Map([
   ['03-links-12.crv', 'model: an autolink inside a link label survives in the AST, flattened by the HTML writer'],
   ['275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-5.crv', 'model: a collapsed reference repeats the heading label, so its inner link appears twice in the AST and once in the writer output'],
   ['288-heading-index-plain-text-covers-visible-leaves-and-rejects-an-empty-key.crv', 'model: as 275-...-5, with an autolink in the heading'],
+  // pin: the pinned engine stops its paragraph-wide bracket table at an
+  // unclosed backtick, so later links are not built. The spec pin declares the
+  // same two gaps in engine-pin-drift.txt. Fixed by carve-js#1815.
+  ['12-inline-code-8.crv', 'pin: an earlier unclosed backtick prevents later links (carve-js#1815)'],
+  ['12-inline-code-9.crv', 'pin: a backtick in another construct prevents later links (carve-js#1815)'],
   // pin: PART 9 section 9 E2a names a link destination and an autolink opaque
   // to a bare closer (carve#2046). The pinned build closes the italic at the
   // slash in `http:/`, so the reference the spec's expected HTML resolves is
