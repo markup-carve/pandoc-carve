@@ -388,7 +388,7 @@ function span(ctx: Ctx, c: never): CNode[] {
             if (parts.length === 2) {
                 const [oldC, newC] = parts.map((p) => (p.c as [Attr, PandocNode[]])[1]);
                 return [
-                    { type: 'substitution', oldText: stringify(oldC!), newText: stringify(newC!) },
+                    { type: 'substitution', old: inlines(ctx, oldC!), new: inlines(ctx, newC!) },
                 ];
             }
             break;
