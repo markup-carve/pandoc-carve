@@ -2,21 +2,46 @@
 
 ## Unreleased
 
+## 0.1.5 - 2026-09-20
+
+### Breaking
+
+- CLI `--diagnostics` output changes from a JSON array to the version 2 report
+  envelope, and conversion result types gain required report, fidelity, and
+  confidence fields. Every conversion result and CLI diagnostics file now
+  exposes that envelope, with shared `preserved`, `normalized`, `degraded`, and
+  `dropped` fidelity plus confidence on each diagnostic. Legacy `warnings` and
+  `diagnostics` library result fields remain available. Imports through a Pandoc
+  reader fail closed with a dropped/fallback finding, because fidelity before
+  the Pandoc JSON boundary cannot be measured. Diagnostic `severity` is now the
+  shared `info`/`warning`/`error` level; the previous Pandoc-specific category
+  is retained as `class`. `--fail-on-loss` rejects both degraded and dropped
+  content. Known table normalizations retain the released
+  `table-groups-normalized` code; newly distinguished table losses use specific
+  codes, while unknown future table diagnostics fail closed (#170).
+- A substitution's halves are `old` and `new`, two arrays of inline nodes, in
+  place of the `oldText` and `newText` strings, following the schema change in
+  markup-carve/carve. Markup inside either half now survives into the Pandoc
+  span instead of flattening to plain text. An AST that still spells the halves
+  as strings is accepted and migrated on the way in, so only readers of the AST
+  this package emits have to change (#183).
+
+### Added
+
+- Contained include conversion. `--include-root` expands `{{ path }}` directives
+  under an absolute root, a named input file defaults to its own directory, and
+  `--no-includes` keeps the directives literal. The `/node` subpath exports
+  `carveToPandocWithIncludes`, which returns expansion warnings and the resolved
+  and unresolved dependency identities. String input and stdin stay literal
+  unless a root is given, and an unresolved or refused include is reported as
+  dropped (#181).
+
 ### Changed
 
-- **Breaking:** CLI `--diagnostics` output changes from a JSON array to the
-  version 2 report envelope, and conversion result types gain required report,
-  fidelity, and confidence fields. Every conversion result and CLI diagnostics file now exposes the version 2
-  migration envelope, with shared `preserved`, `normalized`, `degraded`, and
-  `dropped` fidelity plus confidence on each diagnostic. Legacy `warnings` and
-  `diagnostics` library result fields remain available. Imports through a
-  Pandoc reader fail closed with a dropped/fallback finding because fidelity
-  before the Pandoc JSON boundary cannot be measured. Diagnostic `severity`
-  is now the shared `info`/`warning`/`error` level; the previous Pandoc-specific
-  category is retained as `class`. `--fail-on-loss` rejects both degraded and
-  dropped content. Known table normalizations retain the released
-  `table-groups-normalized` code; newly distinguished table losses use specific
-  codes, while unknown future table diagnostics fail closed.
+- The engine floor moves to `@markup-carve/carve` 0.1.7. A consumer can no
+  longer resolve a build that reads an item's fold window wrong or drops a
+  definition on a sibling ordered marker, and ten corpus rows that named their
+  own pin agree with the published engine again (#174, #181).
 
 ## 0.1.4 - 2026-09-09
 
