@@ -207,6 +207,13 @@ const KNOWN_LOSSY = new Set([
   // own framed line. The rendered text is identical; the `li`'s shape is not.
   '447-the-host-does-not-change-which-column-a-definition-reaches-20.crv',
   '46-symbols-4.crv',
+  // Pandoc's `Strong` and `Note` carry no `Attr`, so an attribute run on a
+  // strong span or a footnote reference is dropped, the same loss as
+  // `80-trailing-attribute-block-edge-cases` and `22-footnotes-4`.
+  '474-glued-attribute-blocks-on-an-inline-element-merge-3.crv',
+  '474-glued-attribute-blocks-on-an-inline-element-merge.crv',
+  '475-footnote-references-take-an-attribute-run-editorial-substitution-and-comment-take-none-2.crv',
+  '475-footnote-references-take-an-attribute-run-editorial-substitution-and-comment-take-none.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',
   '80-trailing-attribute-block-edge-cases.crv',
