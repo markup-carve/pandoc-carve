@@ -41,6 +41,14 @@ test('reverse: bold-italic comes back as the combined form in either nesting', (
   }
 });
 
+test('reverse: an empty mark is dropped', () => {
+  const para = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'a' }, { t: 'Space' }, inl, { t: 'Space' }, { t: 'Str', c: 'b' }] }] });
+  for (const t of ['Emph', 'Strong', 'Underline', 'Strikeout', 'Superscript', 'Subscript']) {
+    assert.equal(pandocToCarve(para({ t, c: [] })).carve, 'a  b\n', t);
+  }
+  assert.equal(pandocToCarve(para({ t: 'Emph', c: [{ t: 'Strong', c: [] }] })).carve, 'a  b\n');
+});
+
 test("reverse: a description's looseness comes back, in both spellings", () => {
   // A blank line can stand between two blocks, so that spelling returns as itself.
   assert.ok(roundtrip(':: Term\n:  first\n\n   second').includes('\n\n'));

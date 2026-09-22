@@ -192,8 +192,15 @@ function inlines(ctx: Ctx, xs: PandocNode[] | undefined): CNode[] {
     return mergeText(out);
 }
 
+// An empty mark has no Carve spelling, and it holds nothing a reader sees, so it
+// is dropped (ruling markup-carve/carve-rs#1719).
+function isEmpty(kids: CNode[]): boolean {
+    return kids.every((k) => k.type === 'text' && k.value === '');
+}
+
 function wrapped(ctx: Ctx, type: string, xs: PandocNode[]): CNode[] {
-    return [{ type, children: inlines(ctx, xs) }];
+    const children = inlines(ctx, xs);
+    return isEmpty(children) ? [] : [{ type, children }];
 }
 
 // Emph[Strong[..]] and Strong[Emph[..]] are the same bold-italic run: pandoc's
@@ -204,6 +211,7 @@ function boldItalic(ctx: Ctx, xs: PandocNode[], inner: 'Emph' | 'Strong'): CNode
     const only = xs.length === 1 ? xs[0] : undefined;
     if (only?.t !== inner) return null;
     const kids = inlines(ctx, only.c as never);
+    if (isEmpty(kids)) return [];
     const emphasis = { type: 'emphasis', children: kids };
     // `/*` needs content that hugs it: empty or space-edged content spelled
     // `/* x*/` reparses as an emphasis with literal stars. Nest it instead.
