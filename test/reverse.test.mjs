@@ -12,13 +12,32 @@ test('reverse: default export carries no roundtrip marker', () => {
 
 test('reverse: emphasis family round-trips to source syntax', () => {
   const out = roundtrip('/em/ *b* /*bi*/ _u_ ~s~ =h= {^sup^} {,sub,}');
-  // Bold-italic is expected as `*/bi/*`, not the authored `/*bi*/`. Carve parses
-  // both spellings to the same strong-wrapping-emphasis AST, so the authored
-  // nesting order is not recoverable, and carve's own formatter canonicalizes to
-  // `*/.../*` too (carveToCarve('/*bi*/') === '*/bi/*'). Carve's round-trip
-  // contract is HTML equivalence, not source byte-identity, and that holds here.
-  for (const needle of ['/em/', '*b*', '*/bi/*', '_u_', '~s~', '=h=', '{^sup^}', '{,sub,}']) {
+  for (const needle of ['/em/', '*b*', '/*bi*/', '_u_', '~s~', '=h=', '{^sup^}', '{,sub,}']) {
     assert.ok(out.includes(needle), `${needle} in: ${out}`);
+  }
+});
+
+test('reverse: bold-italic comes back as the combined form in either nesting', () => {
+  // Pandoc's commonmark and docx readers return `***x***` as Emph[Strong], its
+  // markdown reader as Strong[Emph]; neither order carries meaning.
+  const para = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [inl] }] });
+  const x = [{ t: 'Str', c: 'x' }];
+  const emphStrong = para({ t: 'Emph', c: [{ t: 'Strong', c: x }] });
+  const strongEmph = para({ t: 'Strong', c: [{ t: 'Emph', c: x }] });
+  assert.equal(pandocToCarve(emphStrong).carve, '/*x*/\n');
+  assert.equal(pandocToCarve(strongEmph).carve, '/*x*/\n');
+  assert.equal(carveToHtml('/*x*/'), carveToHtml(pandocToCarve(emphStrong).carve));
+
+  // Only a sole child is bold-italic; anything beside it keeps the nesting.
+  const mixed = para({ t: 'Emph', c: [{ t: 'Strong', c: x }, { t: 'Str', c: 'y' }] });
+  assert.equal(pandocToCarve(mixed).carve, '/{*x*}y/\n');
+
+  // Content that cannot hug `/*` keeps the nesting, or it reparses as emphasis.
+  for (const c of [[], [{ t: 'Space' }, { t: 'Str', c: 'x' }], [{ t: 'Str', c: 'x' }, { t: 'Space' }]]) {
+    const doc = para({ t: 'Emph', c: [{ t: 'Strong', c }] });
+    const html = carveToHtml(pandocToCarve(doc).carve);
+    assert.ok(html.includes('<strong><em>') || !c.length, html);
+    assert.ok(!html.includes('*'), html);
   }
 });
 

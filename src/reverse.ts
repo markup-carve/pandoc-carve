@@ -196,6 +196,30 @@ function wrapped(ctx: Ctx, type: string, xs: PandocNode[]): CNode[] {
     return [{ type, children: inlines(ctx, xs) }];
 }
 
+// Emph[Strong[..]] and Strong[Emph[..]] are the same bold-italic run: pandoc's
+// commonmark and docx readers produce one order, its markdown reader the other.
+// Both reverse to Carve's combined `/*..*/` form, a flagged strong wrapping an
+// emphasis, so the nesting a writer happened to pick does not respell the source.
+function boldItalic(ctx: Ctx, xs: PandocNode[], inner: 'Emph' | 'Strong'): CNode[] | null {
+    const only = xs.length === 1 ? xs[0] : undefined;
+    if (only?.t !== inner) return null;
+    const kids = inlines(ctx, only.c as never);
+    const emphasis = { type: 'emphasis', children: kids };
+    // `/*` needs content that hugs it: empty or space-edged content spelled
+    // `/* x*/` reparses as an emphasis with literal stars. Nest it instead.
+    if (!hugsDelimiters(kids)) return [{ type: 'strong', children: [emphasis] }];
+    return [{ type: 'strong', boldItalic: true, children: [emphasis] }];
+}
+
+function hugsDelimiters(kids: CNode[]): boolean {
+    const first = kids[0];
+    const last = kids[kids.length - 1];
+    if (!first || !last) return false;
+    const edge = (n: CNode, re: RegExp) =>
+        n.type === 'soft_break' || n.type === 'hard_break' || (n.type === 'text' && re.test(String(n.value ?? '')));
+    return !edge(first, /^[ \t\r\n]/) && !edge(last, /[ \t\r\n]$/);
+}
+
 function inline(ctx: Ctx, n: PandocNode): CNode[] {
     const c = n.c as never;
     switch (n.t) {
@@ -208,12 +232,9 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
         case 'LineBreak':
             return [{ type: 'hard_break' }];
         case 'Emph':
-            return wrapped(ctx, 'emphasis', c);
+            return boldItalic(ctx, c, 'Strong') ?? wrapped(ctx, 'emphasis', c);
         case 'Strong':
-            // Strong[Emph[..]] needs no special case: it reverses to a strong
-            // wrapping an emphasis, which is exactly how carve represents
-            // bold-italic now that it has no node type of its own.
-            return wrapped(ctx, 'strong', c);
+            return boldItalic(ctx, c, 'Emph') ?? wrapped(ctx, 'strong', c);
         case 'Underline':
             return wrapped(ctx, 'underline', c);
         case 'Strikeout':
