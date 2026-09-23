@@ -1,23 +1,17 @@
 # pandoc-carve
 
-Bidirectional [Carve](https://github.com/markup-carve/carve) ↔ Pandoc bridge.
+Bidirectional [Carve](https://github.com/markup-carve/carve) and Pandoc bridge.
+It exports Carve through Pandoc's writers and imports any format handled by a
+Pandoc reader.
 
-**Export:** converts Carve markup to Pandoc's JSON AST, unlocking every pandoc
-output format for Carve documents: LaTeX, Typst, DOCX, PDF, RST, JATS, EPUB,
-and dozens more. **Import:** converts anything pandoc reads (DOCX, LaTeX, RST,
-Org, MediaWiki, HTML, Markdown, ...) into Carve source.
-
-```
-.crv ──parse──▶ Carve AST ──carveToPandoc()──▶ Pandoc JSON ──pandoc -f json -t X──▶ .tex / .typ / .docx / …
-.docx / .tex / … ──pandoc -t json──▶ Pandoc JSON ──pandocToCarve()──▶ Carve AST ──renderCarve──▶ .crv
+```text
+.crv -> Carve AST -> Pandoc JSON -> LaTeX, Typst, DOCX, PDF, EPUB, ...
+DOCX, LaTeX, RST, ... -> Pandoc JSON -> Carve AST -> .crv
 ```
 
-The bridge maps the parsed Carve AST node-by-node, so emphasis, admonitions,
-tables with spans, footnotes, math, and raw passthrough all arrive correctly.
-It also makes Carve's target-routed raw spans finally fire:
-`` `\alpha`{=latex} `` becomes a Pandoc `RawInline` that the LaTeX writer emits
-and every other writer drops - exactly the pandoc-Markdown semantics the syntax
-was born from.
+The bridge maps parsed nodes instead of converting through HTML. It preserves
+structure such as tables with spans, footnotes, math, admonitions, attributes,
+and target-routed raw content when Pandoc can represent it.
 
 ## Install
 
@@ -25,368 +19,99 @@ was born from.
 npm install @markup-carve/pandoc-carve
 ```
 
-The CLI shells out to a `pandoc` executable on your PATH (3.x; tested against
-3.10.2). Pandoc is not bundled - install it from [pandoc.org](https://pandoc.org)
-or your package manager. Emitting plain JSON (`-t json`) needs no pandoc at all.
+The CLI requires Pandoc 3.x on `PATH` for formats other than JSON. CI currently
+tests Pandoc 3.10.2. Pandoc is not bundled.
 
 ## CLI
 
 ```bash
-# Carve -> LaTeX
+# Export
 pandoc-carve doc.crv -t latex -o doc.tex
-
-# Carve -> Typst, PDF, DOCX ... any pandoc writer
 pandoc-carve doc.crv -t typst -o doc.typ
-pandoc-carve doc.crv -t pdf -o doc.pdf
 pandoc-carve doc.crv -t docx -o doc.docx
+pandoc-carve doc.crv -t pdf -o doc.pdf
 
-# Standalone document (pandoc templates)
-pandoc-carve doc.crv -t latex -s -o doc.tex
-
-# Just the Pandoc JSON AST (no pandoc needed)
-pandoc-carve doc.crv -t json
-
-# Expand contained includes; named files default to their own directory
-pandoc-carve book/main.crv -t json --include-root "$PWD/book"
-
-# Keep directives literal for a named file
-pandoc-carve book/main.crv -t json --no-includes
-
-# Read from stdin, pass extra args through to pandoc after --
-cat doc.crv | pandoc-carve - -t latex -- --toc
-
-# IMPORT: anything pandoc reads -> Carve
+# Import
 pandoc-carve report.docx -f docx -o report.crv
 pandoc-carve paper.tex -f latex -o paper.crv
-pandoc-carve README.md -f markdown -o README.crv
 
-# Import from a pre-made pandoc JSON AST (no pandoc needed)
+# Emit or consume Pandoc JSON without invoking pandoc
+pandoc-carve doc.crv -t json
 pandoc -f rst -t json doc.rst | pandoc-carve - -f json
-
-# From a SERIALIZED Carve AST (spec PART 12) - from any engine, not just carve-js
-carve doc.crv --to-json | pandoc-carve - -f carve-json -t latex
 ```
 
-Anything Carve cannot map faithfully is reported on stderr as a
-`pandoc-carve: degraded ...` warning - nothing degrades silently. Unresolved or
-refused includes are reported as dropped, while safe include renames and heading
-clamps are normalized. For migration
-automation, `--diagnostics report.json` writes the same findings in a versioned
-`{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
-them into document output. `--fail-on-loss` exits with code 3 for degraded or
-dropped findings, while preserved and normalized findings do not fail CI.
-Imports through a Pandoc reader other than `-f json` also exit
-3 because fidelity before the Pandoc JSON boundary cannot be verified; stderr
-names that worst-case gate explicitly. Use `--diagnostics -` for JSON on stderr.
+Anything that cannot be mapped faithfully produces a diagnostic. Use
+`--diagnostics report.json` for the versioned JSON report and `--fail-on-loss`
+to return exit code 3 when a conversion degrades or drops content. Imports
+through a Pandoc reader other than `-f json` also return 3 because fidelity
+before the Pandoc JSON boundary cannot be verified.
+
+Named input files expand contained includes by default, rooted at their own
+directory. Use `--no-includes` to keep directives literal. Standard input
+expands includes only when `--include-root` is supplied.
+
+The [CLI reference](docs/reference.md#cli) covers standalone documents,
+additional Pandoc arguments, includes, serialized Carve AST input, and every
+diagnostic option.
 
 ## API
 
 ```js
-import { carveToPandoc, carveToPandocJson } from '@markup-carve/pandoc-carve';
+import {
+  carveToPandoc,
+  carveToPandocJson,
+  pandocToCarve,
+} from '@markup-carve/pandoc-carve'
 
-const { doc, warnings, diagnostics, report } = carveToPandoc('Hello /world/!');
-// doc = { 'pandoc-api-version': [1, 23, 1], meta: {...}, blocks: [...] }
-// warnings = ['degraded: ...'] for lossy constructs
-// diagnostics = [{ code, direction, class, severity, fidelity, confidence, message, ... }]
-// report = { schemaVersion: 2, sourceFormat: 'carve', diagnostics }
-
-const json = carveToPandocJson('Hello /world/!'); // stringified doc
+const exported = carveToPandoc('Hello /world/!')
+const json = carveToPandocJson('Hello /world/!')
+const imported = pandocToCarve(json)
 ```
 
-String conversion leaves `{{ path }}` directives literal. File-backed hosts can
-opt into contained expansion and receive warnings and dependency identities:
+Each direction returns structured diagnostics alongside its output. Node.js
+hosts can use `carveToPandocWithIncludes` from the `/node` entry point for
+contained file expansion and dependency tracking.
+
+Use `carveToCarveAst` to serialize source, `carveAstToPandoc` to convert a
+serialized Carve tree, and `pandocToCarveAst` for the reverse direction. These
+functions consume the versioned AST defined by the Carve specification, not an
+implementation-specific runtime tree.
+
+## Round trips
+
+With round-trip metadata enabled, the test suite requires
+`carve -> Pandoc AST -> carve` to render equivalent normalized HTML across the
+corpus apart from an explicit known-lossy list:
 
 ```js
-import { readFileSync } from 'node:fs';
-import { carveToPandocWithIncludes } from '@markup-carve/pandoc-carve/node';
-
-const sourcePath = '/srv/book/main.crv';
-const result = carveToPandocWithIncludes(readFileSync(sourcePath, 'utf8'), {
-  includeRoot: '/srv/book',
-  sourcePath,
-});
-// includeWarnings and suppressedIncludeWarnings describe expansion diagnostics;
-// dependencies contains resolved and unresolved include identities.
+const result = carveToPandoc(source, { roundtrip: true })
 ```
 
-Both API paths must be absolute, and `sourcePath` must stay inside
-`includeRoot`. The CLI accepts ordinary relative input paths but requires an
-absolute `--include-root`. Stdin stays literal unless that option is supplied.
+The CLI equivalent is `--roundtrip`. Private Span and Div metadata preserves
+comments, attribute placement, typed citations, and future Carve nodes through
+Pandoc JSON. Other writers may expose or discard that metadata. See the
+[provenance envelope](docs/roundtrip-provenance.md) for its format and safety
+rules.
 
-What the converter reads is the **serialized AST of the Carve spec's PART 12**
-(the shape `resources/ast-schema.json` pins), not any implementation's runtime
-tree - so a document another engine already parsed converts the same way,
-whether it arrives as an object or as JSON text:
+## Fidelity and limitations
 
-```js
-import { carveAstToPandoc, carveToCarveAst } from '@markup-carve/pandoc-carve';
+Pandoc's AST does not represent every Carve construct, and output formats have
+their own limits. The bridge reports those cases rather than silently dropping
+them. Highlights include:
 
-// A tree from carve-rs, carve-php, carve-go ... or `carve doc.crv --to-json`
-const { doc, warnings, diagnostics } = carveAstToPandoc(serializedAstJson);
+- underline, highlight, and custom attributes depend on target-format support;
+- complex Carve table structure may be normalized by a writer;
+- grouped UI constructs such as tabs degrade to labeled blocks;
+- raw target content only survives in matching writers;
+- comments and attribute placement require round-trip metadata.
 
-// The same exchange format, produced from source here
-const ast = carveToCarveAst('Hello /world/!');
-```
-
-The reverse direction takes a Pandoc document (object or JSON string) and
-returns Carve source, serialized by carve's own `renderCarve` (the `carve fmt`
-serializer), so output formatting carries fmt's guarantees:
-
-```js
-import { pandocToCarve, pandocToCarveAst } from '@markup-carve/pandoc-carve';
-
-const { carve, warnings, diagnostics, report } = pandocToCarve(pandocJsonString);
-
-// Preserve structured fields that Carve 0.1 source cannot spell, including
-// Pandoc's optional short figure/table caption.
-const { ast, warnings: astWarnings } = pandocToCarveAst(pandocJsonString);
-```
-
-Round-trips are tested as a hard gate: `carve -> pandoc AST -> carve` must
-render byte-identical HTML to the original source across the test corpus.
-For exact restoration of attribute placement (`{.lead}` on a paragraph or
-list), export with `carveToPandoc(src, { roundtrip: true })` or the CLI's
-`--roundtrip` flag. In addition to the existing `carve-block` attribute marker,
-this preserves comments, typed citation fields, and unknown future Carve nodes
-with a versioned private Span/Div envelope. The native citation and readable
-unknown-node fallback remain usable by Pandoc. The marker may be visible in
-writer output and exact preservation is guaranteed only through Pandoc JSON.
-The complete format, safety checks, available source information, and filter
-semantics are documented in [the provenance envelope](docs/roundtrip-provenance.md).
-
-Pipe the JSON to pandoc yourself:
-
-```bash
-node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.carveToPandocJson(require('fs').readFileSync('doc.crv','utf8'))))" \
-  | pandoc -f json -t latex
-```
-
-## What maps to what
-
-| Carve | Pandoc |
-|-------|--------|
-| `/italic/`, `*bold*`, `/*both*/` | Emph, Strong, Strong+Emph |
-| `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
-| `{^sup^}`, `{,sub,}` | Superscript, Subscript |
-| Headings + `{#id .class}` attributes | Header with Attr |
-| Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
-| `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
-| Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |
-| Footnotes (reference and inline `^[..]`) | Note |
-| Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
-| Images/quotes with `^ caption` lines | Figure |
-| A bare `::: figure` composite (PART 9 section 4c) | Figure of nested Figures - pandoc's subfigure model - with the group caption on the outer one. An opener carrying a title or a `[label]` is not this production and stays a Div |
-| `::: note` admonitions | Div `.admonition .note` (+ title paragraph) |
-| Tabs / code-group panels, grouping `[label]` | Div; each `[label]` becomes a bold caption so panels stay distinguishable (graceful degradation) |
-| `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
-| Citations `[@key]`, `[+@key]`, `[-@key, p. 33]` | Cite with one Citation per key (AuthorInText / SuppressAuthor / NormalCitation), the locator in the citation suffix, the verbatim source as the Cite content |
-| `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
-| `[text]{.smallcaps}` | SmallCaps (pandoc's own class convention, both directions) |
-| Frontmatter, nested: maps, block and flow sequences, sequences of maps | Meta, to the depth pandoc's own reader gives it |
-| `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
-| Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
-| A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
-| A reference link, image or footnote nothing defines (`[r][]`, `[^f]`) | the literal source as text, which is what Carve renders, plus a warning naming the label |
-
-The complete node-by-node contract lives in the test goldens. Worked
-input/output pairs in both directions - including how interactive constructs
-degrade for print formats - are in [`examples/`](examples/README.md).
-
-## Dangerous URL schemes are blanked
-
-A link or image destination whose scheme Carve's spec denies (PART 9 §25 -
-`javascript:`, `vbscript:`, `data:`, `file:`, and the OS protocol-handler class
-such as `ms-msdt:`, `search-ms:`, `shell:`, `vscode:` and `jar:`) leaves this
-bridge as an **empty target**, and an `unsafe-url-scheme` diagnostic is emitted
-naming the scheme and the destination that was refused.
-
-Carve's own HTML, Markdown and ANSI writers all blank it, and the clause binds
-every target that emits a resolvable URL. Pandoc's targets are not HTML, but
-`pandoc -f json -t html` is one command away - passing the scheme through here
-would not be a narrower policy, it would be the same sink one step removed.
-
-The diagnostic class is `lossy`, so `--fail-on-loss` stops on its dropped
-fidelity and a caller reading
-`diagnostics` can act on it. The scheme list and the scheme probe are mirrored
-from the engine rather than invented, and a test drives the engine's own writer
-over both to keep the mirror honest - the probe strips control characters and
-Unicode whitespace before it reads a scheme, so `<U+202F>javascript:` and
-`java<DEL>script:` are caught along with the plain spelling.
-
-Nothing else is touched. An `https:`, `mailto:`, `tel:`, `ftp:`, relative or
-fragment destination reaches pandoc exactly as written, and emits no
-diagnostic.
-
-> [!NOTE]
-> This covers link and image **destinations**. An `{onclick=…}`, `{style=…}` or
-> `{srcdoc=…}` attribute, which Carve's HTML writer also refuses, still reaches
-> pandoc - see [#163](https://github.com/markup-carve/pandoc-carve/issues/163).
-
-## Why a bridge, not a pandoc reader?
-
-A native `Text.Pandoc.Readers.Carve` upstream would be a fourth full Carve
-parser, written in Haskell, outside the conformance loop that keeps the three
-official implementations byte-identical against the shared corpus. While the
-spec is on its 0.x line and still moving, that reader would drift on pandoc's
-release cadence and ship stale behavior. The bridge reuses the canonical,
-conformance-tested `@markup-carve/carve` parser instead - correct by
-construction, and it iterates in lockstep with the spec.
-
-A pandoc custom Lua reader has the same drift problem (it would reimplement
-the parser in Lua). Once the spec reaches 1.0 and stabilizes, contributing an
-upstream reader becomes attractive - with this bridge's node map and the
-conformance corpus as the oracle any port has to pass.
-
-## Options
-
-```js
-carveToPandoc(src, {
-  roundtrip: true,               // stamp attr wrappers for exact re-import
-  symbols: { heart: '♥' },       // resolve :name: symbols like the renderer would
-  listTable: false,              // opt OUT: keep ::: list-table as a degraded div
-  citations: false,              // opt OUT: read [@key] as an @mention
-  extensions: [],                // extra Carve extensions for the parse
-});
-```
-
-CLI equivalents: `--roundtrip`, `--symbols map.json`, `--no-list-table`,
-`--no-citations`.
-
-`listTable` and `citations` default ON, because the reverse direction writes
-both unprompted and a construct this bridge chooses on the way out has to be
-one it recognizes on the way back. With `citations` off the parser reaches the
-`@` first and `[@doe1990]` is a `.mention` span, so an imported bibliography
-becomes mentions; with `listTable` off a table this bridge itself wrote as
-`::: list-table` returns as a `Div` of nested lists. Turn them off to get what
-a processor with neither extension enabled would render.
-
-## Limitations
-
-- A `table.rowGroups` partition whose counts do not add up to the table's row
-  count is refused with a warning and the table converts with the implicit
-  head/body split instead. PART 12 section 15 requires the sum as a MUST, and
-  JSON Schema cannot express a cross-field sum, so a document that validates
-  against `resources/ast-schema.json` can still be incoherent - the bridge
-  checks it itself rather than trusting a green validator.
-- A pandoc table with block content in a cell (a list, two paragraphs, a code
-  block) is imported as `::: list-table` rather than a pipe table, and that is
-  now the ONLY reason a table leaves the pipe form. PART 9 §16's pipe-table cell
-  holds inlines, so there is no pipe form for it, and the extension's cells are
-  list items that hold full blocks. Structure is preserved; what the extension
-  cannot spell is reported instead - a body group's attributes, a body boundary
-  no header row marks, and body groups that disagree on their row-head column
-  count. It converts back to the pandoc table by default; `listTable: false`
-  returns the degraded div instead.
-- A pandoc table with ROW-HEAD COLUMNS stays a pipe table. `RowHeadColumns` says
-  the leading N cells of every body row are row headers, and a pipe table says
-  that per cell: `|= Mercury | 4,879.4 |` is a `<th scope="row">`. Marking the
-  cells needs no extension and round-trips, because the export direction derives
-  the count back from the leading run.
-- On the way out, one TableBody per RUN of body rows that agree on that leading
-  run. Pandoc's `RowHeadColumns` is a count on a body and a `Table` holds a list
-  of bodies, so rows that disagree are simply different bodies. A table whose
-  body rows all agree emits exactly one body, as before.
-- Pandoc `SmallCaps` has no Carve node and is not getting one: it imports as a
-  `[text]{.smallcaps}` span, with a warning saying so. The span is not a dead
-  end, though - the export direction reads that class back as `SmallCaps`, the
-  same convention pandoc's own markdown reader uses, so small caps survive
-  Pandoc -> Carve -> Pandoc and still reach the LaTeX, Typst and DOCX writers.
-  Other attributes on the span are preserved around it, exactly as pandoc does.
-- Pandoc `Quoted` imports as literal curly quote characters (`“…”` / `‘…’`).
-  Carve has no quote node, and the characters are what an author would have
-  typed. This one is genuinely one-way: the text re-exports as `Str`, so the
-  quote kind and pandoc's locale-aware quoting are gone. Reported once per
-  document.
-- A `ColSpec`'s `ColWidth` is dropped. Carve's table model has no width slot at
-  any level and pipe-table source cannot spell one, so there is nowhere to put
-  the number and no syntax that would reproduce it - a wontfix rather than a
-  gap. The drop is silent on purpose: pandoc derives a `ColWidth` for every
-  grid and multiline table from the ASCII column widths, so a diagnostic would
-  fire on the ordinary case and report a value the author never chose. Column
-  ALIGNMENT is carried in both directions; tables leaving the bridge always
-  carry `ColWidthDefault`, which pandoc's writers size themselves.
-- A rowspan that starts in a header row and continues into the body is clipped
-  to an empty body cell, with a warning. Carve is the richer model here: its
-  rows are one flat list, while pandoc's `TableHead` and `TableBody` hold
-  separate row lists and confine a cell's `rowSpan` to its own section. Moving
-  the head/body boundary to make the span fit would silently reclassify a row,
-  and duplicating the origin's content would invent a cell the author never
-  wrote, so the grid keeps its shape and the diagnostic reports the loss.
-- Reverse conversion keeps flattening for display targets: `pandocToCarve`
-  serializes through Carve 0.1 source, which has no spelling for row groups or
-  a short caption, so those fields survive only on the `pandocToCarveAst` path.
-- Citations cross as pandoc's own citeproc convention, which is lossy in one
-  respect: pandoc's `Citation` has no locator field, so Carve's typed
-  `locatorLabel`/`locatorValue` pair is serialized into `citationSuffix` behind
-  a `, ` and citeproc re-derives it from there. The bridge does not rebuild
-  those two fields on the way back - the label table is section 4.2's, it lives
-  in the engine, and a second copy here would drift. The locator TEXT round-
-  trips byte for byte, so re-parsing the emitted source with the citations
-  extension restores the typed pair. With `roundtrip: true`, the private
-  provenance wrapper retains the original typed fields directly while its
-  enclosed native `Cite` remains available to citeproc. A group whose items mix `AuthorInText` and
-  `NormalCitation` cannot be spelled in Carve (the integral `+` is a property of
-  the whole cluster) and is imported as integral with a warning.
-- Pandoc keeps its bibliography in document metadata, not in the AST, so
-  importing a `Cite` emits no `[@key]:` definition lines. The citation itself
-  round-trips: `citationNoteNum` is reproduced the way pandoc's own markdown
-  reader computes it (notes closed so far, plus one), so a `Cite` returns
-  unchanged rather than unchanged-except-one-integer.
-- Block content inside metadata (pandoc's `MetaBlocks`, e.g. `abstract: |`)
-  round-trips as a YAML literal block scalar, the same spelling pandoc's own
-  markdown writer emits and its reader turns back into `MetaBlocks` - by the
-  FORM, so any key can carry it, not just `abstract`. The scalar keeps every
-  line and every blank line between them, so the paragraph structure survives
-  rather than flattening into one string. Every other `Meta` shape - maps,
-  lists, lists of maps, scalars, booleans - round-trips too.
-- A `rowGroups` partition (a foot, several body groups, a body's own header
-  rows or row-head columns) survives into the exchange AST, so
-  `pandocToCarveAst` hands it on whole. `pandocToCarve` spells most of it too: a
-  pipe table states its head and foot row counts on its attribute line
-  (`{header-rows=2 footer-rows=1}`) and marks its row headers on the cells, so
-  what flattens into body rows is a second body group and a body's own
-  intermediate header rows and attributes - reported, not dropped quietly. Use
-  the AST entry point when a second body group has to survive.
-- Stating the foot states the whole partition, and a stated partition is ONE
-  body. A body carries one `RowHeadColumns`, so when the body rows disagree on
-  how many leading cells are row headers, a table with a foot cannot keep them:
-  the reader takes a count every row agrees on, and the disagreement is reported
-  from both directions. Without a foot the reader splits a body at every change
-  and every run survives.
-- A marker on a HEAD cell (`|=> Name |`) is the column's alignment and becomes
-  pandoc's `ColSpec`; a marker on a BODY cell (`|> 12 |`) aligns that cell alone
-  and becomes the cell's own `Alignment`. The two are not interchangeable: a
-  pandoc cell with `AlignDefault` inherits its ColSpec, so promoting a body
-  cell's marker to the column would align cells the author did not.
-- Column alignment needs a header row to live on (`|=> Name |`). A headerless
-  pandoc table's column alignment is written onto each cell instead, which
-  renders the same; the move is reported.
-- The frontmatter reader covers the YAML subset frontmatter uses, not YAML.
-  Anchors, tags, multi-document streams, block scalars and flow maps are out; a
-  line that fits no shape is reported and skipped rather than guessed at.
-- Scalars are typed the way pandoc's own frontmatter reader types them: an
-  unquoted `true`, `yes`, `on` or `y` (and their negatives) is a `MetaBool`, a
-  quoted `"true"` stays text, a null scalar keeps its key as an empty
-  `MetaString`, and a number stays text because `Meta` has no number type. This
-  matters beyond tidiness - a boolean read as text is not a near miss but an
-  inversion, since a pandoc template testing `draft` sees any non-empty string
-  as true.
-- Attribute order inside `{...}` is normalized to `#id .class key=val` on
-  round-trip - pandoc's Attr has fixed slots, so the author's original order
-  is not representable. Semantics are unchanged.
-- Import fidelity is bounded by `renderCarve` (carve fmt): the bridge hands it
-  a byte-exact AST, but known fmt issues (e.g. trailing whitespace inside code
-  blocks, carve-js issue 340) surface in the serialized output.
-- The pinned engine bounds what the source path can produce. The current git
-  pin exports `toAstJson`, so the engine's own exchange serializer is used;
-  with an older engine (any published release up to `0.1.3`),
-  `src/ast-json.ts` performs the PART 12 section 7 mapping instead, and a pin
-  that exports `toAstJson` takes over automatically.
-- Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
-  degraded block forms (code blocks / divs), same as Carve's static mode.
-  `list-table` is the exception: it converts to a real Pandoc table with full
-  block content per cell, unless `listTable: false` / `--no-list-table`.
+Dangerous URL schemes such as `javascript:` are blanked and reported. The
+[URL policy](docs/reference.md#dangerous-url-schemes-are-blanked) documents the
+exact behavior. The [mapping and limitations reference](docs/reference.md#what-maps-to-what)
+contains the node table and per-format limits; the [options section](docs/reference.md#options)
+covers API configuration.
 
 ## Development
 
-Contributor setup, testing, and maintenance notes are in the [development guide](docs/development.md).
+Contributor setup, tests, and maintenance commands are in the
+[development guide](docs/development.md).
