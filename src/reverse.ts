@@ -212,11 +212,17 @@ function boldItalic(ctx: Ctx, xs: PandocNode[], inner: 'Emph' | 'Strong'): CNode
     if (only?.t !== inner) return null;
     const kids = inlines(ctx, only.c as never);
     if (isEmpty(kids)) return [];
-    const emphasis = { type: 'emphasis', children: kids };
     // `/*` needs content that hugs it: empty or space-edged content spelled
-    // `/* x*/` reparses as an emphasis with literal stars. Nest it instead.
-    if (!hugsDelimiters(kids)) return [{ type: 'strong', children: [emphasis] }];
-    return [{ type: 'strong', boldItalic: true, children: [emphasis] }];
+    // `/* x*/` reparses as an emphasis with literal stars. Nest it instead -
+    // and in the order pandoc wrote, because a nested pair renders `<em><strong>`
+    // or `<strong><em>` and swapping them is a visible change the combined
+    // token was the only licence to make.
+    if (!hugsDelimiters(kids)) {
+        return inner === 'Strong'
+            ? [{ type: 'emphasis', children: [{ type: 'strong', children: kids }] }]
+            : [{ type: 'strong', children: [{ type: 'emphasis', children: kids }] }];
+    }
+    return [{ type: 'strong', boldItalic: true, children: [{ type: 'emphasis', children: kids }] }];
 }
 
 function hugsDelimiters(kids: CNode[]): boolean {
@@ -1628,10 +1634,22 @@ function figure(ctx: Ctx, c: never): CNode[] {
         if (attrs) node.attrs = attrs;
         return [node];
     }
-    warn(ctx, 'figure: general figure content unwrapped (caption kept as a trailing paragraph)');
-    const out = blocks(ctx, body);
-    if (caption) out.push({ type: 'paragraph', children: caption });
-    return out;
+    // Neither a single-host figure nor a subfigure group: this is the shape the
+    // forward direction writes for a `figure_group`, so it reverses to one. The
+    // unwrap it replaced turned the caption into a trailing paragraph and lost
+    // the wrapper outright - a `::: figure` holding only comments came back as
+    // nothing at all.
+    const node: CNode = { type: 'figure_group', children: blocks(ctx, body) };
+    if (caption) node.caption = caption;
+    if (shortCaption) {
+        warn(
+            ctx,
+            'figure group: short caption dropped (a composite figure has no navigation-caption slot)',
+        );
+    }
+    const attrs = fromAttr(a);
+    if (attrs) node.attrs = attrs;
+    return [node];
 }
 
 /**
@@ -1707,19 +1725,20 @@ function div(ctx: Ctx, c: never): CNode[] {
 
     let kind: string | undefined;
     let rest: string[] = [];
-    if (classes.includes('admonition')) {
-        rest = classes.filter((x) => x !== 'admonition');
+    const wrapper = classes.includes('directive') ? 'directive' : classes.includes('admonition') ? 'admonition' : undefined;
+    if (wrapper) {
+        rest = classes.filter((x) => x !== wrapper);
         kind = rest.shift();
     } else if (classes.length === 1 && KNOWN_ADMONITIONS.has(classes[0]!)) {
         kind = classes[0];
     }
 
     if (kind) {
-        const node: CNode = { type: 'admonition', kind, children: [] };
+        const node: CNode = { type: wrapper === 'directive' ? 'directive' : 'admonition', kind, children: [] };
         let children = body;
         // convert.ts emits the admonition title as a leading Para[Strong[..]].
         const first = body[0];
-        if (classes.includes('admonition') && first?.t === 'Para') {
+        if (wrapper !== undefined && first?.t === 'Para') {
             const xs = first.c as PandocNode[];
             if (xs.length === 1 && xs[0]!.t === 'Strong') {
                 node.title = inlines(ctx, xs[0]!.c as PandocNode[]);

@@ -92,6 +92,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * object, so the runtime tree the caller still holds is never copied and never
  * mutated.
  */
+/**
+ * The six kinds a `:::` container places rather than presents. They are
+ * `directive` nodes, not admonitions (carve#2195, carve#2225): a table of
+ * contents is not a callout. Releases up to 0.1.7 spell them `admonition`,
+ * and the schema refuses that `kind` there.
+ */
+const DIRECTIVE_KINDS = new Set(['bibliography', 'footnotes', 'glossary', 'index', 'references', 'toc']);
+
 function normalize<T>(node: T): T {
     if (Array.isArray(node)) {
         let changed = false;
@@ -177,6 +185,21 @@ function normalize<T>(node: T): T {
             break;
         default:
             break;
+    }
+
+    // A reference's label is spelled `label` on the wire, like the `footnote`
+    // definition it matches (carve#2213). Releases up to 0.1.7 serialize `id`,
+    // which the schema refuses - it sanctions decoding the old property onto
+    // the field (PART 12 section 11), which is what this does. Remove it once
+    // no supported release emits `id`. After the switch, because the pre-split
+    // fold above reaches `footnote_ref` by changing `type` rather than matching it.
+    const settled = out ?? node;
+    if (settled['type'] === 'admonition' && DIRECTIVE_KINDS.has(String(settled['kind']))) {
+        out = { ...settled, type: 'directive' };
+    }
+    if (settled['type'] === 'footnote_ref' && typeof settled['id'] === 'string') {
+        const { id, ...rest } = settled;
+        out = { ...rest, label: id };
     }
 
     return (out ?? node) as T;

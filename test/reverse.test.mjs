@@ -32,12 +32,16 @@ test('reverse: bold-italic comes back as the combined form in either nesting', (
   const mixed = para({ t: 'Emph', c: [{ t: 'Strong', c: x }, { t: 'Str', c: 'y' }] });
   assert.equal(pandocToCarve(mixed).carve, '/{*x*}y/\n');
 
-  // Content that cannot hug `/*` keeps the nesting, or it reparses as emphasis.
+  // Content that cannot hug `/*` keeps the nesting, or it reparses as emphasis -
+  // and keeps the order pandoc wrote it in, which is a visible difference the
+  // combined token was the only licence to erase.
   for (const c of [[], [{ t: 'Space' }, { t: 'Str', c: 'x' }], [{ t: 'Str', c: 'x' }, { t: 'Space' }]]) {
-    const doc = para({ t: 'Emph', c: [{ t: 'Strong', c }] });
-    const html = carveToHtml(pandocToCarve(doc).carve);
-    assert.ok(html.includes('<strong><em>') || !c.length, html);
-    assert.ok(!html.includes('*'), html);
+    for (const [outer, inner, nesting] of [['Emph', 'Strong', '<em><strong>'], ['Strong', 'Emph', '<strong><em>']]) {
+      const doc = para({ t: outer, c: [{ t: inner, c }] });
+      const html = carveToHtml(pandocToCarve(doc).carve);
+      assert.ok(html.includes(nesting) || !c.length, html);
+      assert.ok(!html.includes('*'), html);
+    }
   }
 });
 
@@ -364,12 +368,17 @@ test('a figure host that carries its own attributes survives its Div wrapper', (
   assert.equal(figure.target.type, 'block_quote');
   assert.equal(figure.target.attrs.id, 'inner');
 
-  // The control: a Div holding TWO blocks is not a wrapper for one host, and
-  // must still take the unwrap path rather than be silently reinterpreted.
+  // The control: a Div holding TWO blocks is not a wrapper for one host, so it
+  // is not read as one - it becomes the `figure_group` the forward direction
+  // writes this shape for, caption and all, rather than a lone `figure`.
   const two = structuredClone(doc);
   two.blocks[0].c[2][0].c[1].push({ t: 'Para', c: [{ t: 'Str', c: 'more' }] });
   const spread = pandocToCarve(two);
-  assert.ok(spread.warnings.some((w) => w.includes('unwrapped')), JSON.stringify(spread.warnings));
+  assert.deepEqual(spread.warnings, []);
+  const [group] = pandocToCarveAst(two).ast.children;
+  assert.equal(group.type, 'figure_group');
+  assert.equal(group.caption[0].value, 'Author');
+  assert.equal(group.children[0].attrs.id, 'inner');
 });
 
 test('an attribution-classed Span inside a quote is ordinary content', () => {
