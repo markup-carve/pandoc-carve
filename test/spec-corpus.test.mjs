@@ -47,7 +47,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { carveToCarveAst, carveToPandoc } from '../dist/index.js';
+import { carveToCarveAst, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
 import { declaredCorpusSize } from './helpers.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -159,5 +159,41 @@ test('no corpus document degrades an unrecognized node type', () => {
     'the converter degraded node type(s) it does not recognize. Handle them in ' +
       'src/convert.ts - a degraded node still converts, so nothing else here fails, ' +
       'and the output silently loses their meaning.',
+  );
+});
+
+test('every corpus document comes BACK from pandoc as a schema-conformant AST', () => {
+  // The forward sweep above validates what the engine serializes. Nothing
+  // validated what this package BUILDS, and the reverse direction is where an
+  // invented or missing field lands: a citation item reached the wire without
+  // its `type` (carve#2192) and no gate could see it, because the corpus only
+  // ever measured the way out.
+  const validate = new Ajv2020({ strict: false }).compile(
+    JSON.parse(readFileSync(join(repo, 'spec', 'resources', 'ast-schema.json'), 'utf8')),
+  );
+
+  const invalid = [];
+  for (const { name, source } of corpus) {
+    let ast;
+    try {
+      ast = pandocToCarveAst(carveToPandoc(source, { roundtrip: true }).doc).ast;
+    } catch (error) {
+      invalid.push(name + ': reverse threw: ' + String(error.message).split('\n')[0]);
+      continue;
+    }
+    if (validate(ast)) continue;
+    const error = validate.errors[0];
+    invalid.push(
+      name + ': ' + (error.instancePath || '/') + ' ' + error.message + ' ' +
+        JSON.stringify(error.params),
+    );
+  }
+
+  assert.deepEqual(
+    invalid,
+    [],
+    'document(s) whose REVERSED AST does not match spec/resources/ast-schema.json. ' +
+      'A consumer ingests this tree, so a document listed here is one this package ' +
+      'builds into a shape the spec does not define:\n  ' + invalid.join('\n  '),
   );
 });

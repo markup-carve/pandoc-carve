@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { findPandoc, pandocRender } from './helpers.mjs';
 
 const pandoc = findPandoc();
@@ -15,7 +15,10 @@ const pandocRead = (bin, source, from = 'markdown') =>
  * rather than as gaps to map. Documenting a loss is only honest when the
  * documented behavior is the measured one, so each row is pinned here:
  *
- *   - SmallCaps degrades to a `.smallcaps` span AND comes back;
+ *   - SmallCaps degrades to a `.smallcaps` span on the SOURCE target AND comes
+ *     back. It is no longer a policy row on the AST target: carve#2212 added
+ *     the `small_caps` interchange node for exactly this, so the tree carries
+ *     the distinction and only Carve 0.1 source still lacks a spelling;
  *   - Quoted is NO LONGER one of them. P10 recorded it as a deliberate loss on
  *     the premise that "Carve has no quote node"; the premise was wrong. `"`
  *     and `'` resolve to `smart_punctuation` carrying the mark's KIND, so the
@@ -53,6 +56,26 @@ test('policy: the .smallcaps span exports back to SmallCaps, so the degradation 
   const { carve } = pandocToCarve(before);
   const after = carveToPandoc(carve).doc;
   assert.deepEqual(after.blocks[0].c, before.blocks[0].c);
+});
+
+test('the AST target keeps SmallCaps as the interchange node, with nothing reported', () => {
+  const { ast, warnings } = pandocToCarveAst(para([{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]));
+  assert.deepEqual(ast.children[0].children, [{ type: 'small_caps', children: [{ type: 'text', value: 'caps' }] }]);
+  assert.ok(!warnings.some((w) => w.includes('SmallCaps')), warnings.join(' | '));
+});
+
+test('the small_caps node exports to SmallCaps, and its attributes ride a Span', () => {
+  const wire = (attrs) => ({
+    type: 'document',
+    children: [{ type: 'paragraph', children: [{ type: 'small_caps', children: [{ type: 'text', value: 'caps' }], ...(attrs ? { attrs } : {}) }] }],
+  });
+  const bare = carveAstToPandoc(wire()).doc.blocks[0].c;
+  assert.deepEqual(bare, [{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]);
+
+  const attributed = carveAstToPandoc(wire({ id: 'x', classes: ['k'], order: ['#id', '.class'] })).doc.blocks[0].c;
+  assert.equal(attributed[0].t, 'Span');
+  assert.deepEqual(attributed[0].c[0], ['x', ['k'], []]);
+  assert.deepEqual(attributed[0].c[1], [{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]);
 });
 
 test('policy: a .smallcaps span keeps its other attributes around the SmallCaps', () => {

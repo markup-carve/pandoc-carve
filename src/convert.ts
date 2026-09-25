@@ -655,6 +655,16 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             return [P.Strikeout(kids(ctx, n))];
         case 'highlight':
             return [P.Span(P.attr(undefined, ['mark']), kids(ctx, n))];
+        // An interchange-only wrapper (carve#2212): no Carve source spells it,
+        // and it arrives over the AST wire. `SmallCaps` has no Attr slot, so a
+        // wrapper's own attributes ride a Span around it - the same place a
+        // canonical Carve writer puts them.
+        case 'small_caps': {
+            const caps = P.SmallCaps(kids(ctx, n));
+            return hasAttrs(n.attrs as CAttrs | undefined)
+                ? [P.Span(toAttr(ctx, n.attrs), [caps])]
+                : [caps];
+        }
         case 'subscript':
             return [P.Subscript(kids(ctx, n))];
         case 'superscript':
