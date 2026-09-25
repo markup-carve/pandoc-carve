@@ -57,6 +57,8 @@ const RULES: Rule[] = [
     { test: /^url: a denied scheme/, code: 'unsafe-url-scheme', class: 'lossy' },
     { test: /^attribute: unsafe name/, code: 'unsafe-attribute-name', class: 'lossy' },
     { test: /^attribute: unsafe value/, code: 'unsafe-attribute-value', class: 'lossy' },
+    { test: /^extension: ruby/, code: 'ruby-flattened', class: 'degraded' },
+    { test: /^extension: block extension/, code: 'block-extension-fallback-rendered', class: 'degraded' },
     { test: /^extension:/, code: 'inline-extension-degraded', class: 'degraded' },
     { test: /^(?:link|image|footnote): missing definition/, code: 'reference-unresolved', class: 'degraded' },
     { test: /^crossref:/, code: 'crossref-unresolved', class: 'degraded' },
