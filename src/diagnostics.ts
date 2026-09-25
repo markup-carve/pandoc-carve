@@ -67,7 +67,6 @@ const RULES: Rule[] = [
     { test: /^list-table: the body groups disagree/, code: 'list-table-row-heads-normalized', class: 'normalized' },
     { test: /^list-table: rowspan/, code: 'list-table-rowspan-clipped', class: 'lossy' },
     { test: /^table: a row header outside/, code: 'table-row-head-outside-leading-run', class: 'lossy' },
-    { test: /^table: block-level/, code: 'table-cell-blocks-flattened', class: 'lossy' },
     { test: /^table: attributes on/, code: 'table-continuation-attributes-dropped', class: 'lossy' },
     { test: /^table: colspan continuation/, code: 'table-colspan-origin-missing', class: 'degraded' },
     { test: /^table: rowspan crossing/, code: 'table-rowspan-clipped', class: 'lossy' },
