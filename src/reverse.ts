@@ -1487,24 +1487,9 @@ const bulletListOf = (items: CNode[]): CNode => ({
 });
 
 function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {
-    const out: CNode[] = [];
-    cellBlocks.forEach((b, i) => {
-        if (b.t === 'Plain' || b.t === 'Para') {
-            if (i > 0) out.push({ type: 'soft_break' });
-            out.push(...inlines(ctx, b.c as PandocNode[]));
-        } else {
-            warn(ctx, `table: block-level cell content "${b.t}" flattened to text`);
-            out.push(text(stringifyBlocks([b])));
-        }
-    });
-    return mergeText(out);
-}
-
-function stringifyBlocks(xs: PandocNode[]): string {
-    return xs
-        .map((b) => (Array.isArray(b.c) ? stringify(b.c as PandocNode[]) : ''))
-        .join(' ')
-        .trim();
+    // Block cells take the list-table path before this function is called.
+    const first = cellBlocks[0];
+    return first ? mergeText(inlines(ctx, first.c as PandocNode[])) : [];
 }
 
 function captionFromBlocks(ctx: Ctx, capBlocks: PandocNode[] | undefined): CNode[] | null {
