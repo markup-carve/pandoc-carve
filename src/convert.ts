@@ -883,6 +883,28 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             warn(ctx, `extension: :${name}[..] degraded to a Span with class "ext-${name}"`);
             return [P.Span(P.attr(undefined, [`ext-${name}`]), content)];
         }
+        // PART 12 section 12 flattens a ruby pair to its base followed by its
+        // annotation in parentheses, which is what a canonical Carve writer does
+        // with one. Pandoc has no ruby construct to reach for, and dropping the
+        // node took the BASE TEXT with it - `pairs` is not `children`, so the
+        // generic unknown-node path found nothing to degrade to and emitted an
+        // empty paragraph while reporting that the text had survived.
+        case 'ruby': {
+            const pairs = (n.pairs as { base?: CNode[]; annotation?: CNode[] }[] | undefined) ?? [];
+            warn(ctx, 'extension: ruby flattened to each base with its annotation in parentheses - pandoc has no ruby construct');
+            // PART 12 section 32's own flattening, parentheses included: an empty
+            // annotation stays visible as `()`, and `attrs` wrap the whole run in
+            // one span, exactly as the canonical writer does it.
+            const flattened = pairs.flatMap((pair) => [
+                ...inlines(ctx, pair.base ?? []),
+                P.Str('('),
+                ...inlines(ctx, pair.annotation ?? []),
+                P.Str(')'),
+            ]);
+            return hasAttrs(n.attrs as CAttrs | undefined)
+                ? [P.Span(toAttr(ctx, n.attrs), flattened)]
+                : flattened;
+        }
         case 'citation_group':
             return [citationGroup(ctx, n)];
         case 'span':
@@ -1190,6 +1212,19 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         // The published 0.1.5 engine gives this construct its own node. A generic
         // Div whose author chose the class `line-block` remains a Div: class
         // names do not change the source construct's newline semantics.
+        // PART 12 section 33: "a reader that does not know the name renders the
+        // FALLBACK and reports the loss". The fallback is required on the node
+        // for exactly this, and it is a core block, so converting it needs no
+        // knowledge of the extension. Without this arm the node fell to the
+        // unknown-block path, whose degradation is "a paragraph of its text" -
+        // and a block extension's content is a `payload`, not `children`, so
+        // that paragraph came out EMPTY while the report said text survived.
+        case 'block_extension': {
+            const name = String(n.name ?? '');
+            const fallback = n.fallback as CNode | undefined;
+            warn(ctx, `extension: block extension "${name}" rendered as its declared fallback`);
+            return fallback ? block(ctx, fallback) : [];
+        }
         case 'line_block':
             return [lineBlock(ctx, n)];
         case 'div': {

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convert } from '../dist/convert.js'
-import { carveToPandoc } from '../dist/index.js'
+import { carveAstToPandoc, carveToPandoc } from '../dist/index.js'
 
 // These nodes are built by hand rather than parsed, because the published
 // carve-js this package depends on predates them. That is the point: the arms
@@ -254,3 +254,70 @@ test('a quote figure keeps the attrs of the figure, not of the quote it wraps', 
   assert.deepEqual(div.c[0], ['inner', ['kept'], [['a', '1']]])
   assert.equal(div.c[1][0].t, 'BlockQuote')
 })
+
+// A node whose content lives outside `children` cannot use the generic
+// unknown-node degradation, and both of these did. `ruby` carries `pairs` and
+// `block_extension` carries a `payload` and a `fallback`, so the fallback path
+// found nothing to flatten and emitted an EMPTY paragraph while reporting that
+// the text had survived. That is the one thing a loss report may never do.
+
+test('a ruby node flattens to base text with the annotation in parentheses', () => {
+  const doc = {
+    type: 'document',
+    children: [{
+      type: 'paragraph',
+      children: [{
+        type: 'ruby',
+        pairs: [
+          { base: [{ type: 'text', value: '漢' }], annotation: [{ type: 'text', value: 'かん' }] },
+          { base: [{ type: 'text', value: '字' }], annotation: [] },
+        ],
+      }],
+    }],
+  };
+  const { doc: out, warnings, diagnostics } = carveAstToPandoc(doc);
+  // PART 12 section 32's own flattening: an EMPTY annotation stays visible
+  // as `()`, so the canonical writer and this bridge agree character for
+  // character.
+  assert.equal(out.blocks[0].c.map((n) => n.c).join(''), '漢(かん)字()');
+  assert.ok(warnings.some((w) => w.includes('ruby')), warnings.join(' | '));
+  assert.ok(diagnostics.some((d) => d.code === 'ruby-flattened'), JSON.stringify(diagnostics));
+});
+
+test("a ruby node's attributes wrap the whole flattened run", () => {
+  const doc = {
+    type: 'document',
+    children: [{
+      type: 'paragraph',
+      children: [{
+        type: 'ruby',
+        pairs: [{ base: [{ type: 'text', value: 'a' }], annotation: [{ type: 'text', value: 'b' }] }],
+        attrs: { id: 'r', classes: ['k'], order: ['#id', '.class'] },
+      }],
+    }],
+  };
+  const [span] = carveAstToPandoc(doc).doc.blocks[0].c;
+  assert.equal(span.t, 'Span');
+  assert.deepEqual(span.c[0], ['r', ['k'], []]);
+  assert.equal(span.c[1].map((n) => n.c).join(''), 'a(b)');
+});
+
+test('an unknown block extension renders its declared fallback', () => {
+  // PART 12 section 33: a reader that does not know the name renders the
+  // FALLBACK and reports the loss. It is required on the node for this.
+  const doc = {
+    type: 'document',
+    children: [{
+      type: 'block_extension',
+      name: 'org.example.diagram',
+      fallback: { type: 'code_block', content: 'graph TD;', lang: 'mermaid' },
+      payload: { format: 'application/vnd.example.diagram+json', value: {} },
+    }],
+  };
+  const { doc: out, diagnostics } = carveAstToPandoc(doc);
+  assert.deepEqual(out.blocks, [{ t: 'CodeBlock', c: [['', ['mermaid'], []], 'graph TD;'] }]);
+  assert.ok(
+    diagnostics.some((d) => d.code === 'block-extension-fallback-rendered'),
+    JSON.stringify(diagnostics),
+  );
+});

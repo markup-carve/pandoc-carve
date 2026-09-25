@@ -359,6 +359,14 @@ a processor with neither extension enabled would render.
   with an older engine (any published release up to `0.1.3`),
   `src/ast-json.ts` performs the PART 12 section 7 mapping instead, and a pin
   that exports `toAstJson` takes over automatically.
+- A `ruby` node is flattened to each base followed by its annotation in
+  parentheses, reported as `ruby-flattened` - PART 12 section 32's own
+  degradation, so the bridge and a canonical Carve writer produce the same
+  characters. An empty annotation stays visible as `()`.
+- A `block_extension` whose name this bridge does not implement renders its
+  declared `fallback` and reports `block-extension-fallback-rendered`, per PART
+  12 section 33. The `payload` does not cross: it is not Carve content, and no
+  pandoc node holds it.
 - A line block's lines are recovered by splitting the stanza's children on
   `hard_break`, not from the `lines` pointer array PART 12 publishes for them.
   A boundary that sits INSIDE an inline - `*a` on one line, `b*` on the next -
