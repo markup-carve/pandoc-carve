@@ -40,7 +40,6 @@ const RULES: Rule[] = [
     { test: /^Cite mapped /, code: 'citation-bibliography-not-emitted', class: 'degraded' },
     { test: /^SmallCaps /, code: 'smallcaps-degraded', class: 'degraded' },
     { test: /^short caption:/, code: 'short-caption-source-unavailable', class: 'unsupported' },
-    { test: /^figure:/, code: 'figure-unwrapped', class: 'degraded' },
     { test: /^figure group: short caption/, code: 'figure-group-short-caption-dropped', class: 'lossy' },
     { test: /^frontmatter: format/, code: 'frontmatter-format-unsupported', class: 'unsupported' },
     { test: /^frontmatter: block content/, code: 'frontmatter-block-content-dropped', class: 'lossy' },
