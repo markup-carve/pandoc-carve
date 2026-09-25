@@ -212,11 +212,17 @@ function boldItalic(ctx: Ctx, xs: PandocNode[], inner: 'Emph' | 'Strong'): CNode
     if (only?.t !== inner) return null;
     const kids = inlines(ctx, only.c as never);
     if (isEmpty(kids)) return [];
-    const emphasis = { type: 'emphasis', children: kids };
     // `/*` needs content that hugs it: empty or space-edged content spelled
-    // `/* x*/` reparses as an emphasis with literal stars. Nest it instead.
-    if (!hugsDelimiters(kids)) return [{ type: 'strong', children: [emphasis] }];
-    return [{ type: 'strong', boldItalic: true, children: [emphasis] }];
+    // `/* x*/` reparses as an emphasis with literal stars. Nest it instead -
+    // and in the order pandoc wrote, because a nested pair renders `<em><strong>`
+    // or `<strong><em>` and swapping them is a visible change the combined
+    // token was the only licence to make.
+    if (!hugsDelimiters(kids)) {
+        return inner === 'Strong'
+            ? [{ type: 'emphasis', children: [{ type: 'strong', children: kids }] }]
+            : [{ type: 'strong', children: [{ type: 'emphasis', children: kids }] }];
+    }
+    return [{ type: 'strong', boldItalic: true, children: [{ type: 'emphasis', children: kids }] }];
 }
 
 function hugsDelimiters(kids: CNode[]): boolean {
@@ -251,17 +257,17 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             return wrapped(ctx, 'superscript', c);
         case 'Subscript':
             return wrapped(ctx, 'subscript', c);
-        // POLICY: Carve has no small-caps node and is not getting one - the
-        // typographic distinction is a presentation choice, which is what the
-        // `.smallcaps` span already carries. The degradation is not one-way:
-        // `convert.ts` reads that class back as a pandoc `SmallCaps` (pandoc's
-        // own markdown reader defines the same convention), so the construct
-        // survives Pandoc -> Carve -> Pandoc intact. The warning stays because
-        // a consumer reading the Carve document itself sees a class, not a
-        // semantic - it says what the Carve side holds, not that the value is
+        // The tree has a node for it (carve#2212), added so a bridge can carry
+        // small caps from a structured format instead of spelling it as a class.
+        // Carve 0.1 SOURCE still has none - a canonical writer writes the
+        // children and keeps the attributes on an ordinary attributed span - so
+        // the source target keeps the `.smallcaps` convention pandoc's own
+        // markdown reader uses, and `convert.ts` reads that class back. The
+        // warning belongs to that target alone; on the AST target nothing is
         // lost.
         case 'SmallCaps':
-            warn(ctx, 'SmallCaps has no Carve form - degraded to a .smallcaps span');
+            if (ctx.target === 'ast') return [{ type: 'small_caps', children: inlines(ctx, c) }];
+            warn(ctx, 'SmallCaps has no Carve 0.1 source form - degraded to a .smallcaps span');
             return [
                 {
                     type: 'span',
@@ -435,8 +441,10 @@ function span(ctx: Ctx, c: never): CNode[] {
 }
 
 interface CItem {
+    type: 'citation';
     key: string;
     suppressAuthor: boolean;
+    mode?: 'integral';
     prefix?: CNode[];
     locator?: CNode[];
 }
@@ -453,12 +461,14 @@ interface PCitation {
  *
  * The inverse of `convert.ts`'s `citationGroup`. Two asymmetries:
  *
- *  - **Mode.** Pandoc carries one mode per item; Carve's integral `+` is a
- *    cluster property. A group is integral when any item is `AuthorInText` -
- *    which is exactly the shape the forward direction emits, since an integral
- *    group's suppressed items become `SuppressAuthor` and never
- *    `NormalCitation`. A foreign group that mixes `AuthorInText` with
- *    `NormalCitation` cannot be spelled and is reported.
+ *  - **Mode.** The tree carries it per ITEM (carve#2203), which is where
+ *    pandoc's `CitationMode` sits, so a group mixing `AuthorInText` with
+ *    `NormalCitation` now has an encoding: each item keeps its own mode and the
+ *    group carries none. The group's `+` shorthand is set only when every item
+ *    is integral, since a reader refuses a group whose `mode` any item lacks.
+ *    Carve 0.1 SOURCE still spells the marker per cluster, so the source target
+ *    flattens a mixed group to integral and reports it; the AST target does
+ *    not, and keeps what pandoc wrote.
  *  - **Locator typing.** `locatorLabel`/`locatorValue` are NOT rebuilt here.
  *    They are derived fields: §4.2's label table lives in the engine, and a
  *    second copy in this bridge is the drift this tracker exists to kill. The
@@ -479,21 +489,30 @@ function citeGroup(ctx: Ctx, citations: PCitation[], content: PandocNode[]): CNo
     // as `NormalCitation` with a `+` prefix. The recovered source is the only
     // place that fact survives, and reading it back is what keeps `mode` from
     // contradicting the `raw` sitting next to it.
-    const integral = modes.includes('AuthorInText') || (recovered?.startsWith('[+') ?? false);
-    if (integral && modes.includes('NormalCitation') && !recovered?.startsWith('[+')) {
-        warn(ctx, 'Cite mixes AuthorInText with NormalCitation - Carve\'s integral marker is a property of the whole group, so the group is emitted as integral');
+    const spelledIntegral = recovered?.startsWith('[+') ?? false;
+    const mixed = modes.includes('AuthorInText') && modes.includes('NormalCitation') && !spelledIntegral;
+    const flatten = mixed && ctx.target === 'source';
+    if (flatten) {
+        warn(ctx, 'Cite mixes AuthorInText with NormalCitation - Carve 0.1 source spells the integral marker per group, so the group is emitted as integral (the AST target keeps the per-item modes)');
     }
+    const itemIntegral = (mode: string): boolean =>
+        spelledIntegral || flatten || mode === 'AuthorInText';
+    const integral = modes.every((mode) => itemIntegral(mode));
     if (!ctx.bibliographyWarned) {
         ctx.bibliographyWarned = true;
         warn(ctx, 'Cite mapped to a Carve citation group; bibliography entries live in pandoc metadata, so no `[@key]:` definitions are emitted and an undefined key renders verbatim');
     }
 
     const items = citations.map((cit) => {
-        // A citation item is a plain object, not a node: it has no `type`.
+        // A citation item is a positioned NODE of its own (carve#2192): the
+        // schema requires `type`, and a tree built here carries no `pos`
+        // because section 4 says a synthesized node omits it.
         const item: CItem = {
+            type: 'citation',
             key: String(cit.citationId ?? ''),
             suppressAuthor: (cit.citationMode?.t ?? '') === 'SuppressAuthor',
         };
+        if (itemIntegral(cit.citationMode?.t ?? 'NormalCitation')) item.mode = 'integral';
         const prefix = citationPrefixNodes(ctx, cit.citationPrefix);
         if (prefix.length) item.prefix = prefix;
         const locator = locatorNodes(ctx, cit.citationSuffix);
@@ -1628,10 +1647,22 @@ function figure(ctx: Ctx, c: never): CNode[] {
         if (attrs) node.attrs = attrs;
         return [node];
     }
-    warn(ctx, 'figure: general figure content unwrapped (caption kept as a trailing paragraph)');
-    const out = blocks(ctx, body);
-    if (caption) out.push({ type: 'paragraph', children: caption });
-    return out;
+    // Neither a single-host figure nor a subfigure group: this is the shape the
+    // forward direction writes for a `figure_group`, so it reverses to one. The
+    // unwrap it replaced turned the caption into a trailing paragraph and lost
+    // the wrapper outright - a `::: figure` holding only comments came back as
+    // nothing at all.
+    const node: CNode = { type: 'figure_group', children: blocks(ctx, body) };
+    if (caption) node.caption = caption;
+    if (shortCaption) {
+        warn(
+            ctx,
+            'figure group: short caption dropped (a composite figure has no navigation-caption slot)',
+        );
+    }
+    const attrs = fromAttr(a);
+    if (attrs) node.attrs = attrs;
+    return [node];
 }
 
 /**
@@ -1707,19 +1738,20 @@ function div(ctx: Ctx, c: never): CNode[] {
 
     let kind: string | undefined;
     let rest: string[] = [];
-    if (classes.includes('admonition')) {
-        rest = classes.filter((x) => x !== 'admonition');
+    const wrapper = classes.includes('directive') ? 'directive' : classes.includes('admonition') ? 'admonition' : undefined;
+    if (wrapper) {
+        rest = classes.filter((x) => x !== wrapper);
         kind = rest.shift();
     } else if (classes.length === 1 && KNOWN_ADMONITIONS.has(classes[0]!)) {
         kind = classes[0];
     }
 
     if (kind) {
-        const node: CNode = { type: 'admonition', kind, children: [] };
+        const node: CNode = { type: wrapper === 'directive' ? 'directive' : 'admonition', kind, children: [] };
         let children = body;
         // convert.ts emits the admonition title as a leading Para[Strong[..]].
         const first = body[0];
-        if (classes.includes('admonition') && first?.t === 'Para') {
+        if (wrapper !== undefined && first?.t === 'Para') {
             const xs = first.c as PandocNode[];
             if (xs.length === 1 && xs[0]!.t === 'Strong') {
                 node.title = inlines(ctx, xs[0]!.c as PandocNode[]);

@@ -224,7 +224,7 @@ test('citations: a foreign Cite whose content is prose gets a rebuilt source', (
   assert.deepEqual(group.items[0].locator, [{ type: 'text', value: 'p. 12' }]);
 });
 
-test('citations: a foreign Cite mixing AuthorInText with NormalCitation is reported', () => {
+test('citations: a foreign Cite mixing AuthorInText with NormalCitation keeps both modes', () => {
   const record = (id, mode) => ({
     citationId: id,
     citationPrefix: [],
@@ -241,11 +241,21 @@ test('citations: a foreign Cite mixing AuthorInText with NormalCitation is repor
       },
     ],
   };
+  // The AST target has an encoding for it: the mode sits on the ITEM
+  // (carve#2203), and the group carries none, because a reader refuses a group
+  // whose `mode` any item lacks.
   const { ast, warnings } = pandocToCarveAst(doc);
-  assert.equal(groupsOf(ast)[0].mode, 'integral');
+  const group = groupsOf(ast)[0];
+  assert.equal(group.mode, undefined);
+  assert.deepEqual(group.items.map((i) => i.mode), ['integral', undefined]);
+  assert.ok(!warnings.some((w) => w.includes('mixes AuthorInText with NormalCitation')), warnings.join(' | '));
+
+  // Carve 0.1 SOURCE spells the marker per cluster, so the source target still
+  // flattens - and still says so.
+  const source = pandocToCarve(doc);
   assert.ok(
-    warnings.some((w) => w.includes('mixes AuthorInText with NormalCitation')),
-    warnings.join(' | '),
+    source.warnings.some((w) => w.includes('mixes AuthorInText with NormalCitation')),
+    source.warnings.join(' | '),
   );
 });
 

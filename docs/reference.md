@@ -154,7 +154,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
 | Citations `[@key]`, `[+@key]`, `[-@key, p. 33]` | Cite with one Citation per key (AuthorInText / SuppressAuthor / NormalCitation), the locator in the citation suffix, the verbatim source as the Cite content |
 | `@mention`, `#tag`, `:ext[..]`, critic markup | classed Spans (documented degradation) |
-| `[text]{.smallcaps}` | SmallCaps (pandoc's own class convention, both directions) |
+| Small caps - the `small_caps` node, or a `[text]{.smallcaps}` span | SmallCaps (both directions; the span is the source-target spelling) |
 | Frontmatter, nested: maps, block and flow sequences, sequences of maps | Meta, to the depth pandoc's own reader gives it |
 | `::: \|` line blocks (verse) | LineBlock, one entry per line, an empty entry per stanza break |
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
@@ -259,12 +259,14 @@ a processor with neither extension enabled would render.
   run. Pandoc's `RowHeadColumns` is a count on a body and a `Table` holds a list
   of bodies, so rows that disagree are simply different bodies. A table whose
   body rows all agree emits exactly one body, as before.
-- Pandoc `SmallCaps` has no Carve node and is not getting one: it imports as a
-  `[text]{.smallcaps}` span, with a warning saying so. The span is not a dead
-  end, though - the export direction reads that class back as `SmallCaps`, the
-  same convention pandoc's own markdown reader uses, so small caps survive
-  Pandoc -> Carve -> Pandoc and still reach the LaTeX, Typst and DOCX writers.
-  Other attributes on the span are preserved around it, exactly as pandoc does.
+- Pandoc `SmallCaps` crosses as the `small_caps` interchange node on the AST
+  path (`pandocToCarveAst`), which is what that node was added for. Nothing is
+  reported there, and the export direction writes `SmallCaps` back, hanging the
+  node's own attributes on a Span around it because `SmallCaps` has no Attr
+  slot. Carve 0.1 SOURCE still spells no small caps, so `pandocToCarve` writes
+  the `[text]{.smallcaps}` span pandoc's own markdown reader uses, with a
+  warning saying so; the export direction reads that class back too, so small
+  caps survive Pandoc -> Carve -> Pandoc on either path.
 - Pandoc `Quoted` imports as literal curly quote characters (`“…”` / `‘…’`).
   Carve has no quote node, and the characters are what an author would have
   typed. This one is genuinely one-way: the text re-exports as `Str`, so the
@@ -298,8 +300,10 @@ a processor with neither extension enabled would render.
   extension restores the typed pair. With `roundtrip: true`, the private
   provenance wrapper retains the original typed fields directly while its
   enclosed native `Cite` remains available to citeproc. A group whose items mix `AuthorInText` and
-  `NormalCitation` cannot be spelled in Carve (the integral `+` is a property of
-  the whole cluster) and is imported as integral with a warning.
+  `NormalCitation` keeps both on the AST path: the mode sits on the citation
+  item, and the group carries none, because a reader refuses a group whose
+  `mode` any item lacks. Carve 0.1 source spells the integral `+` per cluster,
+  so `pandocToCarve` still flattens such a group to integral and says so.
 - Pandoc keeps its bibliography in document metadata, not in the AST, so
   importing a `Cite` emits no `[@key]:` definition lines. The citation itself
   round-trips: `citationNoteNum` is reproduced the way pandoc's own markdown
@@ -355,6 +359,16 @@ a processor with neither extension enabled would render.
   with an older engine (any published release up to `0.1.3`),
   `src/ast-json.ts` performs the PART 12 section 7 mapping instead, and a pin
   that exports `toAstJson` takes over automatically.
+- A line block's lines are recovered by splitting the stanza's children on
+  `hard_break`, not from the `lines` pointer array PART 12 publishes for them.
+  A boundary that sits INSIDE an inline - `*a` on one line, `b*` on the next -
+  is therefore invisible, and those two lines cross as one. No released engine
+  emits `lines` yet, so the field cannot be read against a measurement; the
+  split is the documented reading until one does.
+- A pandoc `Figure` that is neither a single-host figure nor subfigure-shaped
+  reverses to a `figure_group`, which is the shape the export direction writes
+  for one. It used to be unwrapped into its blocks with the caption appended as
+  a trailing paragraph.
 - Tier-3 visual extensions (mermaid, chart, code-group) arrive as their
   degraded block forms (code blocks / divs), same as Carve's static mode.
   `list-table` is the exception: it converts to a real Pandoc table with full

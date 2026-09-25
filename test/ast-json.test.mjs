@@ -89,7 +89,8 @@ test('the reference to it is a `footnote_ref`, and `^[...]` an `inline_footnote`
   assert.equal(nodesOfType(ast.children, 'footnote_ref').length, 1);
   assert.equal(nodesOfType(ast.children, 'inline_footnote').length, 1);
   const refs = nodesOfType(ast.children, 'footnote_ref');
-  assert.equal(refs[0].id, 'a');
+  assert.equal(refs[0].label, 'a');
+  assert.equal(refs[0].id, undefined, 'the pre-rename property does not reach the wire');
   assert.equal(refs[0].inline, undefined, 'a reference carries no body');
 });
 
@@ -156,7 +157,7 @@ const WIRE = {
       type: 'paragraph',
       children: [
         { type: 'text', value: 'See ' },
-        { type: 'footnote_ref', id: 'note' },
+        { type: 'footnote_ref', label: 'note' },
         { type: 'text', value: ' and ' },
         { type: 'critic_comment', text: 'an annotation' },
       ],

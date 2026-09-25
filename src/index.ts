@@ -28,6 +28,7 @@ export type { CarveAstDocument, CarveAstNode } from './ast-json.js';
 const engineSerializer = (carve as unknown as { toAstJson?: (doc: unknown) => unknown }).toAstJson;
 
 let rendererReadsInlineSubstitutions: boolean | undefined;
+let rendererKnowsDirectives: boolean | undefined;
 
 function engineRenderTree(ast: unknown): unknown {
     rendererReadsInlineSubstitutions ??= (() => {
@@ -40,7 +41,34 @@ function engineRenderTree(ast: unknown): unknown {
             : undefined;
         return Array.isArray(substitution?.['old']) && Array.isArray(substitution?.['new']);
     })();
-    return rendererReadsInlineSubstitutions ? ast : legacySubstitutions(ast);
+    rendererKnowsDirectives ??= (() => {
+        try {
+            carve.renderCarve({
+                type: 'document',
+                children: [{ type: 'directive', kind: 'toc', children: [] }],
+            } as unknown as Parameters<typeof carve.renderCarve>[0]);
+            return true;
+        } catch {
+            return false;
+        }
+    })();
+    const withSubstitutions = rendererReadsInlineSubstitutions ? ast : legacySubstitutions(ast);
+    return rendererKnowsDirectives ? withSubstitutions : legacyDirectives(withSubstitutions);
+}
+
+/**
+ * A renderer that predates the `admonition` split (carve#2195) still spells the
+ * six generated-content kinds `admonition`, and throws on `directive`. The
+ * source it writes is identical either way - `::: toc` - so this view exists
+ * only at that legacy API boundary; the returned and converted ASTs keep the
+ * split node.
+ */
+function legacyDirectives(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(legacyDirectives);
+    if (typeof value !== 'object' || value === null) return value;
+    const node = value as Record<string, unknown>;
+    const mapped = Object.fromEntries(Object.entries(node).map(([key, child]) => [key, legacyDirectives(child)]));
+    return node['type'] === 'directive' ? { ...mapped, type: 'admonition' } : mapped;
 }
 
 function legacySubstitutions(value: unknown): unknown {

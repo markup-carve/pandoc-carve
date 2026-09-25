@@ -133,11 +133,23 @@ const KNOWN_LOSSY = new Set([
   '312-a-note-body-s-own-references-resolve-3.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-6.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-7.crv',
-  '318-composite-figures-11.crv',
   '318-composite-figures-2.crv',
-  '318-composite-figures-9.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
+  // A NO-BREAK SPACE is content, so `# ab` is a heading whose rendered text
+  // starts with it and a collapsed `[ab][]` reaches no heading (PART 9R R1).
+  // The pinned engine folds the character into the marker gap, so the label
+  // the bridge is handed does match, and the reference resolves on the way out
+  // where the document leaves it literal. Engine lag, not a bridge reading:
+  // there is no id or label on the tree to tell the two headings apart.
+  '487-a-form-feed-or-a-no-break-space-is-content-wherever-whitespace-is-tested-11.crv',
+  // A rowspan that starts in a head or foot row and continues into the body.
+  // Pandoc's `TableHead` and `TableBody` hold separate row lists and confine a
+  // cell's `rowSpan` to its own section, so the continuation is clipped to an
+  // empty body cell - reported by the forward direction, and documented under
+  // Limitations in docs/reference.md.
+  '494-an-explicit-table-head-span-keeps-one-row-group.crv',
+  '495-a-table-foot-span-keeps-one-row-group.crv',
   // Pandoc ColSpec carries horizontal alignment and width, but has no vertical
   // alignment slot. The bridge deliberately does not leak Carve's `valigns`
   // source metadata into the Pandoc table Attr, so these two vertical-axis

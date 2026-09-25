@@ -655,6 +655,16 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             return [P.Strikeout(kids(ctx, n))];
         case 'highlight':
             return [P.Span(P.attr(undefined, ['mark']), kids(ctx, n))];
+        // An interchange-only wrapper (carve#2212): no Carve source spells it,
+        // and it arrives over the AST wire. `SmallCaps` has no Attr slot, so a
+        // wrapper's own attributes ride a Span around it - the same place a
+        // canonical Carve writer puts them.
+        case 'small_caps': {
+            const caps = P.SmallCaps(kids(ctx, n));
+            return hasAttrs(n.attrs as CAttrs | undefined)
+                ? [P.Span(toAttr(ctx, n.attrs), [caps])]
+                : [caps];
+        }
         case 'subscript':
             return [P.Subscript(kids(ctx, n))];
         case 'superscript':
@@ -793,7 +803,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 ctx.noteCount++;
                 return [note];
             }
-            const id = String(n.id ?? '');
+            const id = String(n.label ?? n.id ?? '');
             const def = ctx.footnoteDefs[id];
             if (!def) {
                 // THE LITERAL SOURCE, not a superscript.
@@ -1058,6 +1068,7 @@ const ATTR_CARRYING = new Set([
     'figure_group',
     'div',
     'admonition',
+    'directive',
     // Its Div IS the entry, and its attrs are the `{author= year=}` block that
     // belongs on it. Left out, the wrapper below adds a SECOND Div carrying the
     // same key-values around the one that already has them.
@@ -1148,7 +1159,12 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return figure(ctx, n);
         case 'figure_group':
             return figureGroup(ctx, n);
+        // A directive PLACES generated content; an admonition presents what was
+        // written inside it. They share every slot the Div needs, so they share
+        // the arm - the leading class is what tells a reader which it was.
+        case 'directive':
         case 'admonition': {
+            const wrapper = n.type === 'directive' ? 'directive' : 'admonition';
             const kind = String(n.kind ?? 'note');
             if (kind === 'list-table' && ctx.listTable) {
                 const converted = listTableToTable(ctx, n);
@@ -1162,7 +1178,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
                 P.Div(
-                    [id, ['admonition', kind, ...classes], [...kvs, ...labelKv(ctx, n)]],
+                    [id, [wrapper, kind, ...classes], [...kvs, ...labelKv(ctx, n)]],
                     [...title, ...labelCaption(ctx, n), ...body],
                 ),
             ];
