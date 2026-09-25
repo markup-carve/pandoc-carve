@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+## 0.1.6 - 2026-09-26
+
+### Fixes
+
+- A bold-italic run survives an export round trip as Carve's combined `/*x*/`
+  form. Pandoc has no bold-italic node and its readers disagree on the nesting,
+  so `Emph[Strong]` and `Strong[Emph]` both came back as `{/*x*/}` or `*/x/*`.
+  A sole inner mark now reverses to the tree carve builds for `/*x*/`, and the
+  nesting is kept where something sits beside the inner node or where the
+  content cannot hug the markers (#186, #187).
+- `ruby` and `block_extension` keep their content instead of reaching the
+  unknown-node path and losing all of it while the report claimed it survived.
+  Ruby flattens to each base followed by its parenthesized annotation (PART 12
+  section 32), and a block extension renders its declared `fallback` (PART 12
+  section 33) (#194).
+- A `Figure` that is neither a single-host figure nor subfigure-shaped reverses
+  to a `figure_group` rather than being unwrapped. The unwrap turned the caption
+  into a trailing paragraph and dropped the wrapper, so a `::: figure` holding
+  only comments came back as nothing (#187).
+- An empty pandoc mark is dropped rather than reversed to an empty Carve mark.
+  carve writes that as a brace pair, which reads back as literal text or as the
+  braced en dash, and the engine writer refuses such a tree once
+  markup-carve/carve-js#1881 ships, which would have made `pandocToCarve` throw
+  through this package's caret range (#188).
+
+### Improvements
+
+- `footnote_ref` is read from `label` as well as from the `id` that every engine
+  up to 0.1.7 serializes, so a document holding a footnote reference validates
+  against the current schema instead of being refused (#187).
+- The six generated-content kinds cross as a `directive` instead of an
+  `admonition`, and a placed `::: toc` round-trips as itself. A published
+  renderer throws on the node, so `engineRenderTree` downgrades it at that
+  boundary (#187).
+- Small caps cross the AST path as `small_caps` with nothing reported, and a
+  `Cite` mixing author-in-text with a normal citation keeps the mode on the item
+  and none on the group. The source target still flattens both, and still says
+  so (#187).
+- Every corpus document is validated after coming back through pandoc. The
+  reversed tree had never been schema-checked, and a citation item was reaching
+  the wire without the `type` the schema requires (#187).
+
 ## 0.1.5 - 2026-09-20
 
 ### Breaking
