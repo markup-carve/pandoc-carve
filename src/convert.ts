@@ -1769,6 +1769,8 @@ function table(
         footRows,
         shortCaption,
         Array.from({ length: width }, (_, c) => columns[c]?.width ?? null),
+        toAttr(ctx, groups?.headAttrs as CAttrs | undefined),
+        toAttr(ctx, groups?.footAttrs as CAttrs | undefined),
     );
 }
 

@@ -231,6 +231,8 @@ export function Table(
     footRows: PRow[] = [],
     shortCaption: Inline[] | null = null,
     colWidths: Array<number | null> = [],
+    headAttrs: Attr = emptyAttr,
+    footAttrs: Attr = emptyAttr,
 ): Block {
     // The export side of the same ColWidth policy `reverse.ts`'s `table()`
     // states: carry explicit Carve widths as `ColWidth`; leave an unspecified
@@ -240,9 +242,9 @@ export function Table(
         a,
         [shortCaption, caption ? [Plain(caption)] : []],
         colspecs,
-        [emptyAttr, headRows.map(renderRow)],
+        [headAttrs, headRows.map(renderRow)],
         bodies.map(renderBody),
-        [emptyAttr, footRows.map(renderRow)],
+        [footAttrs, footRows.map(renderRow)],
     ]);
 }
 
