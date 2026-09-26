@@ -1,6 +1,6 @@
 # pandoc-carve reference
 
-This page documents the CLI, API, conversion mapping, and known limitations. Start with the [package README](../README.md) for installation and basic use. The bridge is tested with Pandoc 3.10.2.
+This page documents the CLI, API, conversion mapping, and known limitations. Start with the [package README](../README.md) for installation and basic use. The bridge is tested with Pandoc 3.11.
 
 ## CLI
 
