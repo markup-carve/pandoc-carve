@@ -39,6 +39,10 @@ export interface ConvertResult {
 }
 
 export interface ConvertOptions {
+    /** Interpret U+E000 as the old generated-space marker in external AST input.
+     * Use only for known legacy producers; literal U+E000 cannot be recovered.
+     */
+    legacySpaceSentinels?: boolean;
     /**
      * Stamp attr-wrapper Divs with a `carve-block` key-value marker so the
      * reverse direction can restore the attrs onto the inner block. Off by
@@ -340,28 +344,9 @@ function smartPunctuationText(n: CNode): string {
     return SMART_PUNCTUATION_GLYPHS[kind] ?? String(n.value ?? '');
 }
 
-/**
- * The engines' SENTINEL for a no-break space the parser resolved - from an
- * escaped space, or from a line block's preserved indentation - is U+E000, a
- * PRIVATE-USE codepoint (markup-carve/carve#721). It is spec surface a consumer has to
- * map: passing it through put a private-use character into Pandoc JSON, so
- * every writer downstream - docx, LaTeX, HTML - rendered a tofu box where a
- * no-break space belonged, and nothing warned.
- *
- * U+00A0 is the right target: Pandoc has no separate representation for a
- * resolved space, and a literal no-break space is what the source means. A
- * U+00A0 the author typed is published by the engines as itself and needs no
- * mapping.
- */
-const RESOLVED_NBSP = /\uE000/g;
-
-function resolvedSpaces(value: string): string {
-    return value.replace(RESOLVED_NBSP, '\u00A0');
-}
-
 /** Split text into Str/Space the way pandoc readers do. */
 function textInlines(raw: string): P.Inline[] {
-    const value = resolvedSpaces(raw);
+    const value = raw;
     const out: P.Inline[] = [];
     const parts = value.split(/( +)/);
     for (const part of parts) {
@@ -377,7 +362,7 @@ function textInlines(raw: string): P.Inline[] {
 // for ordinary text, but an inline literal captures its content VERBATIM, so
 // `` !`a  b` `` must not reach a writer as "a b".
 function verbatimInlines(raw: string): P.Inline[] {
-    const value = resolvedSpaces(raw);
+    const value = raw;
     const out: P.Inline[] = [];
     // A LITERAL MAY SPAN A LINE BREAK, and a newline left inside a Str reaches
     // every writer verbatim - the same defect the missing-reference fallback
@@ -641,6 +626,8 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
     switch (n.type) {
         case 'text':
             return textInlines(String(n.value ?? ''));
+        case 'non_breaking_space':
+            return [P.Str('\u00a0')];
         case 'soft_break':
             return [P.SoftBreak];
         case 'hard_break':
@@ -1088,6 +1075,7 @@ const ATTR_CARRYING = new Set([
     'table',
     'figure',
     'figure_group',
+    'section',
     'div',
     'admonition',
     'directive',
@@ -1227,6 +1215,15 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         }
         case 'line_block':
             return [lineBlock(ctx, n)];
+        case 'section': {
+            const [id, classes, kvs] = toAttr(ctx, n.attrs);
+            if (n.level !== undefined && (!Number.isInteger(n.level) || Number(n.level) < 1 || Number(n.level) > 6)) {
+                throw new TypeError('section level must be an integer from 1 to 6');
+            }
+            const level = n.level === undefined ? '' : String(n.level);
+            return [P.Div([id, classes, ctx.roundtrip ? [...kvs, ['carve.section', level]] : kvs],
+                untight(ctx, () => blocks(ctx, n.children as CNode[])))];
+        }
         case 'div': {
             const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
@@ -1421,6 +1418,7 @@ function definitionList(ctx: Ctx, n: CNode): P.Block {
 // --- Tables (span inversion) ---
 
 interface CCell {
+    blocks?: CNode[];
     header?: boolean;
     align?: string;
     span?: 'colspan' | 'rowspan';
@@ -1612,7 +1610,9 @@ function table(
                     warn(ctx, `table: rowspan continuation at row ${r + 1}, col ${c + 1} has no origin - emitting empty cell`);
                 }
             }
-            const cellBlocks = cc.children?.length
+            const cellBlocks = Array.isArray(cc.blocks)
+                ? untight(ctx, () => blocks(ctx, cc.blocks!))
+                : cc.children?.length
                 ? [P.Plain(untight(ctx, () => inlines(ctx, cc.children)))]
                 : [];
             // A head cell's marker became the ColSpec above, so repeating it

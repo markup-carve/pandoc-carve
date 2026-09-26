@@ -758,8 +758,5 @@ test("a body's intermediate header row does not count as the column header", () 
     ['right', 'right'],
     'the columns carry it independently of intermediate header rows',
   );
-  assert.ok(
-    warnings.some((w) => w.includes('intermediate header rows')),
-    warnings.join(' | '),
-  );
+  assert.deepEqual(warnings, []);
 });

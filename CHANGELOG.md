@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Preserve sections and block table cells through AST conversion, with loss diagnostics limited to source output (#198).
+
+- Sections cross Pandoc as attributed divs while retaining nested blocks,
+  inline formatting and their optional level on the AST return path. Writing
+  Carve source reports the conversion to a div.
+- AST imports preserve block table cells in `table_cell.blocks`, including
+  their column metadata and row groups. Source imports still use ListTable (#198).
+
+- Preserve literal U+E000 in current AST input and source conversion. Stored legacy ASTs can explicitly select the old whitespace interpretation (#198).
+
 ## 0.1.6 - 2026-09-26
 
 ### Fixes

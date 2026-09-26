@@ -62,6 +62,7 @@ interface RuntimeDocument {
  */
 const CHILD_FIELDS = [
     'children',
+    'blocks',
     'items',
     'rows',
     'cells',

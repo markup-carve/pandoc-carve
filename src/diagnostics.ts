@@ -29,6 +29,7 @@ interface Rule {
 
 // Ordered from specific to general. Codes are API: add rules, never rename them.
 const RULES: Rule[] = [
+    { test: /^section:/, code: 'structure-unspellable', class: 'degraded' },
     { test: /^comment:/, code: 'comment-dropped', class: 'lossy' },
     { test: /^inline: unknown node type/, code: 'unknown-carve-inline', class: 'degraded' },
     { test: /^block: unknown node type/, code: 'unknown-carve-block', class: 'degraded' },

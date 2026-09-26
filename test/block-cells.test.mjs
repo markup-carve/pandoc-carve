@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { parse } from '@markup-carve/carve';
-import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { pandocToCarve as sourceTree } from '../dist/reverse.js';
 import { findPandoc } from './helpers.mjs';
 
 const pandoc = findPandoc();
@@ -49,7 +50,7 @@ const RICH_HTML = `<table>
 </table>`;
 
 test('block cells: a table with block content becomes a list-table', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { ast, warnings } = pandocToCarveAst(read(GRID, 'markdown'));
+  const { ast, warnings } = sourceTree(read(GRID, 'markdown'));
   const [node] = ast.children;
   assert.equal(node.type, 'admonition');
   assert.equal(node.kind, 'list-table');
@@ -99,7 +100,7 @@ test('block cells: the block content survives the whole loop back to pandoc', { 
 });
 
 test('block cells: head rows, row spans and the caption all cross', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { ast } = pandocToCarveAst(read(RICH_HTML, 'html'));
+  const { ast } = sourceTree(read(RICH_HTML, 'html'));
   const [node] = ast.children;
   assert.equal(node.attrs.keyValues['header-rows'], '1');
   const rows = node.children[0].items;
@@ -119,7 +120,7 @@ test('block cells: head rows, row spans and the caption all cross', { skip: !pan
 });
 
 test('block cells: list-table spells its foot explicitly', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { ast, warnings } = pandocToCarveAst(read(RICH_HTML, 'html'));
+  const { ast, warnings } = sourceTree(read(RICH_HTML, 'html'));
   assert.equal(ast.children[0].attrs.keyValues['footer-rows'], '1');
   assert.ok(!warnings.some((w) => w.includes('foot row(s)')), warnings.join(' | '));
 });
@@ -134,7 +135,7 @@ test('block cells: list-table carries per-column alignment', { skip: !pandoc && 
 |        | - two
 +--------+----------------+
 `;
-  const { ast, warnings } = pandocToCarveAst(read(aligned, 'markdown'));
+  const { ast, warnings } = sourceTree(read(aligned, 'markdown'));
   assert.equal(ast.children[0].attrs.keyValues.aligns, 'left,right');
   assert.ok(!warnings.some((w) => w.includes('alignment')), warnings.join(' | '));
 });
@@ -168,7 +169,7 @@ test('block cells: a body group\'s intermediate header rows are spelled', () => 
       },
     ],
   };
-  const { warnings, ast } = pandocToCarveAst(doc);
+  const { warnings, ast } = sourceTree(doc);
   assert.equal(ast.children[0].kind, 'list-table');
   assert.ok(!warnings.some((w) => w.includes('intermediate header')), warnings.join(' | '));
   const firstCell = ast.children[0].children[0].items[0].children[0].items[0];
@@ -178,7 +179,7 @@ test('block cells: a body group\'s intermediate header rows are spelled', () => 
 test('block cells: an all-inline table is still a pipe table', { skip: !pandoc && 'pandoc not found' }, () => {
   // The control: nothing about the ordinary path changes, and no diagnostic
   // fires for a table that never needed one.
-  const { ast, warnings } = pandocToCarveAst(read('| a | b |\n|---|---|\n| x | y |\n', 'markdown'));
+  const { ast, warnings } = sourceTree(read('| a | b |\n|---|---|\n| x | y |\n', 'markdown'));
   assert.equal(ast.children[0].type, 'table');
   assert.deepEqual(warnings, []);
 });
@@ -208,7 +209,7 @@ test('block cells: an empty cell alongside a block cell stays empty', { skip: !p
 |   | - one  |
 +---+--------+
 `;
-  const { ast } = pandocToCarveAst(read(src, 'markdown'));
+  const { ast } = sourceTree(read(src, 'markdown'));
   const [empty] = ast.children[0].children[0].items[0].children[0].items;
   assert.deepEqual(empty.children, [{ type: 'paragraph', children: [] }]);
 });
@@ -224,7 +225,7 @@ test('block cells: two paragraphs alone are enough, with no list anywhere', { sk
 |      | para two
 +------+-----------+
 `;
-  const { ast, warnings } = pandocToCarveAst(read(src, 'markdown'));
+  const { ast, warnings } = sourceTree(read(src, 'markdown'));
   assert.equal(ast.children[0].kind, 'list-table');
   assert.ok(warnings.some((w) => w.includes('a cell holds block content')), warnings.join(' | '));
 
@@ -241,7 +242,7 @@ test('block cells: the emitted tight flags match what the emitted source parses 
   // continuations for a tight item and a blank line for a loose one, and both
   // re-parse to the same blocks but NOT to the same flag. Claiming a cell of
   // two paragraphs is tight makes the emitted tree disagree with its own source.
-  const { ast } = pandocToCarveAst(read(GRID, 'markdown'));
+  const { ast } = sourceTree(read(GRID, 'markdown'));
   const { carve } = pandocToCarve(read(GRID, 'markdown'));
 
   const flags = (node) => {
@@ -302,7 +303,7 @@ test('block cells: merged body groups and their attributes are reported', () => 
       },
     ],
   };
-  const { warnings } = pandocToCarveAst(doc);
+  const { warnings } = sourceTree(doc);
   assert.ok(warnings.some((w) => w.includes('2 body groups merge')), warnings.join(' | '));
   assert.ok(warnings.some((w) => w.includes("body group's attributes are dropped")), warnings.join(' | '));
 });
