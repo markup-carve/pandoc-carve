@@ -97,10 +97,61 @@ function inlineText(value: unknown): string {
     return value.map((node) => {
         if (typeof node !== 'object' || node === null) return '';
         const inline = node as Record<string, unknown>;
+        if (inline['type'] === 'non_breaking_space') return '\u00a0';
         if (inline['type'] === 'text') return String(inline['value'] ?? '');
         if (inline['type'] === 'soft_break' || inline['type'] === 'hard_break') return '\n';
         return inlineText(inline['children']);
     }).join('');
+}
+
+const parserHasSpaceNodes = JSON.stringify(carve.parse('a\\ b')).includes('"non_breaking_space"');
+
+function upgradeParserSpaces(value: unknown, literalMarker: string | undefined, source: string[] = []): unknown {
+    if (typeof value === 'string') {
+        const restored = value.replace(/\ue000/g, '\u00a0');
+        return literalMarker ? restored.split(literalMarker).join('\ue000') : restored;
+    }
+    if (Array.isArray(value)) {
+        return value.flatMap((child) => {
+            if (child && child.type === 'text' && typeof child.value === 'string' && child.value.includes('\ue000')) {
+                const { pos, value: text, type: _type, ...attributes } = child;
+                const tokens: { value: string; start: number; end: number }[] = [];
+                const codepoints = [...text];
+                if (pos) {
+                    for (let i = pos.startOffset; i < pos.endOffset; i++) {
+                        const start = i;
+                        let value = source[i];
+                        if (value === '\\' && source[i + 1] === ' ') { value = '\ue000'; i++; }
+                        else if (value === ' ' && codepoints[tokens.length] === '\ue000') value = '\ue000';
+                        else if (value === '\\' && /[!"#$%&'()*+,./:;<=>?@[\\\]^_`{|}~-]/.test(source[i + 1] ?? '')) value = source[++i];
+                        tokens.push({ value: value ?? '', start, end: i + 1 });
+                    }
+                }
+                // Reassembled legacy runs can lack an exact span. Publish a
+                // position only when the source replay proves every boundary.
+                const exact = tokens.map(t => t.value).join('') === text;
+                let cursor = 0;
+                return text.split(/(\ue000)/).filter(Boolean).map((part: string) => {
+                    const length = [...part].length;
+                    const node: Record<string, unknown> = { ...upgradeParserSpaces(attributes, literalMarker, source) as object,
+                        type: part === '\ue000' ? 'non_breaking_space' : 'text' };
+                    if (part !== '\ue000') node.value = upgradeParserSpaces(part, literalMarker, source);
+                    if (exact && pos.startLine === pos.endLine) {
+                        const start = tokens[cursor]!.start;
+                        const end = tokens[cursor + length - 1]!.end;
+                        node.pos = { ...pos, startOffset: start, endOffset: end,
+                            startColumn: pos.startColumn + start - pos.startOffset,
+                            endColumn: pos.startColumn + end - pos.startOffset };
+                    }
+                    cursor += length;
+                    return node;
+                });
+            }
+            return [upgradeParserSpaces(child, literalMarker, source)];
+        });
+    }
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, upgradeParserSpaces(child, literalMarker, source)]));
 }
 
 /**
@@ -109,7 +160,18 @@ function inlineText(value: unknown): string {
  * writes.
  */
 export function carveToCarveAst(source: string, options?: ParseOptions): CarveAstDocument {
-    return toCarveAst(carve.parse(source, { extensions: parseExtensions(options) }), engineSerializer);
+    if (parserHasSpaceNodes) {
+        return toCarveAst(carve.parse(source, { extensions: parseExtensions(options) }), engineSerializer);
+    }
+    let marker: string | undefined;
+    for (let cp = 0xf8ff; source.includes('\ue000') && cp >= 0xe020; cp--) {
+        const candidate = String.fromCharCode(cp);
+        if (!source.includes(candidate)) { marker = candidate; break; }
+    }
+    if (!marker && source.includes('\ue000')) throw new Error('Legacy parser has no free character for literal Unicode protection');
+    const protectedSource = marker ? source.replace(/\ue000/g, marker) : source;
+    const ast = toCarveAst(carve.parse(protectedSource, { extensions: parseExtensions(options) }), engineSerializer);
+    return upgradeParserSpaces(ast, marker, [...protectedSource.replace(/\r\n?/g, '\n').replace(/\0/g, '\ufffd')]) as CarveAstDocument;
 }
 
 /**
@@ -154,7 +216,9 @@ export function carveAstToPandoc(
     ast: CarveAstDocument | string,
     options?: ConvertOptions & ParseOptions,
 ): ConvertResult {
-    return convert(normalizeCarveAst(parseCarveAst(ast)), withParser(options));
+    const parsed = normalizeCarveAst(parseCarveAst(ast));
+    const normalized = options?.legacySpaceSentinels ? upgradeParserSpaces(parsed, undefined) as CarveAstDocument : parsed;
+    return convert(normalized, withParser(options));
 }
 
 /**

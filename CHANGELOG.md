@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Report unspellable table groups only when writing Carve source; AST output retains them without a loss diagnostic.
+
+- Sections cross Pandoc as attributed divs while retaining nested blocks,
+  inline formatting and their optional level on the AST return path. Writing
+  Carve source reports the conversion to a div.
+- AST imports preserve block table cells in `table_cell.blocks`, including
+  their column metadata and row groups. Source imports still use ListTable.
+
 ## 0.1.6 - 2026-09-26
 
 ### Fixes

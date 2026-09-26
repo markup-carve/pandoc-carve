@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { carveAstToPandoc, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
 import { diagnostic } from '../dist/diagnostics.js';
 
 const carveDoc = (children) => ({ type: 'document', children });
@@ -77,7 +77,7 @@ test('a list-table with a short caption produces list-table-short-caption-droppe
     [[attr, 0, [], [[attr, [cell]]]]],
     [attr, []],
   ] };
-  const result = pandocToCarveAst(pandocDoc([table]));
+  const result = pandocToCarve(pandocDoc([table]));
   expectCode(result, 'list-table-short-caption-dropped', 'pandoc-to-carve', 'lossy', 'dropped');
 });
 

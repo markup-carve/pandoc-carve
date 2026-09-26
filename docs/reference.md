@@ -381,3 +381,23 @@ a processor with neither extension enabled would render.
   degraded block forms (code blocks / divs), same as Carve's static mode.
   `list-table` is the exception: it converts to a real Pandoc table with full
   block content per cell, unless `listTable: false` / `--no-list-table`.
+
+### Sections and block table cells
+
+`carveAstToPandoc` maps a section to a Pandoc `Div` and records its optional
+level in the reserved `carve.section` attribute. `pandocToCarveAst` restores the
+section. Source output uses a Carve div and reports `structure-unspellable`.
+Nested headings, paragraphs and inline formatting remain intact.
+
+`pandocToCarveAst` keeps rich table cells in `table_cell.blocks`. Their export
+does not require the ListTable extension. `pandocToCarve` uses ListTable for the
+same cells because pipe-table source cannot express block content.
+
+The `carve.section` marker is emitted only with `roundtrip: true`. Without it, a section exports as an ordinary Pandoc Div.
+
+Literal U+E000 is preserved in current AST input. For stored ASTs from engines
+that used it as a whitespace marker, pass `legacySpaceSentinels: true` to
+`carveAstToPandoc`. That option cannot recover authored U+E000 already conflated
+with generated spaces; reparse the source to recover it. Source conversion
+adapts the installed parser automatically. Split legacy text runs retain exact
+positions when source replay verifies them; reassembled runs omit positions.

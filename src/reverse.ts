@@ -1076,7 +1076,7 @@ function table(
     // (corpus 376, spec f074372), so at the time the pipe form genuinely could
     // not carry a foot and the list-table detour was the only way to keep it.
     // The limitation is gone, so the detour is too.
-    const useListTable = hasBlockCells;
+    const useListTable = ctx.target === 'source' && hasBlockCells;
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -1107,7 +1107,9 @@ function table(
             const cell: CNode = {
                 type: 'table_cell',
                 header: col < headTo,
-                children: useListTable ? [] : cellInlines(ctx, cellBlocks),
+                ...(ctx.target === 'ast' && !isInlineShaped(cellBlocks)
+                    ? { blocks: blocks(ctx, cellBlocks) }
+                    : { children: useListTable ? [] : cellInlines(ctx, cellBlocks) }),
             };
             // The column's alignment is carried by a HEADER ROW's cells, or by
             // every cell when there is no header row. A row-head cell is not a
@@ -1168,7 +1170,7 @@ function table(
     const groups: RowGroups = { headRows: headRaw.length, bodies: groupBodies, footRows: footRaw.length };
     if (carriesMoreThanFlatRows(groups)) {
         node.rowGroups = groups;
-        reportUnspellableGroups(ctx, groups);
+        if (ctx.target === 'source') reportUnspellableGroups(ctx, groups);
     }
     // BOTH OF THESE ARE THE SOURCE WRITER'S BUSINESS ONLY. On the `ast` target
     // the partition stays in `rowGroups`, where it is exact: there is no
@@ -1305,11 +1307,8 @@ function statePartition(attrs: CAttrs | undefined, groups: RowGroups): CAttrs | 
  * the forward direction reads the count back off exactly that run. Measured in
  * both shapes, with a foot and without.
  *
- * The wording follows the `shortCaption` precedent: it names where the value
- * DOES survive, because on the `pandocToCarveAst` path nothing is lost at all
- * and a bare "dropped" would be false there. The list-table path reports the
- * same facts in its own vocabulary; this is the pipe path's half of it, which
- * was silent.
+ * AST output retains these groups. This diagnostic applies only when writing
+ * source, whose pipe-table syntax cannot express the full partition.
  */
 function reportUnspellableGroups(ctx: Ctx, groups: RowGroups): void {
     const lost: string[] = [];
@@ -1706,6 +1705,21 @@ function div(ctx: Ctx, c: never): CNode[] {
     const labelEntry = rawKvs.find(([k]) => k === 'carve.label');
     const label = labelEntry?.[1];
     const kvs = label !== undefined ? rawKvs.filter(([k]) => k !== 'carve.label') : rawKvs;
+
+    const section = kvs.find(([key, value]) => key === 'carve.section' && /^(?:[1-6])?$/.test(value));
+    if (section) {
+        const attrs = fromAttr([id, classes, kvs.filter((entry) => entry !== section)]);
+        if (ctx.target === 'source') {
+            warn(ctx, 'section: explicit section converted to a div because Carve source has no section wrapper');
+            const node: CNode = { type: 'div', children: blocks(ctx, body) };
+            if (attrs) node.attrs = attrs;
+            return [node];
+        }
+        const node: CNode = { type: 'section', children: blocks(ctx, body) };
+        if (section[1]) node.level = Number(section[1]);
+        if (attrs) node.attrs = attrs;
+        return [node];
+    }
 
     // convert.ts's attr-wrapper marker: restore attrs onto the inner block.
     const marker = kvs.find(([k]) => k === 'carve-block');
