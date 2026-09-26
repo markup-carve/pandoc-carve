@@ -27,6 +27,8 @@ export interface RowGroups {
     headRows: number;
     bodies: RowGroupBody[];
     footRows: number;
+    headAttrs?: unknown;
+    footAttrs?: unknown;
 }
 
 /** The outcome of reading the field: at most one of `groups` and `error` is set. */
@@ -37,6 +39,17 @@ export interface RowGroupsRead {
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validAttrs(value: unknown): boolean {
+    if (!isObject(value) || Object.keys(value).some(key => !['id', 'classes', 'keyValues', 'order'].includes(key))) return false;
+    if (value['id'] !== undefined && typeof value['id'] !== 'string') return false;
+    for (const key of ['classes', 'order']) {
+        const field = value[key];
+        if (field !== undefined && (!Array.isArray(field) || field.some(item => typeof item !== 'string'))) return false;
+    }
+    const kv = value['keyValues'];
+    return kv === undefined || (isObject(kv) && Object.values(kv).every(item => typeof item === 'string'));
 }
 
 /** A required count: a non-negative integer, nothing else. */
@@ -93,11 +106,19 @@ export function readRowGroups(value: unknown, rowCount: number): RowGroupsRead {
             }
             if (rowHead > 0) body.rowHeadColumns = rowHead;
         }
-        if (raw['attrs'] !== undefined) body.attrs = raw['attrs'];
+        if (raw['attrs'] !== undefined) {
+            if (!validAttrs(raw['attrs'])) return { groups: null, error: `rowGroups body ${i + 1} has invalid attrs` };
+            body.attrs = raw['attrs'];
+        }
         bodies.push(body);
     }
 
     const groups: RowGroups = { headRows, bodies, footRows };
+    for (const field of ['headAttrs', 'footAttrs']) {
+        if (value[field] !== undefined && !validAttrs(value[field])) return { groups: null, error: `rowGroups.${field} is not a valid attributes object` };
+    }
+    if (value['headAttrs'] !== undefined) groups.headAttrs = value['headAttrs'];
+    if (value['footAttrs'] !== undefined) groups.footAttrs = value['footAttrs'];
     const total = rowGroupsTotal(groups);
     if (total !== rowCount) {
         return {

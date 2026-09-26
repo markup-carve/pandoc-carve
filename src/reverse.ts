@@ -946,6 +946,7 @@ interface RawPandocRow {
  * structure (PART 12 §15).
  */
 function carriesMoreThanFlatRows(groups: RowGroups): boolean {
+    if (groups.headAttrs !== undefined || groups.footAttrs !== undefined) return true;
     if (groups.footRows > 0) return true;
     if (groups.bodies.length > 1) return true;
     return groups.bodies.some(
@@ -1143,6 +1144,13 @@ function table(
     const captionInlinesFor = (): CNode[] | null =>
         captionOverride ?? captionFromBlocks(ctx, capt[1]);
 
+    const headAttrs = fromAttr(thead[0]);
+    const footAttrs = fromAttr(tfoot[0]);
+    if (ctx.target === 'source' || useListTable) {
+        for (const [field, attrs] of [['headAttrs', headAttrs], ['footAttrs', footAttrs], ...groupBodies.map((body, i) => [`bodies[${i}].attrs`, body.attrs] as const)] as const) {
+            if (attrs) warn(ctx, `table: rowGroups.${field} is dropped because Carve source cannot spell section attributes`);
+        }
+    }
     if (useListTable) {
         const short = shortCaptionOverride ?? captionFromInlines(ctx, capt[0] as PandocNode[] | null);
         if (short?.length) {
@@ -1168,6 +1176,8 @@ function table(
     // checked where it can actually fail instead: on a partition that arrived
     // from outside (see readRowGroups).
     const groups: RowGroups = { headRows: headRaw.length, bodies: groupBodies, footRows: footRaw.length };
+    if (headAttrs) groups.headAttrs = headAttrs;
+    if (footAttrs) groups.footAttrs = footAttrs;
     if (carriesMoreThanFlatRows(groups)) {
         node.rowGroups = groups;
         if (ctx.target === 'source') reportUnspellableGroups(ctx, groups);

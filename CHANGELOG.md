@@ -12,6 +12,10 @@
 
 - Preserve literal U+E000 in current AST input and source conversion. Stored legacy ASTs can explicitly select the old whitespace interpretation (#198).
 
+### Added
+
+- Table heads and feet retain attributes in AST and Pandoc round trips. Source conversion reports attributes it cannot spell. (markup-carve/carve#2339)
+
 ## 0.1.6 - 2026-09-26
 
 ### Fixes

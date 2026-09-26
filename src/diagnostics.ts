@@ -30,6 +30,7 @@ interface Rule {
 // Ordered from specific to general. Codes are API: add rules, never rename them.
 const RULES: Rule[] = [
     { test: /^section:/, code: 'structure-unspellable', class: 'degraded' },
+    { test: /^table: rowGroups\.(?:headAttrs|footAttrs|bodies\[\d+\]\.attrs) is dropped/, code: 'field-unspellable', class: 'lossy' },
     { test: /^comment:/, code: 'comment-dropped', class: 'lossy' },
     { test: /^inline: unknown node type/, code: 'unknown-carve-inline', class: 'degraded' },
     { test: /^block: unknown node type/, code: 'unknown-carve-block', class: 'degraded' },
@@ -122,6 +123,8 @@ export function migrationReport(diagnostics: ConversionDiagnostic[], sourceForma
 
 function inferDetails(message: string): Record<string, unknown> {
     const details: Record<string, unknown> = {};
+    const field = /table: (rowGroups\.(?:headAttrs|footAttrs|bodies\[\d+\]\.attrs)) is dropped/.exec(message)?.[1];
+    if (field) details.field = field;
     const nodeType = /node(?: type)? "([^"]+)"/.exec(message)?.[1];
     const row = /\brow (\d+)/.exec(message)?.[1];
     const column = /\bcol (\d+)/.exec(message)?.[1];
