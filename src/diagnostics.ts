@@ -51,6 +51,7 @@ const RULES: Rule[] = [
     { test: /^meta:/, code: 'metadata-value-skipped', class: 'lossy' },
     { test: /^definition list: looseness/, code: 'definition-list-looseness-widened', class: 'normalized' },
     { test: /^definition list:/, code: 'definition-entry-skipped', class: 'lossy' },
+    { test: /^ordered list: pandoc's example-list numbering/, code: 'ordered-list-counter-degraded', class: 'degraded' },
     { test: /^ordered list:/, code: 'ordered-list-marker-normalized', class: 'normalized' },
     { test: /^list: an empty item/, code: 'empty-list-item-spelled', class: 'normalized' },
     { test: /^task state:/, code: 'task-state-dropped', class: 'lossy' },

@@ -48,6 +48,8 @@ automation, `--diagnostics report.json` writes the same findings in a versioned
 `{ schemaVersion, sourceFormat, diagnostics }` JSON envelope without mixing
 them into document output. `--fail-on-loss` exits with code 3 for degraded or
 dropped findings, while preserved and normalized findings do not fail CI.
+Pandoc example lists retain their resolved numbers but lose their shared
+counter. They report `ordered-list-counter-degraded` and fail the loss gate.
 Imports through a Pandoc reader other than `-f json` also exit
 3 because fidelity before the Pandoc JSON boundary cannot be verified; stderr
 names that worst-case gate explicitly. Use `--diagnostics -` for JSON on stderr.
