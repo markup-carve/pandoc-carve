@@ -659,6 +659,8 @@ test('ordered list: a style or delimiter with no Carve form is reported', async 
   assert.equal(example.ast.children[0].olType, undefined, 'it becomes a decimal list');
   assert.equal(example.warnings.length, 1, example.warnings.join(' | '));
   assert.ok(example.warnings[0].includes('example-list'), example.warnings[0]);
+  assert.equal(example.diagnostics[0].code, 'ordered-list-counter-degraded');
+  assert.equal(example.diagnostics[0].fidelity, 'degraded');
   assert.ok(
     example.warnings[0].includes('resolved numbers are kept'),
     'the numbers survive in `start`; the shared counter is what does not',
@@ -666,6 +668,7 @@ test('ordered list: a style or delimiter with no Carve form is reported', async 
 
   const twoParens = pandocToCarve(doc('Decimal', 'TwoParens'));
   assert.equal(twoParens.ast.children[0].delim, ')', 'the closing paren is kept');
+  assert.equal(twoParens.diagnostics[0].fidelity, 'normalized');
   assert.ok(
     twoParens.warnings.some((w) => w.includes('(1)')),
     twoParens.warnings.join(' | '),

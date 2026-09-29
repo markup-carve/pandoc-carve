@@ -14,10 +14,12 @@
  *
  *   - ATTRIBUTE ORDER inside a tag. Pandoc's Attr has fixed slots, so `{.c #i}`
  *     comes back `{#i .c}` and the author's order is not representable.
- *   - WHITESPACE RUNS. Pandoc's `Space` is one space, so `a  b` is `a b`, the
+ *   - PROSE WHITESPACE RUNS. Code, attribute values and nonbreaking spaces
+ *     remain significant. Pandoc's `Space` is one space, so `a  b` is `a b`, the
  *     same normalization its own markdown reader performs.
  *
- * Anything else is a real difference in what the reader sees.
+ * Compare parsed DOM trees, so equivalent entity spellings, optional end tags,
+ * and other HTML parser normalization also compare equal.
  *
  * THE ALLOWLIST IS A LEDGER, NOT A SETTING. Every entry is a document that does
  * not survive yet. It may only ever shrink: a document that starts round-
@@ -34,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { carveToHtml } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
 import { declaredCorpusSize } from './helpers.mjs';
+import { normalizeHtml } from './html-equivalence.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpusDir = join(repo, 'spec', 'tests', 'corpus');
@@ -52,17 +55,6 @@ const corpus = existsSync(corpusDir)
       .sort()
       .map((file) => ({ name: file, source: readFileSync(join(corpusDir, file), 'utf8') }))
   : [];
-
-/** Attribute order and whitespace runs, the two documented equivalences. */
-const normalizeHtml = (html) => html
-  .replace(/<(\w+)((?:\s+[\w:-]+(?:="[^"]*")?)+)\s*(\/?)>/g, (_, tag, attrs, slash) => {
-    const sorted = [...attrs.matchAll(/([\w:-]+)(?:="([^"]*)")?/g)]
-      .map((m) => (m[2] === undefined ? m[1] : `${m[1]}="${m[2]}"`))
-      .sort();
-    return `<${tag} ${sorted.join(' ')}${slash}>`;
-  })
-  .replace(/\s+/g, ' ')
-  .trim();
 
 const KNOWN_LOSSY = new Set([
   '101-table-header-cell-rowspan.crv',

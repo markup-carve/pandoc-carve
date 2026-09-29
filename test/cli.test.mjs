@@ -246,6 +246,20 @@ test('cli: fail-on-loss rejects both degradation and dropped content', () => {
   assert.doesNotThrow(() => JSON.parse(lossy.stdout), 'converted output is still complete');
 });
 
+test('cli: losing an example-list counter fails the loss gate', () => {
+  const input = JSON.stringify({
+    'pandoc-api-version': [1, 23, 1], meta: {},
+    blocks: [{ t: 'OrderedList', c: [[1, { t: 'Example' }, { t: 'TwoParens' }],
+      [[{ t: 'Plain', c: [{ t: 'Str', c: 'item' }] }]]] }],
+  });
+  const result = run(['-', '-f', 'json', '--fail-on-loss', '--diagnostics', '-'], input);
+  assert.equal(result.status, 3, result.stderr);
+  assert.match(result.stdout, /item/);
+  const diagnostics = JSON.parse(result.stderr).diagnostics;
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].code, 'ordered-list-counter-degraded');
+});
+
 test('cli: converts to latex through pandoc', { skip: !pandoc && 'pandoc not found' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
   const file = join(dir, 'doc.crv');

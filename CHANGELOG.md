@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Report lost Pandoc example-list counters as `ordered-list-counter-degraded`.
+  `--fail-on-loss` now exits 3 for this conversion while keeping resolved numbers.
+
 - Preserve sections and block table cells through AST conversion, with loss diagnostics limited to source output (#198).
 
 - Sections cross Pandoc as attributed divs while retaining nested blocks,
