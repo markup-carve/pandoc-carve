@@ -26,6 +26,15 @@ test('an unknown Carve inline produces unknown-carve-inline', () => {
   expectCode(result, 'unknown-carve-inline', 'carve-to-pandoc', 'degraded', 'degraded');
 });
 
+test('a blank-only code payload produces field-unspellable', () => {
+  const result = carveAstToPandoc(carveDoc([{ type: 'code_block', content: '\n' }]));
+  expectCode(result, 'field-unspellable', 'carve-to-pandoc', 'lossy', 'dropped');
+  assert.equal(result.doc.blocks[0].c[1], '', 'the payload reaches pandoc empty');
+  const kept = carveAstToPandoc(carveDoc([{ type: 'code_block', content: 'a\n\n' }]));
+  assert.equal(kept.diagnostics.length, 0, 'a payload with content keeps its blank line');
+  assert.equal(kept.doc.blocks[0].c[1], 'a\n');
+});
+
 test('an unknown Pandoc inline produces unsupported-pandoc-inline', () => {
   const result = pandocToCarveAst(pandocDoc([{
     t: 'Para', c: [{ t: 'FutureInline', c: 'x' }],

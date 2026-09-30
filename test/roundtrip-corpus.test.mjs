@@ -57,6 +57,19 @@ const corpus = existsSync(corpusDir)
   : [];
 
 const KNOWN_LOSSY = new Set([
+  // A CONTAINER LABEL THAT RENDERS NOTHING HAS NOTHING TO CROSS. `::: note
+  // [%% hidden]` publishes `<p class="div-label"></p>` - the label is there and
+  // empty - and an empty Para is not a label pandoc can tell from no label, so
+  // the Div carries none and the return leg writes `::: note`. Measured against
+  // the neighbour that survives: `::: note [hi]` round-trips intact, and
+  // `::: note []` is lost the same way, so it is emptiness and not the comment.
+  '518-a-trailing-comment-takes-a-tab-a-run-start-and-its-whole-separator-10.crv',
+  // A BLANK-ONLY CODE PAYLOAD AND AN EMPTY ONE SHARE ONE PANDOC ENCODING.
+  // `CARVE-P12-064` distinguishes `"\n"` from `""`; pandoc's own markdown reader
+  // returns `""` for both a blank-line payload and an empty fence, so the
+  // CodeBlock has nowhere to keep the difference. The bridge reports it as
+  // `field-unspellable` rather than losing it in silence.
+  '524-an-empty-code-payload-renders-no-characters-2.crv',
   '101-table-header-cell-rowspan.crv',
   '106-blocked-span-marker-renders-as-empty-cell.crv',
   '107-colspan-marker-scans-left-past-a-consumed-cell.crv',

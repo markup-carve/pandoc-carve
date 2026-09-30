@@ -672,7 +672,21 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
         case 'CodeBlock': {
             const [a, content] = c as [Attr, string];
             const [id, classes, kvs] = a;
-            const node: CNode = { type: 'code_block', content };
+            // The inverse of the forward strip, so one break goes back on
+            // whatever the payload already ends with: `"a\n"` came from Carve's
+            // `"a\n\n"`, a fence whose content ends in a blank line, and only
+            // adding unconditionally returns it. Pandoc's readers publish no
+            // final break and `CARVE-P12-064` wants one, so this is also the
+            // conformant value for a pandoc-authored block.
+            //
+            // Empty is the one exception, and the one ambiguity: pandoc encodes
+            // both an empty fence and a blank-line payload as `""`, so it has to
+            // pick. It keeps empty empty, which is what the clause says, and the
+            // forward direction reports the other case as `field-unspellable`.
+            const node: CNode = {
+                type: 'code_block',
+                content: content === '' ? '' : content + '\n',
+            };
             if (classes[0]) node.lang = classes[0];
             const kv = Object.fromEntries(kvs);
             if (kv['title']) node.header = kv['title'];

@@ -202,28 +202,10 @@ const corpus = existsSync(corpusDir)
  * fix.
  */
 const KNOWN_DIVERGENT = new Map([
-  // model: LINKS NEVER NEST IN OUTPUT. The engine's AST keeps a link inside a
-  // link's label (measured: `parse('[[x](y)](z)')` returns a link inside a
-  // link); Carve's HTML writer unwraps the inner one to text. The bridge reads
-  // the AST, so the inner target survives into pandoc and the sidecar has only
-  // the outer.
-  ['03-links-11.crv', 'model: a link nested in a link label survives in the AST, flattened by the HTML writer'],
-  ['313-a-reference-link-s-text-survives-its-own-frame-2.crv', 'model: as 03-links-11, through a reference call in the label'],
-  ['313-a-reference-link-s-text-survives-its-own-frame-3.crv', 'model: as 03-links-11, through a reference call in the label'],
-  // model: the same shape with an autolink rather than an explicit link in the
-  // label, and - for 275 and 288 - through a collapsed reference whose label
-  // text repeats the heading's own inline content.
-  ['03-links-12.crv', 'model: an autolink inside a link label survives in the AST, flattened by the HTML writer'],
-  ['275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-5.crv', 'model: a collapsed reference repeats the heading label, so its inner link appears twice in the AST and once in the writer output'],
-  ['288-heading-index-plain-text-covers-visible-leaves-and-rejects-an-empty-key.crv', 'model: as 275-...-5, with an autolink in the heading'],
-  // pin: the pinned engine stops its paragraph-wide bracket table at an
-  // unclosed backtick, so later links are not built. The spec pin declares the
-  // same two gaps in engine-pin-drift.txt. Fixed by carve-js#1815.
-  // pin: PART 9 section 9 E2a names a link destination and an autolink opaque
-  // to a bare closer (carve#2046). The pinned build closes the italic at the
-  // slash in `http:/`, so the reference the spec's expected HTML resolves is
-  // never built. Fixed on carve-js main by markup-carve/carve-js#1751; both
-  // entries clear when the pin moves past it.
+  // Empty, and the empty state is load-bearing: the six `model:` rows that
+  // stood here were a bridge defect, not a model limit. PART 12 section 3a
+  // publishes a nested link as a node and makes "links never nest" a rule for
+  // the RENDER seam, so the bridge owed the unwrap and now does it.
 ]);
 
 test('the sidecar comparison runs over the whole corpus, not a sample', () => {

@@ -19,6 +19,27 @@
 
 - Table heads and feet retain attributes in AST and Pandoc round trips. Source conversion reports attributes it cannot spell. (markup-carve/carve#2339)
 
+### Fixed
+
+- A link inside another link's label reaches Pandoc as its own text rather than
+  as a nested anchor, so `[[t](/v)](/u)` converts to one link to `/u`. PART 12
+  section 3a publishes the inner node and puts the unwrap at the render seam;
+  Pandoc's `Link` is an anchor, so this is that seam. An autolink in a label
+  unwraps the same way and keeps its URL text (#207).
+- `code_block.content`'s final break is dropped on the way to Pandoc's
+  `CodeBlock` and added back on the return leg, which is the encoding Pandoc's
+  own readers publish. A payload that is nothing but that break reaches Pandoc as
+  an empty one and reports `field-unspellable`, because `CodeBlock` cannot hold
+  the difference (#207).
+
+### Changed
+
+- The engine floor is carve-js 0.1.8, whose serialized `footnote_ref` carries
+  `label` and whose `code_block.content` keeps the payload's final break (#207).
+- `figure-unwrapped` and `table-cell-blocks-flattened` left the diagnostic code
+  table in 0.1.6. Both had become unreachable, so no conversion could emit
+  either (#191, #195).
+
 ## 0.1.6 - 2026-09-26
 
 ### Fixes
