@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { hasLoss } from '../dist/diagnostics.js';
 import { findPandoc } from './helpers.mjs';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -48,9 +49,12 @@ for (const [code, counts] of [
   ['list-table-row-heads-normalized', [0, 1]],
 ]) {
   test(`${code} reports degraded fidelity and fails the CLI loss gate`, () => {
-    const doc = table(counts.map(count => [attr, count, [], [row([list])]]));
+    const doc = table(counts.map((count, index) => [attr, count,
+      code === 'list-table-row-heads-normalized' && index === 1 ? [row([plain('heading')])] : [],
+      [row([list])]]));
     const source = pandocToCarve(doc);
     assert.equal(source.diagnostics.find(d => d.code === code).fidelity, 'degraded');
+    assert.deepEqual(source.diagnostics.filter(d => hasLoss([d])).map(d => d.code), [code]);
     assert.ok(!pandocToCarveAst(doc).diagnostics.some(d => d.code === code));
     const result = run(['-f', 'json', '--fail-on-loss', '--diagnostics', '-'], JSON.stringify(doc));
     assert.equal(result.status, 3, result.stderr);
@@ -74,7 +78,9 @@ test('mixed citation modes degrade on the source path and survive on the AST pat
   const doc = { 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [
     { t: 'Cite', c: [[record('a', 'AuthorInText'), record('b', 'NormalCitation')], []] },
   ] }] };
-  assert.equal(pandocToCarve(doc).diagnostics.find(d => d.code === 'citation-mode-normalized').fidelity, 'degraded');
+  const diagnostic = pandocToCarve(doc).diagnostics.find(d => d.code === 'citation-mode-normalized');
+  assert.equal(diagnostic.fidelity, 'degraded');
+  assert.ok(hasLoss([diagnostic]));
   assert.ok(!pandocToCarveAst(doc).diagnostics.some(d => d.code === 'citation-mode-normalized'));
   const result = run(['-f', 'json', '--fail-on-loss', '--diagnostics', '-'], JSON.stringify(doc));
   assert.equal(result.status, 3, result.stderr);
