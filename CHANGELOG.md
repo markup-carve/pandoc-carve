@@ -4,6 +4,11 @@
 
 ### Fixes
 
+- Import Typst tables wrapped in an alignment Div and captionless Figure as
+  tables, preserving the caption and merged attributes. Import blank table rows
+  through the list-table source form instead of throwing. This preserves the
+  table returned by Pandoc; it cannot recover colspan content already lost by
+  Pandoc's LaTeX reader.
 - `--fail-on-loss` now rejects ragged-table padding, merged list-table body
   groups, changed list-table row-header counts, and flattened mixed citation
   modes. These cases report degraded fidelity at warning severity instead of

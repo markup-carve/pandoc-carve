@@ -1069,9 +1069,8 @@ function table(
         }));
     // Row-head columns no longer send a table to the list-table form: the pipe
     // table marks those cells directly (see `rowHeadCols` above), which is
-    // readable, needs no extension, and round-trips. Block cells remain the one
-    // reason to leave, because a Carve `table_cell` holds INLINES and there is
-    // no pipe form for a cell holding blocks at all.
+    // readable, needs no extension, and round-trips. Block cells need the
+    // list-table form, as do blank rows without attributes or alignment.
     //
     // A FOOT USED TO BE A SECOND REASON, AND IT WAS A REAL ONE AT THE TIME.
     // The clause read `|| (ctx.target === 'source' && footRaw.length > 0)`.
@@ -1091,7 +1090,22 @@ function table(
     // (corpus 376, spec f074372), so at the time the pipe form genuinely could
     // not carry a foot and the list-table detour was the only way to keep it.
     // The limitation is gone, so the detour is too.
-    const useListTable = ctx.target === 'source' && hasBlockCells;
+    const occupied: boolean[][] = allRaw.map(() => []);
+    const hasBlankRows = allRaw.some((row, r) => {
+        let col = 0;
+        let blank = nCols > 0;
+        for (const raw of row[1]) {
+            while (occupied[r]![col]) col++;
+            const [attr, align, height, width, content] = raw as [Attr, PandocNode, number, number, PandocNode[]];
+            if (width > 1 || height > 1 || content.length || fromAttr(attr) || align.t !== 'AlignDefault') blank = false;
+            for (let down = 1; down < height && r + down < allRaw.length; down++) {
+                for (let across = 0; across < width; across++) occupied[r + down]![col + across] = true;
+            }
+            col += width;
+        }
+        return blank && !occupied[r]!.some(Boolean);
+    });
+    const useListTable = ctx.target === 'source' && (hasBlockCells || hasBlankRows);
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -1180,6 +1194,7 @@ function table(
             attrs: fromAttr(a),
             colAligns,
             colWidths: columns.map((column) => column.width),
+            blankRows: !hasBlockCells && hasBlankRows,
         });
     }
 
@@ -1372,6 +1387,7 @@ interface ListTableInput {
     attrs: CAttrs | undefined;
     colAligns: string[];
     colWidths: Array<number | undefined>;
+    blankRows?: boolean;
 }
 
 /**
@@ -1391,16 +1407,17 @@ interface ListTableInput {
  */
 function listTable(ctx: Ctx, input: ListTableInput): CNode {
     const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, colWidths } = input;
-    // One reason is left to be here, so the diagnostic states it rather than
-    // selecting between three strings two of which nothing could reach: row-head
-    // columns are marked on the cells and a foot is stated on the attribute
-    // line, both in the pipe form.
     warn(
         ctx,
-        'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)',
+        input.blankRows
+            ? 'table: a blank row has no pipe-table source spelling - emitted as a `::: list-table` (structure preserved)'
+            : 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)',
     );
     if (bodies.some((b) => b.attrs)) {
         warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');
+    }
+    if (rows.some((row) => row.attrs)) {
+        warn(ctx, 'list-table: a row\'s attributes are dropped - the extension has no row-attribute spelling');
     }
     if (bodies.slice(1).some((b) => b.headRows === 0)) {
         warn(ctx, `list-table: the table's ${bodies.length} body groups merge where a later body has no header row to mark its boundary`);
@@ -1562,26 +1579,6 @@ function figure(ctx: Ctx, c: never): CNode[] {
             return [node];
         }
     }
-    if (single?.t === 'Table') {
-        // The wrapper and the Table collapse into ONE Carve node, so their
-        // attrs merge rather than the inner one silently winning: pandoc's
-        // readers put the label on the Figure, not on the Table it wraps, and
-        // dropping it took the id a `</#id>` resolves against with it. The
-        // outer id wins, classes union, key/values merge with the outer taking
-        // precedence.
-        //
-        // A table is the only host that collapses this way, because it is the
-        // only one Carve gives a caption of its own. Every other host keeps
-        // both nodes - the wrapper stays a `figure` and the host's own attrs
-        // ride on the target - which is what the Div arm below sorts out.
-        //
-        // It matters most for a §4c table PANEL, whose id is what resolves as
-        // the group's number plus a letter.
-        const node = table(ctx, single.c as never, caption, shortCaption);
-        const outer = fromAttr(a);
-        if (outer) node.attrs = mergeCAttrs(node.attrs as CAttrs | undefined, outer);
-        return [node];
-    }
     // A HOST THAT CARRIES ITS OWN ATTRIBUTES ARRIVES INSIDE A DIV. Pandoc's
     // BlockQuote, Para and CodeBlock have no Attr slot, so `block()` in the
     // forward direction wraps an attributed one in a Div. A `div` is not a
@@ -1604,6 +1601,20 @@ function figure(ctx: Ctx, c: never): CNode[] {
                 divAttr[2].filter(([k]) => k !== 'carve-block'),
             ]);
         }
+    }
+    if (host?.t === 'Table') {
+        // A table caption lives on the table, including when a reader puts
+        // an alignment Div between it and the Figure. Outer attributes win.
+        const node = table(ctx, host.c as never, caption, shortCaption);
+        const outer = fromAttr(a);
+        for (const attrs of [hostAttrs, outer]) {
+            const current = node.attrs as CAttrs | undefined;
+            if (current?.id && attrs?.id && current.id !== attrs.id) {
+                warn(ctx, `table: the merged id "${current.id}" is dropped in favor of "${attrs.id}" - one Carve node has one id`);
+            }
+            if (attrs) node.attrs = mergeCAttrs(current, attrs);
+        }
+        return [node];
     }
     if (host && FIGURE_HOSTS.has(host.t)) {
         // A single-host `Figure` is an ordinary `figure` around that host -
