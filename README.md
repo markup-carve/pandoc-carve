@@ -105,6 +105,13 @@ them. Highlights include:
 - raw target content only survives in matching writers;
 - comments and attribute placement require round-trip metadata.
 
+These limits are measured rather than asserted.
+[pandoc-format-fidelity](https://github.com/markup-carve/pandoc-format-fidelity) runs Carve
+source through this bridge and back for every writer it lists, and publishes the verdicts per
+format: `results/carve-rt.json` holds the Carve round-trip lane, and
+[the report](https://github.com/markup-carve/pandoc-format-fidelity/blob/main/docs/index.html)
+covers every pandoc writer and reader.
+
 Dangerous URL schemes such as `javascript:` are blanked and reported. The
 [URL policy](docs/reference.md#dangerous-url-schemes-are-blanked) documents the
 exact behavior. The [mapping and limitations reference](docs/reference.md#what-maps-to-what)
