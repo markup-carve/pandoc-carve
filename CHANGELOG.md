@@ -2,19 +2,30 @@
 
 ## Unreleased
 
+## 0.1.7 - 2026-10-01
+
+### Changed
+
+- `--fail-on-loss` now rejects ragged-table padding, merged list-table body
+  groups, changed list-table row-header counts, and flattened mixed citation
+  modes. These cases report degraded fidelity at warning severity instead of
+  normalization at info severity. Their diagnostic codes remain unchanged.
+  Inputs that previously exited 0 with the loss gate enabled now exit 3;
+  converted output is still emitted (#213).
+
 ### Fixes
 
 - Import Typst tables wrapped in an alignment Div and captionless Figure as
   tables, preserving the caption and merged attributes. Import blank table rows
   through the list-table source form instead of throwing. This preserves the
   table returned by Pandoc; it cannot recover colspan content already lost by
-  Pandoc's LaTeX reader.
-- `--fail-on-loss` now rejects ragged-table padding, merged list-table body
-  groups, changed list-table row-header counts, and flattened mixed citation
-  modes. These cases report degraded fidelity at warning severity instead of
-  normalization at info severity. Their diagnostic codes remain unchanged.
-  Inputs that previously exited 0 with the loss gate enabled now exit 3;
-  converted output is still emitted.
+  Pandoc's LaTeX reader (#216).
+
+### Verification
+
+- Test EPUB 2 and EPUB 3 imports against the OPF spine when ZIP entry order and
+  filenames disagree with reading order. These tests confirm existing behavior (#212).
+- Run CI with Pandoc 3.11 and 3.10.2 on Node 20 and 22 (#212).
 
 ## 0.1.6 - 2026-09-30
 
