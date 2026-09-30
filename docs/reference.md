@@ -255,11 +255,13 @@ a processor with neither extension enabled would render.
   checks it itself rather than trusting a green validator.
 - A pandoc table with block content in a cell (a list, two paragraphs, a code
   block) is imported as `::: list-table` rather than a pipe table, and that is
-  now the ONLY reason a table leaves the pipe form. PART 9 §16's pipe-table cell
+  also the source form for a table containing a wholly blank row without cell
+  attributes or alignment. That row has no pipe-table spelling; `table-blank-row-spelled` reports the
+  structure-preserving conversion as normalization. PART 9 §16's pipe-table cell
   holds inlines, so there is no pipe form for it, and the extension's cells are
   list items that hold full blocks. Structure is preserved; what the extension
-  cannot spell is reported instead - a body group's attributes, a body boundary
-  no header row marks, and body groups that disagree on their row-head column
+  cannot spell is reported instead - row attributes, a body group's attributes,
+  a body boundary no header row marks, and body groups that disagree on their row-head column
   count. It converts back to the pandoc table by default; `listTable: false`
   returns the degraded div instead.
 - A pandoc table with ROW-HEAD COLUMNS stays a pipe table. `RowHeadColumns` says
