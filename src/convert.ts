@@ -140,6 +140,15 @@ interface Ctx {
      */
     inCrossref: boolean;
     /**
+     * Inside a link's own label, where no further anchor may be emitted.
+     *
+     * PART 12 section 3a publishes a nested `link` or `autolink` as the node the
+     * author wrote and makes "links never nest" a rule for the RENDER seam: a
+     * consumer walking a link's children "must not emit a nested anchor for it".
+     * Pandoc's `Link` is an anchor, so this is that seam.
+     */
+    inLink: boolean;
+    /**
      * How many captions of each kind have been numbered so far.
      *
      * `^ Figure #: text` asks for a literal number in the caption; the engine
@@ -559,6 +568,51 @@ function kids(ctx: Ctx, n: CNode): P.Inline[] {
 }
 
 /**
+ * A code block's payload in pandoc's encoding rather than Carve's.
+ *
+ * `CARVE-P12-064` makes `code_block.content` the payload's literal text, so a
+ * closed fence containing `a` publishes `"a\n"` and consumers "must stop
+ * appending it when rendering". Pandoc's own readers publish `"a"` - measured on
+ * the markdown, gfm and html readers of pandoc 3.11 - so passing Carve's value
+ * through produced a `CodeBlock` no pandoc reader emits. Its writers are
+ * indifferent, so this shows up only in the AST a consumer receives, which is
+ * this package's deliverable.
+ *
+ * One break, because that is what the clause adds. A payload that ends mid-line
+ * publishes no break and keeps none here. `raw_block` is untouched: the same
+ * clause says raw blocks keep their existing encoding.
+ */
+function codePayload(ctx: Ctx, content: string, n: CNode): string {
+    if (!content.endsWith('\n')) return content;
+    const payload = content.slice(0, -1);
+    // `"\n"` and `""` both encode to `""`, so a payload that is nothing but the
+    // break before the closer arrives indistinguishable from an empty one. That
+    // is pandoc's own limit rather than a choice here - its markdown reader
+    // returns `""` for both a blank-line payload and an empty fence - but this
+    // is the only place that still knows the difference, so it says so.
+    if (payload === '') {
+        warn(
+            ctx,
+            "code block: a blank-only payload reaches pandoc as an empty one - pandoc's CodeBlock cannot hold the difference",
+            { construct: 'code_block' },
+            n.pos,
+        );
+    }
+    return payload;
+}
+
+/** A link's own label, converted with the no-nested-anchor seam armed. */
+function inLink(ctx: Ctx, n: CNode): P.Inline[] {
+    const was = ctx.inLink;
+    ctx.inLink = true;
+    try {
+        return kids(ctx, n);
+    } finally {
+        ctx.inLink = was;
+    }
+}
+
+/**
  * A reference link or image whose label nothing defines.
  *
  * PART 12 section 3a publishes the resolution BESIDE the authored construct
@@ -682,16 +736,21 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 : text;
         }
         case 'link': {
+            // Inside another link's label this one is its own text and nothing
+            // more - see `inLink`. Nothing is reported: the engine's own HTML
+            // render of `[[t](/v)](/u)` returns zero losses for the same unwrap,
+            // so it is the defined reading rather than something going missing.
+            if (ctx.inLink) return kids(ctx, n);
             // A collapsed reference to a heading is RESOLVED, not missing, so
             // it is tried before the missing-definition path reports one.
             const heading = String(n.href ?? '') === '' ? collapsedHeadingRef(ctx, n) : undefined;
             if (heading !== undefined) {
-                return [P.Link(toAttr(ctx, n.attrs), kids(ctx, n), ['#' + heading, ''])];
+                return [P.Link(toAttr(ctx, n.attrs), inLink(ctx, n), ['#' + heading, ''])];
             }
             const unresolved = unresolvedReference(ctx, n, 'link');
             if (unresolved) return unresolved;
             return [
-                P.Link(toAttr(ctx, n.attrs), kids(ctx, n), [
+                P.Link(toAttr(ctx, n.attrs), inLink(ctx, n), [
                     safeDestination(ctx, String(n.href ?? ''), 'link'),
                     String(n.title ?? ''),
                 ]),
@@ -699,6 +758,10 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         }
         case 'autolink': {
             const href = String(n.href ?? '');
+            // Same seam as the nested `link` above: an autolink's text is the
+            // URL, so unwrapping leaves the URL visible and drops only the
+            // anchor.
+            if (ctx.inLink) return [P.Str(String(n.text ?? href))];
             const cls = href.startsWith('mailto:') ? 'email' : 'uri';
             // An autolink takes a trailing attribute like any other inline
             // (`<https://example.com>{.ext}`), and pandoc's Link has the slot
@@ -1150,7 +1213,10 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             const lang = n.lang ? [String(n.lang)] : [];
             const [id, classes, kvs] = toAttr(ctx, n.attrs);
             return [
-                P.CodeBlock(P.attr(id, [...lang, ...classes], kvs), String(n.content ?? '')),
+                P.CodeBlock(
+                    P.attr(id, [...lang, ...classes], kvs),
+                    codePayload(ctx, String(n.content ?? ''), n),
+                ),
             ];
         }
         case 'raw_block':
@@ -2376,6 +2442,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         captionTargets: new Set(),
         tight: false,
         inCrossref: false,
+        inLink: false,
         captionCounts: new Map(),
         captionKind: undefined,
         inPanel: false,

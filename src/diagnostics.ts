@@ -31,6 +31,7 @@ interface Rule {
 const RULES: Rule[] = [
     { test: /^section:/, code: 'structure-unspellable', class: 'degraded' },
     { test: /^table: rowGroups\.(?:headAttrs|footAttrs|bodies\[\d+\]\.attrs) is dropped/, code: 'field-unspellable', class: 'lossy' },
+    { test: /^code block: a blank-only payload/, code: 'field-unspellable', class: 'lossy' },
     { test: /^comment:/, code: 'comment-dropped', class: 'lossy' },
     { test: /^inline: unknown node type/, code: 'unknown-carve-inline', class: 'degraded' },
     { test: /^block: unknown node type/, code: 'unknown-carve-block', class: 'degraded' },
