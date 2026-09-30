@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- `--fail-on-loss` now rejects ragged-table padding, merged list-table body
+  groups, changed list-table row-header counts, and flattened mixed citation
+  modes. These cases report degraded fidelity instead of normalization. Their
+  diagnostic codes remain unchanged. Inputs that previously exited 0 with the
+  loss gate enabled now exit 3; converted output is still emitted.
+
 ## 0.1.6 - 2026-09-30
 
 ### Fixes

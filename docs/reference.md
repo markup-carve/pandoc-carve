@@ -237,6 +237,16 @@ a processor with neither extension enabled would render.
 
 ## Limitations
 
+- Ragged tables gain empty cells because Pandoc requires a rectangular grid.
+  Padding, merged list-table body groups, and changed row-header counts report
+  degraded fidelity and make `--fail-on-loss` exit 3.
+  Existing diagnostic codes remain stable, including codes ending in
+  `normalized`; use the diagnostic's `fidelity` field to decide whether it loses
+  information. Moving block cells into a structure-preserving list-table remains
+  normalization and passes the loss gate.
+- Mixed `AuthorInText` and `NormalCitation` modes survive on the AST path but
+  flatten when emitted as Carve source. The source diagnostic reports degraded
+  fidelity and makes `--fail-on-loss` exit 3.
 - A `table.rowGroups` partition whose counts do not add up to the table's row
   count is refused with a warning and the table converts with the implicit
   head/body split instead. PART 12 section 15 requires the sum as a MUST, and
