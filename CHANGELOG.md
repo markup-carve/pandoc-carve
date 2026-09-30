@@ -1,25 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.6 - 2026-09-30
 
-- Report lost Pandoc example-list counters as `ordered-list-counter-degraded`.
-  `--fail-on-loss` now exits 3 for this conversion while keeping resolved numbers.
-
-- Preserve sections and block table cells through AST conversion, with loss diagnostics limited to source output (#198).
-
-- Sections cross Pandoc as attributed divs while retaining nested blocks,
-  inline formatting and their optional level on the AST return path. Writing
-  Carve source reports the conversion to a div.
-- AST imports preserve block table cells in `table_cell.blocks`, including
-  their column metadata and row groups. Source imports still use ListTable (#198).
-
-- Preserve literal U+E000 in current AST input and source conversion. Stored legacy ASTs can explicitly select the old whitespace interpretation (#198).
-
-### Added
-
-- Table heads and feet retain attributes in AST and Pandoc round trips. Source conversion reports attributes it cannot spell. (markup-carve/carve#2339)
-
-### Fixed
+### Fixes
 
 - A link inside another link's label reaches Pandoc as its own text rather than
   as a nested anchor, so `[[t](/v)](/u)` converts to one link to `/u`. PART 12
@@ -28,22 +11,9 @@
   unwraps the same way and keeps its URL text (#207).
 - `code_block.content`'s final break is dropped on the way to Pandoc's
   `CodeBlock` and added back on the return leg, which is the encoding Pandoc's
-  own readers publish. A payload that is nothing but that break reaches Pandoc as
-  an empty one and reports `field-unspellable`, because `CodeBlock` cannot hold
-  the difference (#207).
-
-### Changed
-
-- The engine floor is carve-js 0.1.8, whose serialized `footnote_ref` carries
-  `label` and whose `code_block.content` keeps the payload's final break (#207).
-- `figure-unwrapped` and `table-cell-blocks-flattened` left the diagnostic code
-  table in 0.1.6. Both had become unreachable, so no conversion could emit
-  either (#191, #195).
-
-## 0.1.6 - 2026-09-26
-
-### Fixes
-
+  own readers publish. A payload that is nothing but that break reaches Pandoc
+  as an empty one and reports `field-unspellable`, because `CodeBlock` cannot
+  hold the difference (#207).
 - A bold-italic run survives an export round trip as Carve's combined `/*x*/`
   form. Pandoc has no bold-italic node and its readers disagree on the nesting,
   so `Emph[Strong]` and `Strong[Emph]` both came back as `{/*x*/}` or `*/x/*`.
@@ -67,6 +37,26 @@
 
 ### Improvements
 
+- Report lost Pandoc example-list counters as `ordered-list-counter-degraded`.
+  `--fail-on-loss` now exits 3 for this conversion while keeping resolved
+  numbers (#203).
+- Sections cross Pandoc as attributed divs while retaining nested blocks,
+  inline formatting and their optional level on the AST return path. Writing
+  Carve source reports the conversion to a div (#198).
+- AST imports preserve block table cells in `table_cell.blocks`, including
+  their column metadata and row groups. Source imports still use ListTable
+  (#198).
+- Preserve literal U+E000 in current AST input and source conversion. Stored
+  legacy ASTs can explicitly select the old whitespace interpretation (#198).
+- Table heads and feet retain attributes in AST and Pandoc round trips. Source
+  conversion reports attributes it cannot spell (markup-carve/carve#2339,
+  #199).
+- The engine floor is carve-js 0.1.8, whose serialized `footnote_ref` carries
+  `label` and whose `code_block.content` keeps the payload's final break
+  (#207).
+- `figure-unwrapped` and `table-cell-blocks-flattened` left the diagnostic code
+  table. Both had become unreachable, so no conversion could emit either (#191,
+  #195).
 - `footnote_ref` is read from `label` as well as from the `id` that every engine
   up to 0.1.7 serializes, so a document holding a footnote reference validates
   against the current schema instead of being refused (#187).
