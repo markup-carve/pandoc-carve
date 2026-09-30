@@ -7,10 +7,13 @@ on:
 
 jobs:
   test:
+    name: ${{ matrix.pandoc == '3.11' && format('test ({0})', matrix.node) || format('compatibility ({0}, {1})', matrix.node, matrix.pandoc) }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node: [20, 22]
+        pandoc: ['3.11', '3.10.2']
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +33,7 @@ jobs:
           fi
       - name: Install pandoc
         run: |
-          curl -sSL -o /tmp/pandoc.deb https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-1-amd64.deb
+          curl -fsSL -o /tmp/pandoc.deb https://github.com/jgm/pandoc/releases/download/${{ matrix.pandoc }}/pandoc-${{ matrix.pandoc }}-1-amd64.deb
           sudo dpkg -i /tmp/pandoc.deb
           pandoc --version | head -1
       - run: npm ci
