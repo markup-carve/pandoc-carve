@@ -5,9 +5,12 @@ on:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
+# Every job below carries a timeout-minutes bound. Without one a job inherits
+# GitHub's 360-minute default, and a stalled step can burn hours unnoticed.
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: release
     permissions:
       # `write`, not `read`, and the gate below is the whole reason: a DRAFT

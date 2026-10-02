@@ -5,10 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Every job below carries a timeout-minutes bound. Without one a job inherits
+# GitHub's 360-minute default, and a stalled step can burn hours unnoticed.
 jobs:
   test:
     name: ${{ matrix.pandoc == '3.11' && format('test ({0})', matrix.node) || format('compatibility ({0}, {1})', matrix.node, matrix.pandoc) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
