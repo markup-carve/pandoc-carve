@@ -85,11 +85,19 @@ const KNOWN_LOSSY = new Set([
   // is what makes it visible to `--fail-on-loss`. `108-security-hardening-2`
   // is absent because an autolink carries its URL in its TEXT, so the reverse
   // direction rebuilds it and that document still round-trips.
+  //
+  // `536-...` is the same loss reached through both sinks at once - a denied
+  // link and a denied image in one paragraph - which is what the spec document
+  // was added to pin (markup-carve/carve#2681). Measured: the forward leg is
+  // faithful, `pandoc -f json -t html` on it gives the engine's own
+  // `href=""`/`src=""`, and only the return leg has nowhere to put an empty
+  // destination. The image sink is no different from the link sink here.
   '108-security-hardening.crv',
   '108-security-hardening-3.crv',
   '108-security-hardening-4.crv',
   '108-security-hardening-5.crv',
   '108-security-hardening-7.crv',
+  '536-a-denied-destination-takes-one-render-loss-row-per-sink.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '121-scheme-probe-strips-unicode-whitespace.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
