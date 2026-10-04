@@ -9,14 +9,20 @@ on:
 # GitHub's 360-minute default, and a stalled step can burn hours unnoticed.
 jobs:
   test:
-    name: ${{ matrix.pandoc == '3.11' && format('test ({0})', matrix.node) || format('compatibility ({0}, {1})', matrix.node, matrix.pandoc) }}
+    # Names key on track, not the version, so a Pandoc bump keeps the required-check names.
+    name: ${{ matrix.track == 'current' && format('test ({0})', matrix.node) || format('compatibility ({0})', matrix.node) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         node: [20, 22]
-        pandoc: ['3.11', '3.10.2']
+        track: [current, minimum]
+        include:
+          - track: current
+            pandoc: '3.11'
+          - track: minimum
+            pandoc: '3.10.2'
     steps:
       - uses: actions/checkout@v7
         with:
