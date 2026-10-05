@@ -1737,8 +1737,8 @@ Content begins here.
 
 Heading ids are **case-preserving** by default and apply no Unicode
 normalization: a heading keeps its original case and any non-ASCII characters
-verbatim. Cross-references resolve **case-insensitively**, so a lowercase
-`</#getting-started>` still points at a `Getting-Started` heading.
+verbatim. Cross-references match ids **exactly**, so a lowercase
+`</#getting-started>` does not reach a `Getting-Started` heading.
 
 ::: compare
 
@@ -1783,22 +1783,21 @@ See </#cafe-notes>, </#section-2024-recap>, </#setup-2>, and </#api-v2>.
 
 :::
 
-A cross-reference matches its target case-insensitively and links to the
-target's actual (case-preserved) id, so the reference can be written in
-lowercase regardless of how the heading is capitalized.
+A cross-reference names the target's actual (case-preserved) id. A spelling
+that differs only in case reaches nothing and stays literal text.
 
 ::: compare
 
 ```carve
 # Getting Started
 
-Jump to </#getting-started>.
+Jump to </#Getting-Started>, not </#getting-started>.
 ```
 
 ```html
 <section id="Getting-Started">
   <h1>Getting Started</h1>
-  <p>Jump to <a href="#Getting-Started">Getting Started</a>.</p>
+  <p>Jump to <a href="#Getting-Started">Getting Started</a>, not &lt;/#getting-started&gt;.</p>
 </section>
 ```
 

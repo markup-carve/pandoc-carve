@@ -96,10 +96,10 @@ interface Ctx {
      */
     crossrefTargets: Map<string, CNode[]>;
     /**
-     * A heading's RENDERED text, folded to lower case, to its id.
+     * A heading's RENDERED text (NFC, whitespace collapsed) to its id.
      *
      * A COLLAPSED reference reaches a heading by that text - `[Some Heading][]`
-     * links to it with no definition anywhere, matched case-insensitively -
+     * links to it with no definition anywhere, matched exactly, case included -
      * which is resolution the engine performs after the parse, so the node the
      * bridge receives still carries an empty `href`. Without this map every one
      * of them was reported as a missing definition and emitted as literal
@@ -641,8 +641,8 @@ function inLink(ctx: Ctx, n: CNode): P.Inline[] {
  * The heading a COLLAPSED reference reaches, or null.
  *
  * `[Some Heading][]` with no definition anywhere links to the heading whose
- * RENDERED text matches, case-insensitively - so `[plain one][]` reaches
- * `# Plain One`. The engine resolves this after the parse, which is why the
+ * RENDERED text matches exactly, case included - so `[Plain One][]` reaches
+ * `# Plain One` and `[plain one][]` does not. The engine resolves this after the parse, which is why the
  * node still carries an empty `href` here.
  *
  * Only the collapsed form. `[text][Some Heading]` does not reach a heading,
@@ -651,8 +651,13 @@ function inLink(ctx: Ctx, n: CNode): P.Inline[] {
  */
 function collapsedHeadingRef(ctx: Ctx, n: CNode): string | undefined {
     if (!String(n.rawRef ?? '').endsWith('][]')) return undefined;
-    const text = plainText((n.children as CNode[] | undefined) ?? []).trim().toLowerCase();
+    const text = headingTextKey(plainText((n.children as CNode[] | undefined) ?? []));
     return text ? ctx.headingIdByText.get(text) : undefined;
+}
+
+/** The key a collapsed reference and a heading's text meet on (PART 9R R1). */
+function headingTextKey(text: string): string {
+    return text.replace(/[ \t\n\f\r]+/g, ' ').replace(/^ | $/g, '').normalize('NFC');
 }
 
 function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inline[] | null {
@@ -813,21 +818,21 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // than recurring. Matches corpus 118.
             if (ctx.inCrossref) return [];
             const target = String(n.target ?? '');
-            const found =
-                ctx.crossrefTargets.get(target) ??
-                ctx.crossrefTargets.get(target.toLowerCase()) ??
-                findCaseInsensitive(ctx.crossrefTargets, target);
+            // Ids compare exactly (PART 9R R4): the target as written, then
+            // its NFC form. No case fold.
+            const key = ctx.crossrefTargets.has(target) ? target : target.normalize('NFC');
+            const found = ctx.crossrefTargets.get(key);
             if (found) {
                 // A caption target cannot come back as a crossref (see
                 // `captionTargets`), so it goes out as a plain link.
-                const classes = ctx.captionTargets.has(target.toLowerCase())
+                const classes = ctx.captionTargets.has(key)
                     ? []
                     : ['crossref'];
                 ctx.inCrossref = true;
                 try {
                     return [
                         P.Link(P.attr(undefined, classes), inlines(ctx, found), [
-                            `#${target}`,
+                            `#${key}`,
                             '',
                         ]),
                     ];
@@ -1112,14 +1117,6 @@ function citationDefinition(ctx: Ctx, n: CNode): P.Block {
         // pandoc's own readers produce.
         entry.length ? [P.Para(entry)] : [],
     );
-}
-
-function findCaseInsensitive(map: Map<string, CNode[]>, target: string): CNode[] | undefined {
-    const lower = target.toLowerCase();
-    for (const [k, v] of map) {
-        if (k.toLowerCase() === lower) return v;
-    }
-    return undefined;
 }
 
 // --- Blocks ---
@@ -2526,7 +2523,7 @@ function collectCrossrefTargets(
             const a = (n.attrs ?? {}) as CAttrs;
             const id = a.id ?? slugify(plainText(children));
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
-            const text = plainText(children).trim().toLowerCase();
+            const text = headingTextKey(plainText(children));
             // First heading wins, the same way the id map resolves a duplicate.
             if (id && text && !ctx.headingIdByText.has(text)) ctx.headingIdByText.set(text, id);
         } else if (!inPanel && (n.type === 'figure' || n.type === 'table')) {
@@ -2542,7 +2539,7 @@ function collectCrossrefTargets(
                 const a = (n.attrs ?? {}) as CAttrs;
                 if (a.id && !ctx.crossrefTargets.has(a.id)) {
                     ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${label} ${next}` }]);
-                    ctx.captionTargets.add(a.id.toLowerCase());
+                    ctx.captionTargets.add(a.id);
                 }
             }
         }
@@ -2594,7 +2591,7 @@ function figureGroupTargets(
         const a = (n.attrs ?? {}) as CAttrs;
         if (a.id && !ctx.crossrefTargets.has(a.id)) {
             ctx.crossrefTargets.set(a.id, [{ type: 'text', value: resolved }]);
-            ctx.captionTargets.add(a.id.toLowerCase());
+            ctx.captionTargets.add(a.id);
         }
     }
 

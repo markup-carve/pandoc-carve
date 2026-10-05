@@ -89,11 +89,11 @@ test('none of the three warns', () => {
 })
 
 test('a cyclic crossref resolves one level instead of overflowing the stack', () => {
-  // corpus 118. `# A </#a>` is a heading whose crossref targets its own id, so
+  // corpus 118. `# A </#A>` is a heading whose crossref targets its own id, so
   // resolving the link text re-enters the same heading. The engine emits the
   // target's text with the nested crossref DROPPED - `<a href="#A">A </a>` -
   // and this used to recur until the stack ran out, on both engines.
-  const result = carveToPandoc('# A </#a>\n')
+  const result = carveToPandoc('# A </#A>\n')
   assert.deepEqual(result.warnings, [])
   assert.equal(strs(result), 'A A')
 })

@@ -132,7 +132,6 @@ const KNOWN_LOSSY = new Set([
   '274-a-quoted-attribute-value-stops-at-the-newline-2.crv',
   '275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-4.crv',
   '275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-6.crv',
-  '275-a-collapsed-reference-reaches-a-heading-by-the-heading-s-rendered-text-9.crv',
   '284-a-ragged-table-keeps-each-row-s-cell-count-2.crv',
   '284-a-ragged-table-keeps-each-row-s-cell-count-3.crv',
   '284-a-ragged-table-keeps-each-row-s-cell-count.crv',
@@ -149,13 +148,11 @@ const KNOWN_LOSSY = new Set([
   '318-composite-figures-2.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
-  // A NO-BREAK SPACE is content, so `# ab` is a heading whose rendered text
-  // starts with it and a collapsed `[ab][]` reaches no heading (PART 9R R1).
-  // The pinned engine folds the character into the marker gap, so the label
-  // the bridge is handed does match, and the reference resolves on the way out
-  // where the document leaves it literal. Engine lag, not a bridge reading:
-  // there is no id or label on the tree to tell the two headings apart.
-  '487-a-form-feed-or-a-no-break-space-is-content-wherever-whitespace-is-tested-11.crv',
+  // A CASE-ONLY COLLAPSED REFERENCE IS LITERAL (PART 9R R1, carve#2732), and
+  // the bridge leaves `[plan][]` literal. The oracle engine this package pins
+  // predates exact lookups and still resolves it to `# Plan`, so the two HTML
+  // renderings differ. Engine lag: comes off once the pin reaches it.
+  '546-every-name-lookup-compares-case-exactly-3.crv',
   // A rowspan that starts in a head or foot row and continues into the body.
   // Pandoc's `TableHead` and `TableBody` hold separate row lists and confine a
   // cell's `rowSpan` to its own section, so the continuation is clipped to an
