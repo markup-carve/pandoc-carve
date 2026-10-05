@@ -93,11 +93,32 @@ test('inline literal preserves runs of spaces verbatim', () => {
 test('inline literal contributes its text to heading slugs for crossrefs', () => {
   // It renders as visible prose, so it must slug like a code span does -
   // otherwise a crossref into that heading could never resolve.
-  const [, para] = blocks('# !`Cat`\n\nSee </#cat>\n');
+  const [, para] = blocks('# !`Cat`\n\nSee </#Cat>\n');
   const link = para.c.find((x) => x.t === 'Link');
   assert.ok(link, 'crossref did not resolve into the literal-only heading');
-  assert.equal(link.c[2][0], '#cat');
+  assert.equal(link.c[2][0], '#Cat');
   assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Cat' }]);
+});
+
+test('name lookups compare case exactly (carve#2732)', () => {
+  const [para] = blocks('# Plan\n\n{#Fig-One}\n![x](x.png)\n^ Figure #: One\n\n</#Plan> </#plan> [Plan][] [plan][] </#fig-one>\n').filter((b) => b.t === 'Para');
+  const links = para.c.filter((x) => x.t === 'Link');
+  assert.deepEqual(links.map((l) => [l.c[0][1], l.c[2][0]]), [
+    [['crossref'], '#Plan'],
+    [['crossref', 'unresolved'], '#plan'],
+    [[], '#Plan'],
+    [['crossref', 'unresolved'], '#fig-one'],
+  ]);
+  assert.ok(para.c.some((x) => x.t === 'Str' && x.c.includes('[plan][]')));
+});
+
+test('a crossref reaches an id spelled in either normalization form', () => {
+  const nfd = 'cafe\u0301';
+  for (const [id, target] of [[nfd, nfd], ['caf\u00e9', nfd]]) {
+    const [para] = blocks(`{id="${id}"}\n# Hello\n\n</#${target}>\n`).filter((b) => b.t === 'Para');
+    const link = para.c.find((x) => x.t === 'Link');
+    assert.deepEqual(link.c[0][1], ['crossref'], `${JSON.stringify(id)} <- ${JSON.stringify(target)}`);
+  }
 });
 
 test('links, autolinks, images', () => {
