@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.1.8 - 2026-10-08
+
+### Changed
+
+- Cross-references and collapsed references resolve by exact name, case
+  included. `</#plan>` reaches a heading written `{#Plan}` no longer, and
+  `[plain one][]` no longer reaches `# Plain One`; an unresolved reference is
+  emitted as literal text, as it always was for a name with no target at all.
+  A heading's text is matched after whitespace collapsing and NFC
+  normalization, with no case fold (PART 9R R1 and R4). Ids that differ only
+  by case are two targets, so a document carrying both `{#Fig}` and `{#fig}`
+  converts with two distinct figures and two distinct numbers (#227).
+
+### Verification
+
+- Compare a corpus table's body split against the split its source states, over
+  both arms: a valid statement has to be produced and an invalid one has to
+  survive as passthrough attributes over a single implicit body. The waiver for
+  documents the published engine cannot split yet is keyed to the engine pin and
+  expires on the next bump (#224).
+
 ## 0.1.7 - 2026-10-01
 
 ### Changed
