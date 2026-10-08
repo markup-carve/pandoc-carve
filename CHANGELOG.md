@@ -15,6 +15,29 @@
   by case are two targets, so a document carrying both `{#Fig}` and `{#fig}`
   converts with two distinct figures and two distinct numbers (#227).
 
+### Fixes
+
+- Keep `header-rows` and `footer-rows` as ordinary attributes on a table whose
+  body metadata is invalid. Invalid metadata synthesizes no partition, so the
+  whole row-group vocabulary stays ordinary (PART 12 section 15), and
+  `{header-rows=1 body-rows=x}` no longer loses its first key on the way to
+  Carve source (#231).
+- Stop publishing a `rowGroups` partition whose only departure from the implicit
+  one is a single body's row-head count, which the cells already state
+  (carve#2402), and stop stating a body split that exists only to carry
+  differing row-head runs through Pandoc's model. Both wrote a `tbody` boundary
+  the source never had. A boundary Pandoc genuinely carried, an empty body, and
+  a leading row-head run that covers every column are all still stated, and the
+  exchange AST keeps every boundary (#231).
+
+### Changed
+
+- The engine pin moves to carve 0.1.10, which writes PART 12 section 15's
+  positional `body-rows`, `body-header-rows` and `body-header-cols`. Multiple
+  table bodies and a body's intermediate header rows now survive the Carve
+  source round trip, so they are no longer reported as lost; a body group's
+  attributes remain the one unspellable part of a partition (#231).
+
 ### Verification
 
 - Compare a corpus table's body split against the split its source states, over

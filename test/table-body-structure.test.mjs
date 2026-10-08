@@ -41,7 +41,7 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpusDir = join(repo, 'spec', 'tests', 'corpus');
 
 /** The engine version ENGINE_LAG was measured against. */
-const LAG_PIN = '0.1.8';
+const LAG_PIN = '0.1.10';
 
 /**
  * Documents whose split the pinned engine cannot produce yet.
