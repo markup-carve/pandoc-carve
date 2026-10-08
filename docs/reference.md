@@ -301,6 +301,21 @@ a processor with neither extension enabled would render.
   the head/body boundary to make the span fit would silently reclassify a row,
   and duplicating the origin's content would invent a cell the author never
   wrote, so the grid keeps its shape and the diagnostic reports the loss.
+- A rowspan that crosses a DECLARED body boundary is clipped the same way, for
+  the same reason and with the same warning. The engine takes the other branch
+  here: with no section attributes on the table it falls back to a single body
+  so the span keeps its height (PART 12 section 15), while the bridge keeps the
+  boundary the source states. So a document whose span crosses a body boundary
+  does not survive a source round trip byte for byte, and
+  `544-explicit-body-counts-include-native-header-cells` and
+  `542-a-span-across-bodies-keeps-their-header-semantics` are in the round-trip
+  ledger for it.
+- A declared body group carries ONE row-head count, because that is what
+  pandoc's `RowHeadColumns` is: one number applying to every data row of its
+  body. A body whose rows disagree, as `{body-rows=2}` over `|= A |= B |` and
+  `| c | d |` does, keeps only the count both rows agree on, and the cells that
+  marked more come back as data cells. The forward direction reports it. The
+  count cannot be split without contradicting the boundaries the source stated.
 - Reverse conversion keeps flattening for display targets: `pandocToCarve`
   serializes through Carve 0.1 source, which has no spelling for row groups or
   a short caption, so those fields survive only on the `pandocToCarveAst` path.
