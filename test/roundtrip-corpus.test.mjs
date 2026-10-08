@@ -148,6 +148,9 @@ const KNOWN_LOSSY = new Set([
   '318-composite-figures-2.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
+  // Both of the next two are reported by the forward direction and documented
+  // under Limitations in docs/reference.md, the same way 494 and 495 are.
+  //
   // A DECLARED BODY CARRIES ONE ROW-HEAD COUNT, and pandoc's model has no slot
   // for a per-row one: `RowHeadColumns` applies to every data row of its body.
   // `{body-rows=2}` over `|= A |= B |` and `| c | d |` states ONE body whose
