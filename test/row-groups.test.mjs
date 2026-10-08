@@ -339,32 +339,47 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
 });
 
 /*
- * The partition reaches the exchange AST intact - that is what the tests above
- * pin. The SOURCE writer is where it stops, and the line has moved: a pipe table
- * states its head and foot row counts on its attribute line and marks its row
- * headers on the cells, so a second body, a body's own intermediate header rows
- * and its attributes are what come out as ordinary body rows. §15 asks for
- * exactly this to be reported rather than dropped quietly.
+ * THE SOURCE WRITER STATES THE WHOLE PARTITION NOW, AND THE LOSS LIST IS EMPTY.
  *
- * This test asserted the opposite for the two middle facts - that the second
- * body and its intermediate header rows were NOT reported - and it was right at
- * the time for a reason that has nothing to do with the pipe writer: a table
- * with a foot never reached it. It went out as a `::: list-table`, whose own
- * diagnostics carry the intermediate header rows losslessly (a `header-row`
- * marker on the first cell) and only complain about a body boundary that the
- * markers cannot show. With the foot back in the pipe form, this fixture reaches
- * the pipe path for the first time, and there both facts are genuinely lost.
+ * This test pinned the opposite twice, each time correctly for its engine. It
+ * first asserted that the second body and its intermediate header rows were NOT
+ * reported, because a table with a foot left the pipe form for a
+ * `::: list-table`. It then asserted that they WERE reported, because the foot
+ * came back to the pipe form and the pipe writer of carve 0.1.8 spelled only
+ * `header-rows` and `footer-rows`, so everything below them flattened into one
+ * body.
+ *
+ * carve 0.1.10 writes PART 12 §15's positional keys, so there is nothing left
+ * to report. Measured on this fixture: the pandoc input's bodies are
+ * `[[0 row-head cols, 0 head rows, 1 data row], [0, 1, 1]]`, and reading the
+ * emitted source back gives exactly those again, with the head and the foot in
+ * place and no warning raised. The HTML carries one `tbody` per body, where the
+ * attribute-free spelling carried one for both.
  */
 
-test('the source writer states head and foot and reports the groups it flattens', () => {
+test('the source writer states the whole partition, so it reports no loss', () => {
   const { carve, warnings } = pandocToCarve(twoBodiesAndAFootFlatHeads);
   assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
-  assert.match(carve, /^\{header-rows=1 footer-rows=1\}$/m, carve);
+  assert.equal(
+    carve,
+    '{header-rows=1 footer-rows=1 body-rows=1,1 body-header-rows=0,1}\n'
+    + '|= Region |= Total |\n| North | 11 |\n|= South region |= Total |\n'
+    + '| South | 22 |\n| All | 33 |\n^ Quarterly\n',
+  );
+  // The partition is not on the list any more. What is left is the two things
+  // Carve source genuinely cannot spell: a body group's attributes and the
+  // short caption.
   assert.ok(warnings.some((warning) => warning.includes("body group's attributes")), warnings.join(' | '));
-  assert.ok(warnings.some((warning) => warning.includes('intermediate header')), warnings.join(' | '));
-  assert.ok(warnings.some((warning) => warning.includes('2 body groups')), warnings.join(' | '));
-  // The foot is the one that is no longer named, because it is no longer lost.
+  assert.ok(warnings.some((warning) => warning.includes('short caption')), warnings.join(' | '));
+  assert.ok(!warnings.some((warning) => warning.includes('body groups')), warnings.join(' | '));
+  assert.ok(!warnings.some((warning) => warning.includes('intermediate header')), warnings.join(' | '));
   assert.ok(!warnings.some((warning) => warning.includes('a foot of')), warnings.join(' | '));
+  // AND THE PARTITION ITSELF COMES BACK, which is why the warnings went: the
+  // writer's claim is checked against a read-back, not taken on its word.
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.deepEqual(table.c[4].map((b) => [b[1], b[2].length, b[3].length]), [[0, 0, 1], [0, 1, 1]]);
+  assert.equal(table.c[3][1].length, 1, 'the head');
+  assert.equal(table.c[5][1].length, 1, 'the foot');
 });
 
 /** Row heads, one body, no foot: the shape the pipe table spells completely. */
@@ -500,12 +515,14 @@ test('and a row header in the foot is reported, because a foot has no slot for o
 });
 
 /*
- * STATING THE FOOT STATES THE WHOLE PARTITION, AND ONE STATED BODY CARRIES ONE
- * ROW-HEADER COUNT. Row-head columns survive the pipe form because the reader
- * splits a body at every change in the marked run - but a partition read off the
- * attribute line cannot be split, so rows that disagree lose their scope. The
- * writer is the only side that still knows the runs, so it is the side that says
- * so; by read-back the disagreement is all that is left of them.
+ * STATING THE FOOT NO LONGER COLLAPSES THE BODIES INTO ONE.
+ *
+ * A partition stated as `{header-rows=N footer-rows=M}` alone was one body, and
+ * one body carries one row-header count, so bodies that disagreed on their
+ * leading `|=` run lost their scope - the writer reported that merge because it
+ * was the only side that still knew the runs. `body-rows` and
+ * `body-header-cols` state the split and the per-body counts, so there is no
+ * merge and no cost. Measured: in goes `[1, 0]`, out comes `[1, 0]`.
  */
 const rowHeadsDisagreeingUnderAFoot = pandocTable({
   head: [pRow('Region', 'Total')],
@@ -516,14 +533,15 @@ const rowHeadsDisagreeingUnderAFoot = pandocTable({
   foot: [pRow('All', '33')],
 });
 
-test('a foot over disagreeing row-head runs reports what the merge costs', () => {
+test('a foot over disagreeing row-head runs keeps both counts and reports nothing', () => {
   const { carve, warnings } = pandocToCarve(rowHeadsDisagreeingUnderAFoot);
-  assert.ok(
-    warnings.some((w) => w.includes('disagree on how many leading cells are row headers')
-      && w.includes('come back as data cells')),
-    warnings.join(' | '),
+  assert.equal(
+    carve,
+    '{header-rows=1 footer-rows=1 body-rows=1,1 body-header-cols=1,}\n'
+    + '|= Region |= Total |\n|= North | 11 |\n| South | 22 |\n| All | 33 |\n^ Quarterly\n',
   );
-  assert.deepEqual(carveToPandoc(carve).doc.blocks[0].c[4].map((b) => b[1]), [0], carve);
+  assert.deepEqual(warnings, [], warnings.join(' | '));
+  assert.deepEqual(carveToPandoc(carve).doc.blocks[0].c[4].map((b) => b[1]), [1, 0], carve);
 });
 
 test('control: runs that agree under a foot are not reported and are not lost', () => {
@@ -599,6 +617,140 @@ test('a row-head row below a plain one keeps its scope through the round trip', 
   assert.deepEqual(bodies.map((b) => [b[1], b[3].length]), [[0, 1], [1, 1]]);
   const { carve } = pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc);
   assert.equal(carve, '| a |\n|= b c |\n');
+  // AND NO ATTRIBUTE LINE, which carve 0.1.10 made a live question. Those two
+  // pandoc bodies are the forward direction's ENCODING of the row-head runs -
+  // pandoc has no per-row count - not a partition this source wrote, and the
+  // writer now spells `body-rows` for any multi-body group it is handed. Stating
+  // them turns the source's one `<tbody>` into two. The markers carry the scope
+  // on their own, which is what the read-back below measures.
+  assert.deepEqual(
+    carveToPandoc(carve).doc.blocks[0].c[4].map((b) => [b[1], b[3].length]),
+    [[0, 1], [1, 1]],
+  );
+});
+
+/*
+ * THE COLLAPSE ABOVE IS NARROW, and these two cases say where its edges are.
+ * It exists because the forward direction splits one Carve body at every change
+ * in the row-head run, so the bodies it produces can be an encoding of the
+ * cells rather than a partition the input carried. Both of the following are
+ * partitions, and each was silently flattened by a wider first cut.
+ *
+ * Built by taking a real pandoc table apart rather than from the fixture
+ * helper, which fixes two columns and a caption; one column is what makes the
+ * second case reachable at all.
+ */
+
+test('two bodies that agree on their row-head count keep their boundary', () => {
+  // Nothing here could have come from the run-change rule: the runs are equal.
+  // Collapsing it merged two sections into one `<tbody>` for nothing.
+  const doc = carveToPandoc('| a |\n| b |\n').doc;
+  const rows = doc.blocks[0].c[4][0][3];
+  doc.blocks[0].c[4] = [
+    [['', [], []], 0, [], [rows[0]]],
+    [['', [], []], 0, [], [rows[1]]],
+  ];
+  const { carve } = pandocToCarve(doc);
+  assert.equal(carve, '{body-rows=1,1}\n| a |\n| b |\n');
+  assert.deepEqual(
+    carveToPandoc(carve).doc.blocks[0].c[4].map((b) => [b[1], b[3].length]),
+    [[0, 1], [0, 1]],
+  );
+});
+
+test('a row-head count that covers every column is stated, not left to the cells', () => {
+  // The count is derivable from the markers only while some cell in the row is
+  // NOT marked. Mark them all and the row reads as a header ROW: measured, a
+  // one-column body of two rows at `RowHeadColumns = 1` came back as a two-row
+  // `TableHead` over an empty body.
+  const doc = carveToPandoc('| a |\n| b |\n').doc;
+  doc.blocks[0].c[4][0][1] = 1;
+  const { carve } = pandocToCarve(doc);
+  assert.equal(carve, '{body-rows=2 body-header-cols=1}\n|= a |\n|= b |\n');
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(table.c[3][1].length, 0, 'no head was invented');
+  assert.deepEqual(table.c[4].map((b) => [b[1], b[3].length]), [[1, 2]]);
+});
+
+/**
+ * A pandoc table of one row per body, with the row-head count of each body
+ * given. `nCols` decides whether a marked row fills its row, which is the whole
+ * question in two of the cases below.
+ */
+function bodiesWithRowHeadCounts(counts, nCols) {
+  const src = counts
+    .map((_, i) => `| ${String.fromCharCode(97 + i)}${nCols > 1 ? ' | x' : ''} |`)
+    .join('\n') + '\n';
+  const doc = carveToPandoc(src).doc;
+  const rows = doc.blocks[0].c[4][0][3];
+  doc.blocks[0].c[4] = counts.map((count, i) => [['', [], []], count, [], [rows[i]]]);
+  return doc;
+}
+
+test('a leading row-head run that fills the row is stated, or it becomes the head', () => {
+  // One column, counts [1, 0]. Collapsed, this emits `|= a |` over `| b |`, and
+  // a LEADING run of fully marked rows is the table head - so `a` came back a
+  // column header. Only the first body can do this, which is why corpus 354
+  // (counts [0, 1], one column) still collapses.
+  const { carve } = pandocToCarve(bodiesWithRowHeadCounts([1, 0], 1));
+  assert.equal(carve, '{body-rows=1,1 body-header-cols=1,}\n|= a |\n| b |\n');
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(table.c[3][1].length, 0, 'no head was invented');
+  assert.deepEqual(table.c[4].map((b) => [b[1], b[3].length]), [[1, 1], [0, 1]]);
+});
+
+test('equal counts side by side are a boundary no run change could have made', () => {
+  // Counts [1, 1, 0]. The forward direction splits at every CHANGE, so it never
+  // puts two equal counts next to each other - that first boundary came from the
+  // input. Collapsing on "some count differs" merged it away.
+  const { carve } = pandocToCarve(bodiesWithRowHeadCounts([1, 1, 0], 2));
+  assert.equal(
+    carve,
+    '{body-rows=1,1,1 body-header-cols=1,1,}\n|= a | x |\n|= b | x |\n| c | x |\n',
+  );
+  assert.deepEqual(
+    carveToPandoc(carve).doc.blocks[0].c[4].map((b) => [b[1], b[3].length]),
+    [[1, 1], [1, 1], [0, 1]],
+  );
+});
+
+test('control: counts that alternate over more than one column still collapse', () => {
+  const { carve } = pandocToCarve(bodiesWithRowHeadCounts([1, 0], 2));
+  assert.equal(carve, '|= a | x |\n| b | x |\n');
+  assert.deepEqual(
+    carveToPandoc(carve).doc.blocks[0].c[4].map((b) => [b[1], b[3].length]),
+    [[1, 1], [0, 1]],
+  );
+});
+
+test('an empty body is stated, because no run change can produce one', () => {
+  // The splitter cuts a run of DATA rows, so an empty body came from the input.
+  // Collapsed, `[0 (empty), 2]` over two columns emitted the single data row
+  // fully marked, and a leading fully marked row is the head - so the row became
+  // a column header and the empty body vanished, both without a warning.
+  const doc = carveToPandoc('| a | x |\n').doc;
+  const rows = doc.blocks[0].c[4][0][3];
+  doc.blocks[0].c[4] = [
+    [['', [], []], 0, [], []],
+    [['', [], []], 2, [], [rows[0]]],
+  ];
+  const { carve } = pandocToCarve(doc);
+  assert.equal(carve, '{body-rows=0,1 body-header-cols=,2}\n|= a |= x |\n');
+  const table = carveToPandoc(carve).doc.blocks[0];
+  assert.equal(table.c[3][1].length, 0, 'no head was invented');
+  assert.deepEqual(table.c[4].map((b) => [b[1], b[3].length]), [[0, 0], [2, 1]]);
+});
+
+test('and the AST target keeps the boundary the source writer normalizes away', () => {
+  // The collapse is a choice the PIPE FORM forces: it cannot tell a derived
+  // split from an authored one. `rowGroups` can, so the exchange AST keeps what
+  // the pandoc table carried and nothing is normalized there.
+  const table = pandocToCarveAst(bodiesWithRowHeadCounts([1, 0], 2)).ast.children[0];
+  assert.deepEqual(table.rowGroups, {
+    headRows: 0,
+    bodies: [{ headRows: 0, bodyRows: 1, rowHeadColumns: 1 }, { headRows: 0, bodyRows: 1 }],
+    footRows: 0,
+  });
 });
 
 test('a row-head cell does not carry the column alignment', () => {
@@ -644,19 +796,14 @@ test('bodies that disagree on row-head columns keep the pipe form', () => {
   const { carve, warnings } = pandocToCarve(disagreeingRowHeads);
   assert.ok(!carve.includes('list-table'), `stayed a pipe table: ${carve}`);
   assert.ok(!carve.includes('header-cols'), 'and invented no row headers');
-  assert.ok(
-    warnings.some((w) => w.startsWith('table: ') && w.includes('2 body groups')),
-    `the loss is still reported: ${warnings.join(' | ')}`,
-  );
-  assert.ok(
-    !warnings.some((w) => w.includes('row-head columns')),
-    `and the row heads are not reported as lost: ${warnings.join(' | ')}`,
-  );
-  // AND THE ROW HEADS THEMSELVES ARE NOT LOST, which is why the warning no
-  // longer names them. Each row carries its own marker, and the reader splits a
-  // body at every change, so both counts come back - measured here rather than
-  // asserted from the writer's side, because the writer cannot see the split.
   assert.equal(carve, '|= a | b |\n| c | d |\n^ Quarterly\n');
+  // AND NO `body-rows` EITHER. These two bodies exist only to give the two
+  // row-head runs somewhere to live in pandoc's model, so stating them would
+  // invent a `tbody` boundary - see the note beside `onlyRowHeadRuns`. Nothing
+  // is lost by leaving them out, so nothing is reported.
+  assert.deepEqual(warnings, [], `nothing is lost, so nothing is named: ${warnings.join(' | ')}`);
+  // AND THE ROW HEADS THEMSELVES ARE NOT LOST - measured here rather than
+  // asserted from the writer's side.
   assert.deepEqual(
     carveToPandoc(carve).doc.blocks[0].c[4].map((body) => body[1]),
     [1, 0],

@@ -1204,25 +1204,88 @@ function table(
     // pushed per raw row, so §15's sum holds by construction here. It is
     // checked where it can actually fail instead: on a partition that arrived
     // from outside (see readRowGroups).
-    const groups: RowGroups = { headRows: headRaw.length, bodies: groupBodies, footRows: footRaw.length };
+    // PART 12 section 15, carve#2402: A ROW-HEAD COUNT THE CELLS ALREADY STATE
+    // IS NOT A PARTITION. One body's data rows all carry the same leading `|=`
+    // run, so the count is derivable from them and the field would state
+    // nothing the rows do not - section 15 asks a producer to publish no
+    // `rowGroups` for a table whose one departure is that count on its single
+    // body. Measured on engine 0.1.10: keeping it made the writer spell
+    // `{header-rows=1 body-rows=1 body-header-cols=1}` where the bare pipe
+    // table renders byte-identical HTML. A body with no data row to carry the
+    // markers keeps the field, and so does every multi-body partition, where
+    // the counts are per body and the writer states them positionally.
+    //
+    // THE SAME RULE REACHES A SPLIT THAT ONLY ENCODES THOSE RUNS. Pandoc has no
+    // per-row row-head count, so the FORWARD direction splits one Carve body at
+    // every change in the marked run - that is the only way `|= b |` under
+    // `| a |` keeps its scope through pandoc's model. Those bodies are an
+    // encoding of the cells, not a partition the author wrote, and re-stating
+    // them invents a `tbody` boundary the source never had: measured on corpus
+    // 354-2, one `<tbody>` in becomes two out.
+    //
+    // A split that carries anything else - an intermediate header row, body
+    // attributes, a head or a foot - is real and is stated.
+    //
+    // A LEADING RUN THAT COVERS EVERY COLUMN IS NOT DERIVABLE EITHER WAY. A row
+    // whose every cell is marked reads as a HEADER ROW, and a leading run of
+    // them becomes the table head - so leaving the first body's count to the
+    // markers turns row headers into column headers. Measured on one column:
+    // a single body of two rows at `RowHeadColumns = 1` came back as a two-row
+    // `TableHead` over an empty body, and bodies at `[1, 0]` moved row 1 into
+    // the head. Only the FIRST body matters, because only a LEADING run is read
+    // as a head: corpus 354 collapses safely with counts `[0, 1]` over one
+    // column, since nothing marks its first row.
+    const leadingRunFillsTheRow = (groupBodies[0]?.rowHeadColumns ?? 0) >= nCols;
+    //
+    // EVERY ADJACENT PAIR MUST DISAGREE, because the forward direction splits at
+    // every CHANGE in the run - so the bodies it synthesizes never put two equal
+    // counts side by side. Counts of `[1, 1, 0]` hold a boundary no run change
+    // could have produced, and collapsing the lot merged the first two sections.
+    // "Some count somewhere differs" is not evidence about any one boundary.
+    const adjacentRunsDiffer = groupBodies.every((body, i) =>
+        i === 0 || (body.rowHeadColumns ?? 0) !== (groupBodies[i - 1]!.rowHeadColumns ?? 0));
+    //
+    // AND IT IS THE SOURCE WRITER'S NORMALIZATION ONLY. The pipe table cannot
+    // tell a derived split from an authored one, so writing it has to choose;
+    // the exchange AST has no such constraint and `rowGroups` is exact there,
+    // so `pandocToCarveAst` keeps every boundary the pandoc table carried.
+    const onlyRowHeadRuns = ctx.target === 'source'
+        && groupBodies.length > 1
+        && groupBodies.every((b) => b.headRows === 0 && b.attrs === undefined)
+        // AN EMPTY BODY IS NEVER A DERIVED ONE. The splitter cuts a run of data
+        // rows, so it cannot produce a body with none, and section 15 asks the
+        // writer to state even a single empty body. Collapsing one dropped the
+        // boundary AND, with the empty body leading, left the count check
+        // looking at a body with no rows to mark: `[0 (empty), 2]` over two
+        // columns emitted one fully marked row, which came back as the head.
+        && groupBodies.every((b) => b.bodyRows > 0)
+        && adjacentRunsDiffer
+        && !leadingRunFillsTheRow
+        && headRaw.length === 0 && footRaw.length === 0
+        && !headAttrs && !footAttrs;
+    const collapsed: RowGroupBody[] = [{
+        headRows: 0,
+        bodyRows: groupBodies.reduce((sum, b) => sum + b.bodyRows, 0),
+    }];
+    const derivableRowHead = groupBodies.length === 1
+        && groupBodies[0]!.bodyRows > 0
+        && !leadingRunFillsTheRow;
+    const publishedBodies = onlyRowHeadRuns
+        ? collapsed
+        : derivableRowHead
+            ? groupBodies.map(({ rowHeadColumns: _derivable, ...rest }) => rest)
+            : groupBodies;
+    const groups: RowGroups = { headRows: headRaw.length, bodies: publishedBodies, footRows: footRaw.length };
     if (headAttrs) groups.headAttrs = headAttrs;
     if (footAttrs) groups.footAttrs = footAttrs;
     if (carriesMoreThanFlatRows(groups)) {
         node.rowGroups = groups;
         if (ctx.target === 'source') reportUnspellableGroups(ctx, groups);
     }
-    // BOTH OF THESE ARE THE SOURCE WRITER'S BUSINESS ONLY. On the `ast` target
-    // the partition stays in `rowGroups`, where it is exact: there is no
-    // attribute line to state it on, so stating it would invent attributes the
-    // pandoc table never carried, and no read-back to merge the bodies, so the
-    // merge has no cost to report.
-    const stated = ctx.target === 'source' && footRaw.length > 0;
-    reportRunsAStatedPartitionMerges(ctx, {
-        leads: allRaw.map((_, r) => (isHeaderRow[r] === true ? nCols : rowHeadCols[r] ?? 0)),
-        from: headRaw.length,
-        to: allRaw.length - footRaw.length,
-        stated,
-    });
+    // STATING THE PARTITION IS THE SOURCE WRITER'S BUSINESS ONLY. On the `ast`
+    // target it stays in `rowGroups`, where it is exact: there is no attribute
+    // line to state it on, so stating it would invent attributes the pandoc
+    // table never carried.
     const attrs = ctx.target === 'source' ? statePartition(fromAttr(a), groups) : fromAttr(a);
     if (attrs) node.attrs = attrs;
     const captionInlines = captionInlinesFor();
@@ -1234,37 +1297,20 @@ function table(
 }
 
 /**
- * A STATED PARTITION IS ONE BODY, and one body carries one row-header count.
+ * Whether the table's attributes carry body metadata the engine did not consume.
  *
- * The count is not written down anywhere - `RowHeadColumns` has no spelling on
- * the attribute line - so the reader derives it from the leading `|=` run of the
- * body rows. It can only take a count every row agrees on: a declared body's
- * boundaries were stated, so it cannot split at a change the way the derived
- * bodies do. Rows that disagree therefore come back as data cells.
- *
- * That only bites once the partition IS stated, which here means once there is a
- * foot. Without one the reader splits freely and every run survives, which is
- * why the pipe path's loss report does not name row-head columns in general.
- *
- * Reported from the writer because the writer is the only side that knows the
- * runs it just wrote: by the time the source is read back, the disagreement is
- * all that is left of them.
+ * The positional keys only reach `keyValues` when the engine read them as
+ * invalid - a consumed partition is spent on the AST's `rowGroups` instead. So
+ * their presence beside a flat partition is the signal, and PART 12 section 15
+ * then makes every row-group name on that block an ordinary attribute.
  */
-function reportRunsAStatedPartitionMerges(
-    ctx: Ctx,
-    input: { leads: number[]; from: number; to: number; stated: boolean },
-): void {
-    const { leads, from, to, stated } = input;
-    if (!stated) return;
-    const distinct = new Set(leads.slice(from, to));
-    if (distinct.size < 2) return;
-    warn(
-        ctx,
-        'table: the body rows disagree on how many leading cells are row headers '
-        + `(${[...distinct].sort((x, y) => x - y).join(', ')}), and stating the foot states `
-        + 'the whole partition as ONE body - the reader takes a count every row agrees on, so '
-        + 'those cells come back as data cells',
-    );
+const POSITIONAL_BODY_KEYS = ['body-rows', 'body-header-rows', 'body-header-cols'];
+
+function carriesInvalidBodyMetadata(keyValues: Record<string, string>, groups: RowGroups): boolean {
+    if (!POSITIONAL_BODY_KEYS.some((key) => keyValues[key] !== undefined)) return false;
+    const flat = groups.headRows === 0 && groups.footRows === 0 && groups.bodies.length === 1
+        && groups.bodies[0]!.headRows === 0 && groups.bodies[0]!.attrs === undefined;
+    return flat;
 }
 
 /**
@@ -1301,9 +1347,23 @@ function reportRunsAStatedPartitionMerges(
  */
 function statePartition(attrs: CAttrs | undefined, groups: RowGroups): CAttrs | undefined {
     const keyValues: Record<string, string> = { ...(attrs?.keyValues ?? {}) };
-    delete keyValues['header-rows'];
-    delete keyValues['footer-rows'];
-    if (groups.footRows > 0) {
+    // INVALID BODY METADATA MAKES THE WHOLE VOCABULARY ORDINARY ATTRIBUTES, and
+    // an ordinary attribute is retained, not restated. PART 12 section 15:
+    // "Invalid body metadata synthesizes no partition; all row-group metadata
+    // attributes, including `header-rows` and `footer-rows`, remain ordinary
+    // attributes in HTML." Corpus 541 exists to pin that, and dropping
+    // `header-rows` from `{header-rows=1 body-rows=x}` broke it: the source
+    // renders `<table header-rows="1" body-rows="x">` and the round trip
+    // rendered `<table body-rows="x">`.
+    //
+    // The stale-key guard below still applies whenever no such key is present,
+    // which is every table whose partition the engine actually consumed - a
+    // consumed key never reaches `keyValues` at all.
+    if (!carriesInvalidBodyMetadata(keyValues, groups)) {
+        delete keyValues['header-rows'];
+        delete keyValues['footer-rows'];
+    }
+    if (groups.footRows > 0 && !carriesInvalidBodyMetadata(keyValues, groups)) {
         if (groups.headRows > 0) keyValues['header-rows'] = String(groups.headRows);
         keyValues['footer-rows'] = String(groups.footRows);
     }
@@ -1325,41 +1385,36 @@ function statePartition(attrs: CAttrs | undefined, groups: RowGroups): CAttrs | 
 /**
  * What a `rowGroups` partition says that the PIPE form cannot say back.
  *
- * The partition itself is not a degradation - it reaches the exchange AST
- * intact, and `pandocToCarveAst` hands it on whole. The loss happens one step
- * later, in the source writer: a pipe table states the head and the foot on its
- * attribute line and nothing else, so a second body group, a body's own
- * intermediate header rows and its attributes come out as ordinary body rows.
- * PART 12 §15 says so in as many words and asks for exactly this - "a canonical
- * Carve writer loses it ... conversion APIs with diagnostics should report that
- * loss".
+ * Only a body group's own attributes, now. The partition itself reaches the
+ * exchange AST intact and `pandocToCarveAst` hands it on whole, and the source
+ * writer states the rest of it: `{header-rows=N footer-rows=M}` for the head
+ * and foot, and PART 12 section 15's positional `body-rows`,
+ * `body-header-rows` and `body-header-cols` for the bodies.
  *
- * THE FOOT IS NOT ON THAT LIST ANY MORE, AND IT WAS. `{header-rows=N
- * footer-rows=M}` before a pipe table is what the `rowGroups` note in
- * docs/ast-json.md calls "the simple partition spelled by `header-rows` /
- * `footer-rows`", and the engine synthesizes it - measured, see the note beside
- * `useListTable`. Naming it here reported a loss that no longer happens, on the
- * one construct the writer had just started spelling.
+ * THREE THINGS CAME OFF THIS LIST, each because the writer started spelling
+ * them. The foot went first. Row-head columns went next, read back off the
+ * `|= North | 11 |` markers the writer puts on the cells. The body groups and
+ * their intermediate header rows went with carve 0.1.10, which writes the
+ * positional keys: measured on a head, two bodies of which the second leads
+ * with a header row, and a foot, the round trip returns the same partition and
+ * the HTML carries one `tbody` per body. Reporting them as lost named a loss
+ * that no longer happens.
  *
- * ROW-HEAD COLUMNS ARE NOT ON IT EITHER, for the reason the note beside
- * `rowHeadCols` gives: the pipe table marks those cells (`|= North | 11 |`) and
- * the forward direction reads the count back off exactly that run. Measured in
- * both shapes, with a foot and without.
+ * Section attributes have no attribute-line spelling at all (section 15 says
+ * so), so they are what is left.
  *
  * AST output retains these groups. This diagnostic applies only when writing
- * source, whose pipe-table syntax cannot express the full partition.
+ * source.
  */
 function reportUnspellableGroups(ctx: Ctx, groups: RowGroups): void {
     const lost: string[] = [];
-    if (groups.bodies.length > 1) lost.push(`${groups.bodies.length} body groups`);
-    if (groups.bodies.some((b) => b.headRows > 0)) lost.push("a body's intermediate header rows");
     if (groups.bodies.some((b) => b.attrs !== undefined)) lost.push("a body group's attributes");
     if (!lost.length) return;
     warn(
         ctx,
         `table: ${lost.join(', ')} - preserved in the Carve AST as \`rowGroups\`, `
-        + 'but a pipe table states only its head and foot row counts, so the '
-        + 'emitted source flattens them into body rows',
+        + 'but Carve source has no spelling for the attributes of a table section, '
+        + 'so the emitted source drops them',
     );
 }
 

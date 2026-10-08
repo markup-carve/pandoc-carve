@@ -1819,12 +1819,23 @@ function table(
     }
 
     return P.Table(
-        // `header-rows` / `footer-rows` are the partition, and the partition
-        // reached `groups` above - leaving them here would state the same fact
-        // twice and put a stray attribute on the table in every pandoc writer.
-        // The list-table reader already filters its own copies of both.
+        // `header-rows` / `footer-rows` are the partition when a partition was
+        // consumed, and it reached `groups` above - leaving them here would
+        // state the same fact twice and put a stray attribute on the table in
+        // every pandoc writer. The list-table reader filters its own copies too.
+        //
+        // WITHOUT A PARTITION THEY ARE ORDINARY ATTRIBUTES AND HAVE TO SURVIVE.
+        // PART 12 section 15: invalid body metadata synthesizes no partition and
+        // leaves every row-group name, `header-rows` and `footer-rows` included,
+        // an ordinary attribute in HTML. The engine keeps the keys on `attrs`
+        // either way and signals consumption by `rowGroups` alone, so that is
+        // what this reads. Corpus 541: `{header-rows=1 body-rows=x}` renders
+        // `<table header-rows="1" body-rows="x">` and filtering unconditionally
+        // dropped the first of the two.
         toAttrWithout(ctx, n.attrs as CAttrs | undefined,
-            ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows']),
+            groups
+                ? ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows']
+                : ['aligns', 'valigns', 'widths']),
         caption,
         colAligns,
         toRows(0, headCount),

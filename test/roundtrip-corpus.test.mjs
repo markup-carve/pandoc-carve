@@ -148,11 +148,26 @@ const KNOWN_LOSSY = new Set([
   '318-composite-figures-2.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
-  // A CASE-ONLY COLLAPSED REFERENCE IS LITERAL (PART 9R R1, carve#2732), and
-  // the bridge leaves `[plan][]` literal. The oracle engine this package pins
-  // predates exact lookups and still resolves it to `# Plan`, so the two HTML
-  // renderings differ. Engine lag: comes off once the pin reaches it.
-  '546-every-name-lookup-compares-case-exactly-3.crv',
+  // A DECLARED BODY CARRIES ONE ROW-HEAD COUNT, and pandoc's model has no slot
+  // for a per-row one: `RowHeadColumns` applies to every data row of its body.
+  // `{body-rows=2}` over `|= A |= B |` and `| c | d |` states ONE body whose
+  // first row's cells are both header cells and whose second row's are not, so
+  // the count collapses to the one both rows agree on and row 1 loses its
+  // scope. Splitting the body would carry the cells but contradict the count
+  // the source states.
+  //
+  // Masked until the engine pin reached 0.1.10. Measured on 0.1.8, which does
+  // not consume the metadata at all (carve-js#2495): the keys leaked as literal
+  // `<table body-rows="2">` on BOTH sides of the comparison and the document
+  // read as a clean round trip. The gate's oracle is the pinned engine, so a
+  // blind spot the engine and the bridge share is one it cannot see.
+  '544-explicit-body-counts-include-native-header-cells.crv',
+  // A ROWSPAN THAT CROSSES A DECLARED BODY BOUNDARY. The engine keeps the table
+  // in one `<tbody>` and the span at its stated height; the bridge honors the
+  // boundary, so pandoc's per-section row lists clip the span to the first body
+  // and the continuation becomes an empty cell in the second. Same masking as
+  // 544 above: byte-identical on 0.1.8 because neither side read the metadata.
+  '542-a-span-across-bodies-keeps-their-header-semantics.crv',
   // A rowspan that starts in a head or foot row and continues into the body.
   // Pandoc's `TableHead` and `TableBody` hold separate row lists and confine a
   // cell's `rowSpan` to its own section, so the continuation is clipped to an
