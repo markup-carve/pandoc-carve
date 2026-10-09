@@ -86,14 +86,14 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
  * down.
  *
  * spec/tests/corpus is generated from the `::: compare` blocks in
- * spec/resources/examples/{core,extensions,edge-cases}.md, so those pages are
+ * spec/resources/examples/{core,extensions,edge-cases}.md, one document per
+ * `carve` fence (a block may hold several), so those pages are
  * the corpus's own declaration of its size. Counting them leaves no literal in
  * a test file to go stale: adding an example upstream moves the expectation on
  * the next submodule bump instead of failing.
  *
- * The state machine mirrors the generator rather than grepping - a `::: compare`
- * line inside an already-open block is content, not a second pair, and a block
- * closes on a bare marker line.
+ * The scan mirrors the spec's scripts/lib/example-pair-census.mjs: nothing
+ * inside a fence is markup, and a block closes on its exact marker line.
  *
  * Shared by test/spec-corpus.test.mjs and test/roundtrip-corpus.test.mjs so the
  * two cannot disagree about how large the population is. Throws rather than
@@ -102,9 +102,42 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
  * make loud.
  */
 const EXAMPLE_PAGES = ['core.md', 'extensions.md', 'edge-cases.md'];
-const COMPARE_OPEN = /^:{3,}\s+compare(\s+\S.*)?$/;
 
-/** @returns {number} the number of `::: compare` blocks the spec pages declare */
+const leadingRun = (s, ch) => {
+  let n = 0;
+  while (n < s.length && s[n] === ch) n++;
+  return n;
+};
+
+/** @returns {number} the corpus pairs one example page declares */
+export function declaredPairsIn(text) {
+  let pairs = 0;
+  let marker = null;
+  let fence = null;
+  for (const line of text.split('\n')) {
+    if (fence !== null) {
+      if (line.startsWith(fence) && line.slice(fence.length).trim() === '') fence = null;
+      continue;
+    }
+    const ticks = leadingRun(line, '`');
+    if (ticks >= 3) {
+      fence = line.slice(0, ticks);
+      if (marker !== null && line.slice(ticks).trim() === 'carve') pairs += 1;
+      continue;
+    }
+    const trimmed = line.trim();
+    const colons = leadingRun(trimmed, ':');
+    if (colons < 3) continue;
+    if (marker === null) {
+      if (/^[ \t]+compare(?:[ \t]|$)/.test(trimmed.slice(colons))) marker = trimmed.slice(0, colons);
+    } else if (trimmed === marker) {
+      marker = null;
+    }
+  }
+  return pairs;
+}
+
+/** @returns {number} the number of corpus pairs the spec pages declare */
 export function declaredCorpusSize(repo) {
   const examplesDir = join(repo, 'spec', 'resources', 'examples');
   let declared = 0;
@@ -117,18 +150,7 @@ export function declaredCorpusSize(repo) {
           'corpus size against.',
       );
     }
-    let marker = null;
-    for (const rawLine of readFileSync(path, 'utf8').split('\n')) {
-      const line = rawLine.trim();
-      if (marker !== null) {
-        if (line === marker) marker = null;
-        continue;
-      }
-      if (COMPARE_OPEN.test(line)) {
-        declared += 1;
-        marker = line.match(/^:{3,}/)[0];
-      }
-    }
+    declared += declaredPairsIn(readFileSync(path, 'utf8'));
   }
   return declared;
 }
