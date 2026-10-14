@@ -171,7 +171,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
 | Images/quotes with `^ caption` lines | Figure |
 | A bare `::: figure` composite (PART 9 section 4c) | Figure of nested Figures - pandoc's subfigure model - with the group caption on the outer one. An opener carrying a title or a `[label]` is not this production and stays a Div |
-| `::: note` admonitions | Div `.admonition .note` (+ title paragraph) |
+| `::: note` admonitions | Div `.admonition .note` (+ title paragraph). On import only that `admonition` marker makes an admonition; a pandoc Div classed just `note` stays a div |
 | Tabs / code-group panels, grouping `[label]` | Div; each `[label]` becomes a bold caption so panels stay distinguishable (graceful degradation) |
 | `` `x`{=latex} `` / ```` ```=latex ```` | RawInline / RawBlock (target-routed by pandoc) |
 | Citations `[@key]`, `[+@key]`, `[-@key, p. 33]` | Cite with one Citation per key (AuthorInText / SuppressAuthor / NormalCitation), the locator in the citation suffix, the verbatim source as the Cite content |
