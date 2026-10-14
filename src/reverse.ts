@@ -2065,6 +2065,9 @@ export function pandocToCarve(doc: PandocDoc, target: 'source' | 'ast' = 'source
     const ast: CNode = { type: 'document', children };
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
     dropDerivableHeadingIds(ast);
+    if (target === 'source' && hasRejoinedFraming(children, false)) {
+        warn(ctx, "list: a tight item's second paragraph inside an indented container is rejoined to its first by the Carve writer");
+    }
     const yaml = metaToYaml(ctx, doc.meta ?? {});
     if (yaml) ast.frontmatter = { format: 'yaml', content: yaml };
     return { ast, warnings: ctx.warnings, diagnostics: ctx.diagnostics };
@@ -2155,3 +2158,31 @@ function containsNote(value: unknown): boolean {
     if ((value as PandocNode).t === 'Note') return true;
     return containsNote((value as PandocNode).c);
 }
+
+/**
+ * Whether a tight list nested in a list item or a definition holds an item
+ * with two adjacent paragraphs. The writer spells the second one as a `+`
+ * continuation it places at the wrong column there, so it reads back joined
+ * to the first.
+ */
+function hasRejoinedFraming(nodes: unknown, indented: boolean): boolean {
+    if (!Array.isArray(nodes)) return false;
+    return nodes.some((value) => {
+        if (!value || typeof value !== 'object') return false;
+        const node = value as CNode;
+        if (node.type === 'list') {
+            const items = (node.items as CNode[] | undefined) ?? [];
+            if (indented && node.tight && items.some((item) => {
+                const kids = (item.children as CNode[] | undefined) ?? [];
+                return kids.some((kid, i) => kid.type === 'paragraph' && kids[i + 1]?.type === 'paragraph');
+            })) return true;
+            return items.some((item) => hasRejoinedFraming(item.children, true));
+        }
+        if (node.type === 'definition_list') {
+            const items = (node.items as { definitions?: unknown[] }[] | undefined) ?? [];
+            return items.some((item) => (item.definitions ?? []).some((d) => hasRejoinedFraming(d, true)));
+        }
+        return hasRejoinedFraming(node.children, indented);
+    });
+}
+

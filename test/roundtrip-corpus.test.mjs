@@ -57,13 +57,6 @@ const corpus = existsSync(corpusDir)
   : [];
 
 const KNOWN_LOSSY = new Set([
-  // A CONTAINER LABEL THAT RENDERS NOTHING HAS NOTHING TO CROSS. `::: note
-  // [%% hidden]` publishes `<p class="div-label"></p>` - the label is there and
-  // empty - and an empty Para is not a label pandoc can tell from no label, so
-  // the Div carries none and the return leg writes `::: note`. Measured against
-  // the neighbour that survives: `::: note [hi]` round-trips intact, and
-  // `::: note []` is lost the same way, so it is emptiness and not the comment.
-  '518-a-trailing-comment-takes-a-tab-a-run-start-and-its-whole-separator-10.crv',
   // A BLANK-ONLY CODE PAYLOAD AND AN EMPTY ONE SHARE ONE PANDOC ENCODING.
   // `CARVE-P12-064` distinguishes `"\n"` from `""`; pandoc's own markdown reader
   // returns `""` for both a blank-line payload and an empty fence, so the
@@ -148,7 +141,6 @@ const KNOWN_LOSSY = new Set([
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base-2.crv',
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-6.crv',
-  '318-composite-figures-2.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
   // Both of the next two are reported by the forward direction and documented
@@ -299,16 +291,31 @@ test('the round trip is measured against the whole corpus, not a sample', () => 
 });
 
 const lossy = [];
+const silent = [];
 for (const { name, source } of corpus) {
   let back;
+  let reported;
   try {
-    back = pandocToCarve(carveToPandoc(source, { roundtrip: true }).doc).carve;
+    const forward = carveToPandoc(source, { roundtrip: true });
+    const reverse = pandocToCarve(forward.doc);
+    back = reverse.carve;
+    reported = forward.diagnostics.length + reverse.diagnostics.length;
   } catch (error) {
     lossy.push(`${name}: threw: ${String(error.message).split('\n')[0]}`);
     continue;
   }
-  if (normalizeHtml(carveToHtml(source)) !== normalizeHtml(carveToHtml(back))) lossy.push(name);
+  if (normalizeHtml(carveToHtml(source)) !== normalizeHtml(carveToHtml(back))) {
+    lossy.push(name);
+    if (reported === 0) silent.push(name);
+  }
 }
+
+test('every document that does not survive the trip says so in a diagnostic', () => {
+  // An empty diagnostics list is the report's claim that nothing was lost, so
+  // a ledgered loss that reports nothing is a false clean bill.
+  assert.ok(lossy.length > 0, 'the round trip measured no loss at all, so this check compared nothing');
+  assert.deepEqual(silent, [], 'lost in the round trip with no diagnostic:\n  ' + silent.join('\n  '));
+});
 
 test('every corpus document survives Carve -> pandoc -> Carve, except the ledger', () => {
   const unexpected = lossy.filter((name) => !KNOWN_LOSSY.has(name));

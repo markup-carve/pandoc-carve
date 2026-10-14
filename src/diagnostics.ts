@@ -55,6 +55,7 @@ const RULES: Rule[] = [
     { test: /^definition list:/, code: 'definition-entry-skipped', class: 'lossy' },
     { test: /^ordered list: pandoc's example-list numbering/, code: 'ordered-list-counter-degraded', class: 'degraded' },
     { test: /^ordered list:/, code: 'ordered-list-marker-normalized', class: 'normalized' },
+    { test: /^list: a tight item's second paragraph/, code: 'list-item-framing-lost', class: 'degraded' },
     { test: /^list: an empty item/, code: 'empty-list-item-spelled', class: 'normalized' },
     { test: /^task state:/, code: 'task-state-dropped', class: 'lossy' },
     { test: /^bidi: /, code: 'bidi-control-stripped', class: 'normalized' },
@@ -69,6 +70,11 @@ const RULES: Rule[] = [
     { test: /^footnote: a cyclic reference/, code: 'nested-note-cycle-dropped', class: 'lossy' },
     { test: /^footnote: a note referenced inside a note is lifted/, code: 'nested-note-lifted', class: 'degraded' },
     { test: /^link: an empty destination/, code: 'link-empty-destination-dropped', class: 'lossy' },
+    { test: /^(?:link|image): an empty title is dropped/, code: 'empty-title-dropped', class: 'lossy' },
+    { test: /^attribute: the attributes on a /, code: 'inline-attributes-dropped', class: 'lossy' },
+    { test: /^footnote: \[\^[^\]]*\] is referenced more than once/, code: 'note-reference-duplicated', class: 'degraded' },
+    { test: /^code block: a class without a language/, code: 'code-block-class-read-as-language', class: 'degraded' },
+    { test: /^line block: a hard break/, code: 'line-block-hard-break-dropped', class: 'lossy' },
     { test: /^(?:link|image|footnote): missing definition/, code: 'reference-unresolved', class: 'degraded' },
     { test: /^crossref:/, code: 'crossref-unresolved', class: 'degraded' },
     { test: /^list-table: structure/, code: 'list-table-structure-degraded', class: 'degraded' },
@@ -92,6 +98,7 @@ const RULES: Rule[] = [
     { test: /^table: the body rows disagree on how many leading cells/, code: 'table-row-heads-degraded', class: 'degraded' },
     { test: /^table: the rows of a declared body group disagree/, code: 'table-row-heads-degraded', class: 'degraded' },
     { test: /^table: a hard break inside a cell/, code: 'table-cell-break-flattened', class: 'lossy' },
+    { test: /^table: vertical alignment/, code: 'table-vertical-alignment-dropped', class: 'lossy' },
     { test: /^table:/, code: 'table-unclassified-loss', class: 'unsupported' },
 ];
 

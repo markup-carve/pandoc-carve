@@ -133,3 +133,47 @@ test('pandoc -> carve: a note holding a note is written as a definition, not ^[ 
   const html = carveToHtml(carve);
   assert.match(html, /<li id="fn2">\s*<p>two/);
 });
+
+test('attributes on a node with no pandoc Attr slot produce inline-attributes-dropped', () => {
+  for (const source of ['*x*{.real}\n', 'a[^n]{.k} b\n\n[^n]: x\n', 'a^[x]{.k} b\n', '{++a++}{.a}\n']) {
+    expectCode(carveToPandoc(source), 'inline-attributes-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  }
+  assert.deepEqual(carveToPandoc('[x]{.kept}\n').diagnostics, [], 'a span has the slot');
+});
+
+test('a footnote referenced twice produces note-reference-duplicated', () => {
+  const result = carveToPandoc('See[^m] and again[^m].\n\n[^m]: One note.\n');
+  expectCode(result, 'note-reference-duplicated', 'carve-to-pandoc', 'degraded', 'degraded');
+});
+
+test('an empty link or image title produces empty-title-dropped', () => {
+  expectCode(carveToPandoc('[x](u "")\n'), 'empty-title-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  expectCode(carveToPandoc('![x](u.png "")\n'), 'empty-title-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  assert.deepEqual(carveToPandoc('[x](u)\n').diagnostics, []);
+});
+
+test('a class on a code block without a language produces code-block-class-read-as-language', () => {
+  const fence = '```';
+  const result = carveToPandoc(`{.c}\n${fence}\nx\n${fence}\n`);
+  expectCode(result, 'code-block-class-read-as-language', 'carve-to-pandoc', 'degraded', 'degraded');
+  assert.deepEqual(carveToPandoc(`{.c}\n${fence}js\nx\n${fence}\n`).diagnostics, []);
+});
+
+test('a line-block hard break that leaves an empty line produces line-block-hard-break-dropped', () => {
+  expectCode(carveToPandoc('::: |\na\\\n:::\n'), 'line-block-hard-break-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  assert.deepEqual(carveToPandoc('::: |\na\nb\n\nc\n:::\n').diagnostics, [], 'a stanza break is not one');
+});
+
+test('vertical alignment produces table-vertical-alignment-dropped', () => {
+  const result = carveToPandoc('{valigns="top,middle"}\n| A | B |\n');
+  expectCode(result, 'table-vertical-alignment-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  assert.deepEqual(carveToPandoc('{aligns="right,"}\n| A | B |\n').diagnostics, []);
+});
+
+test('a tight two-paragraph item inside a definition produces list-item-framing-lost', () => {
+  const plain = (x) => ({ t: 'Plain', c: [{ t: 'Str', c: x }] });
+  const list = { t: 'BulletList', c: [[plain('a'), plain('more')]] };
+  const result = pandocToCarve(pandocDoc([{ t: 'DefinitionList', c: [[[{ t: 'Str', c: 't' }], [[list]]]] }]));
+  expectCode(result, 'list-item-framing-lost', 'pandoc-to-carve', 'degraded', 'degraded');
+  assert.deepEqual(pandocToCarve(pandocDoc([list])).diagnostics, [], 'at the top level the writer places it');
+});
