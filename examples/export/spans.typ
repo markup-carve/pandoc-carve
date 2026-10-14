@@ -1,4 +1,5 @@
 = Table spans
+<Table-spans>
 Carve tables carry cell spans with two markers: `<` merges a cell into
 its left neighbor (colspan) and `^` merges a cell into the one above it
 (rowspan). pandoc-carve rewrites these into Pandoc's origin-cell span

@@ -105,11 +105,12 @@ test('name lookups compare case exactly (carve#2732)', () => {
   const links = para.c.filter((x) => x.t === 'Link');
   assert.deepEqual(links.map((l) => [l.c[0][1], l.c[2][0]]), [
     [['crossref'], '#Plan'],
-    [['crossref', 'unresolved'], '#plan'],
     [[], '#Plan'],
-    [['crossref', 'unresolved'], '#fig-one'],
   ]);
   assert.ok(para.c.some((x) => x.t === 'Str' && x.c.includes('[plan][]')));
+  // An unresolved crossref is its literal source, as the engine renders it.
+  assert.ok(para.c.some((x) => x.t === 'Str' && x.c === '</#plan>'));
+  assert.ok(para.c.some((x) => x.t === 'Str' && x.c === '</#fig-one>'));
 });
 
 test('a crossref reaches an id spelled in either normalization form', () => {
@@ -588,6 +589,19 @@ test('tab panel [label] degrades to a div-label caption (graceful degradation)',
   assert.equal(captionA.t, 'Para');
   assert.deepEqual(captionA.c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Installation' }] }]);
   assert.deepEqual(panelB.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Usage' }] }]);
+});
+
+test('a [label] caption is inline content, and a comment in it does not leak', () => {
+  const [div] = blocks(':::[`code` /em/ {-a %% secret-}]\nBody.\n:::');
+  const caption = div.c[1][0];
+  assert.deepEqual(caption.c, [{ t: 'Strong', c: [
+    { t: 'Code', c: [['', [], []], 'code'] },
+    { t: 'Space' },
+    { t: 'Emph', c: [{ t: 'Str', c: 'em' }] },
+    { t: 'Space' },
+    { t: 'Span', c: [['', ['deletion'], []], [{ t: 'Str', c: 'a' }]] },
+  ] }]);
+  assert.ok(!JSON.stringify(div).includes('secret'));
 });
 
 test('title precedes the [label] caption when a div carries both', () => {

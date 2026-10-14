@@ -1,3 +1,5 @@
+.. _Introduction:
+
 Introduction
 ============
 
@@ -8,6 +10,8 @@ raw passthrough.
 
 Carve swaps the Markdown emphasis delimiters: ``/italic/`` is emphasis
 and ``*bold*`` is strong. A footnote reference looks like this. [1]_
+
+.. _Lists:
 
 Lists
 -----
@@ -22,6 +26,8 @@ Lists
 1. Ordered one
 2. Ordered two
 
+.. _A-table:
+
 A table
 -------
 
@@ -32,6 +38,8 @@ LaTeX  no      yes
 Typst  no      yes
 DOCX   yes     no
 ====== ======= ============
+
+.. _Math-and-raw-passthrough:
 
 Math and raw passthrough
 ------------------------

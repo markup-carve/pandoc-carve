@@ -1,3 +1,5 @@
+.. _Interactive-constructs-and-graceful-degradation:
+
 Interactive constructs and graceful degradation
 ===============================================
 
@@ -8,6 +10,8 @@ Typst, DOCX, and the rest. Content and structure survive; only the
 interaction is dropped. This file is the worked proof - compare it
 against the generated ``interactive.md`` / ``interactive.tex`` /
 ``.typ`` / ``.native`` beside it.
+
+.. _Tabs:
 
 Tabs
 ----
@@ -31,6 +35,8 @@ panels apart.
 
       Call the *converter* on your ``.crv`` source.
 
+.. _Code-group:
+
 Code group
 ----------
 
@@ -48,6 +54,8 @@ stack.
 
       { "port": 3000 }
 
+.. _Spoiler:
+
 Spoiler
 -------
 
@@ -60,6 +68,8 @@ interaction is meaningless offline, so the body is simply shown.
 
    The hidden *answer* is 42.
 
+.. _Disclosure:
+
 Disclosure
 ----------
 
@@ -68,6 +78,8 @@ Disclosure
    **Show details**
 
    A disclosure carries its title and body through as a labelled block.
+
+.. _Mermaid-and-math:
 
 Mermaid and math
 ----------------

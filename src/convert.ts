@@ -17,7 +17,7 @@ import { diagnostic, migrationReport, type ConversionDiagnostic, type MigrationR
 import { provenanceAttr } from './provenance.js';
 import { blankDeniedDestination, probeScheme } from './url-scheme.js';
 import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
-import { SMART_PUNCTUATION_GLYPHS } from '@markup-carve/carve';
+import { SMART_PUNCTUATION_GLYPHS, fromAstJson, resolve } from '@markup-carve/carve';
 
 // The Carve AST is plain data; we type the parts we read.
 interface CNode {
@@ -110,6 +110,14 @@ interface Ctx {
      * other reference.
      */
     headingIdByText: Map<string, string>;
+    /** The labels of the note definitions being expanded, to stop a cycle. */
+    openNotes: Set<string>;
+    /** How many notes the conversion is inside of. */
+    noteDepth: number;
+    /** Notes referenced inside the current note, to follow it (see liftedNote). */
+    liftedNotes: P.Inline[];
+    /** Every heading's id, explicit or derived (pass 1). */
+    headingIds: Map<CNode, string>;
     /**
      * The crossref targets that are NUMBERED CAPTIONS rather than headings.
      *
@@ -274,12 +282,68 @@ function smallCapsOrSpan(a: P.Attr, xs: P.Inline[]): P.Inline {
     return P.Span([id, rest, kvs], [caps]);
 }
 
-/** Carve's heading slug: case-preserving, GitHub-style. */
+/**
+ * Fallback heading slug, for a tree the engine's own resolver refuses. Mirrors
+ * the engine's rule: NFC, invisible controls dropped, each run of non-
+ * alphanumeric ASCII one `-`, an `s-` prefix before a leading digit.
+ */
 function slugify(text: string): string {
-    return text
-        .trim()
-        .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-        .replace(/\s+/g, '-');
+    const s = text
+        .normalize('NFC')
+        .replace(/[\u202a-\u202e\u2066-\u2069\u200b-\u200d\u2060\ufeff\u00ad]/gu, '')
+        .replace(/[^0-9A-Za-z\u{80}-\u{10FFFF}]+/gu, '-')
+        .replace(/^-+|-+$/g, '');
+    if (s === '') return 's';
+    return /^\p{N}/u.test(s) ? `s-${s}` : s;
+}
+
+const HEADING_TAG = 'data-pandoc-carve-heading';
+
+/**
+ * The id the engine's `resolve()` gives every heading, keyed by the node.
+ *
+ * Asking the resolver rather than re-deriving: it owns the slug rule, the
+ * dedup suffix and the id namespace shared with explicit ids on other
+ * elements. Each heading in a copy is tagged so the answer maps back even
+ * though ingest moves footnote bodies around. Empty when the resolver refuses
+ * the tree; pass 1 then falls back to {@link slugify}.
+ */
+function resolvedHeadingIds(ast: CarveAstDocument): Map<CNode, string> {
+    const byTag: CNode[] = [];
+    const copy = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(copy);
+        if (!value || typeof value !== 'object') return value;
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value)) out[k] = copy(v);
+        if ((value as CNode).type === 'heading') {
+            const attrs = (out.attrs ?? {}) as CAttrs;
+            out.attrs = { ...attrs, keyValues: { ...(attrs.keyValues ?? {}), [HEADING_TAG]: String(byTag.length) } };
+            byTag.push(value as CNode);
+        }
+        return out;
+    };
+    const ids = new Map<CNode, string>();
+    try {
+        const tagged = copy(ast);
+        if (byTag.length === 0) return ids;
+        const resolved = resolve(fromAstJson(tagged as Parameters<typeof fromAstJson>[0]));
+        const stack: unknown[] = [resolved];
+        while (stack.length) {
+            const value = stack.pop();
+            if (Array.isArray(value)) stack.push(...value);
+            else if (value && typeof value === 'object') {
+                const node = value as CNode;
+                const attrs = node.attrs as CAttrs | undefined;
+                const tag = node.type === 'heading' ? attrs?.keyValues?.[HEADING_TAG] : undefined;
+                const original = tag === undefined ? undefined : byTag[Number(tag)];
+                if (original && attrs?.id) ids.set(original, attrs.id);
+                stack.push(...Object.values(node));
+            }
+        }
+    } catch {
+        ids.clear();
+    }
+    return ids;
 }
 
 function plainText(nodes: CNode[]): string {
@@ -320,7 +384,36 @@ function hasLabel(n: CNode): n is CNode & { label: string } {
  * exactly; a flattened caption Para would be indistinguishable from a title.
  */
 function labelCaption(ctx: Ctx, n: CNode): P.Block[] {
-    return !ctx.roundtrip && hasLabel(n) ? [P.Para([P.Strong(textInlines(n.label))])] : [];
+    return !ctx.roundtrip && hasLabel(n) ? [P.Para([P.Strong(labelInlines(ctx, n.label))])] : [];
+}
+
+/**
+ * A container label is an inline run (`CARVE-P9-041`), held as text on the
+ * node. It is parsed as a paragraph behind an escaped `.`, which no inline
+ * construct can absorb and which keeps a leading `#` or `-` from opening a
+ * block; the `.` is then taken back off.
+ */
+function labelInlines(ctx: Ctx, label: string): P.Inline[] {
+    if (!ctx.parseBlocks || /[\r\n]/.test(label)) return textInlines(label);
+    let parsed: CNode[];
+    try {
+        parsed = ctx.parseBlocks(`\\.${label}`) as CNode[];
+    } catch {
+        return textInlines(label);
+    }
+    const para = parsed.length === 1 && parsed[0]?.type === 'paragraph' ? parsed[0] : undefined;
+    const nodes = [...((para?.children as CNode[] | undefined) ?? [])];
+    const first = nodes[0];
+    if (first?.type === 'text' && String(first.value ?? '').startsWith('.')) {
+        const rest = String(first.value).slice(1);
+        if (rest) nodes[0] = { ...first, value: rest };
+        else nodes.shift();
+    } else if (first?.type === 'escaped_text' && first.value === '.') {
+        nodes.shift();
+    } else {
+        return textInlines(label);
+    }
+    return inlines(ctx, nodes);
 }
 
 /**
@@ -682,6 +775,44 @@ function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inli
     return out;
 }
 
+/**
+ * A Note, with any note referenced from inside it lifted out to follow it.
+ *
+ * Pandoc's notes do not nest - its writers drop a Note inside a Note - so a
+ * reference in a note body becomes a sibling note right after the outer one,
+ * and a diagnostic says the reference moved. A roundtrip conversion keeps the
+ * nesting: the reverse direction reads it back, and pandoc's JSON carries it.
+ */
+function liftedNote(ctx: Ctx, body: () => P.Block[]): P.Inline[] {
+    if (ctx.roundtrip) {
+        const note = P.Note(body());
+        ctx.noteCount++;
+        return [note];
+    }
+    if (ctx.noteDepth > 0) {
+        warn(ctx, 'footnote: a note referenced inside a note is lifted to follow it - pandoc\'s notes do not nest');
+    }
+    const outer = ctx.liftedNotes;
+    ctx.liftedNotes = [];
+    ctx.noteDepth++;
+    let content: P.Block[];
+    let lifted: P.Inline[];
+    try {
+        content = body();
+    } finally {
+        ctx.noteDepth--;
+        lifted = ctx.liftedNotes;
+        ctx.liftedNotes = outer;
+    }
+    ctx.noteCount++;
+    const notes = [P.Note(content), ...lifted];
+    if (ctx.noteDepth > 0) {
+        ctx.liftedNotes.push(...notes);
+        return [];
+    }
+    return notes;
+}
+
 function inline(ctx: Ctx, n: CNode): P.Inline[] {
     switch (n.type) {
         case 'text':
@@ -844,8 +975,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                     ctx.inCrossref = false;
                 }
             }
-            warn(ctx, `crossref: unresolved target "${target}" - emitting target text`);
-            return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), [P.Str(target)], [`#${target}`, ''])];
+            // The engine renders an unresolved crossref as its literal source.
+            warn(ctx, `crossref: unresolved target "${target}" - emitting the literal source`);
+            return textInlines(`</#${target}>`);
         }
         // The wire has two nodes here, split so that a profile can deny one
         // without the other (markup-carve/carve#405): `footnote_ref` (`[^a]`)
@@ -858,9 +990,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // a citation inside the note carries that note's number rather than
             // the next one - which is what pandoc's markdown reader produces.
             if (Array.isArray(n.inline)) {
-                const note = P.Note([P.Para(inlines(ctx, n.inline as CNode[]))]);
-                ctx.noteCount++;
-                return [note];
+                return liftedNote(ctx, () => [P.Para(inlines(ctx, n.inline as CNode[]))]);
             }
             const id = String(n.label ?? n.id ?? '');
             const def = ctx.footnoteDefs[id];
@@ -887,9 +1017,16 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
                 return textInlines(`[^${id}]`);
             }
-            const note = P.Note(blocks(ctx, def));
-            ctx.noteCount++;
-            return [note];
+            if (ctx.openNotes.has(id)) {
+                warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
+                return [];
+            }
+            ctx.openNotes.add(id);
+            try {
+                return liftedNote(ctx, () => blocks(ctx, def));
+            } finally {
+                ctx.openNotes.delete(id);
+            }
         }
         case 'math':
             // PANDOC'S `Math` IS `Math MathType Text` - two children and no
@@ -1207,7 +1344,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return [ctx.tight ? P.Plain(xs) : P.Para(xs)];
         }
         case 'heading':
-            return [P.Header(Number(n.level ?? 1), toAttr(ctx, n.attrs), kids(ctx, n))];
+            return [P.Header(Number(n.level ?? 1), toAttr(ctx, { ...(n.attrs ?? {}), id: ctx.headingIds.get(n) ?? (n.attrs as CAttrs | undefined)?.id }), kids(ctx, n))];
         case 'block_quote':
             return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
@@ -1375,7 +1512,19 @@ function list(ctx: Ctx, n: CNode): P.Block {
                 ? [...kvs, ['carve-list-item', 'true'],
                     ...(carried ? [[TASK_STATE_KEY, state] as [string, string]] : [])]
                 : kvs;
-            itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
+            const lead = itemBlocks[0];
+            if (typeof item.checked === 'boolean' && lead && (lead.t === 'Plain' || lead.t === 'Para')) {
+                // Pandoc reads a task only from a ballot that OPENS the item's
+                // first block, so a wrapping Div would hide it. The item's
+                // attributes ride on a Span after the ballot instead.
+                const [ballot, space, ...rest] = lead.c as P.Inline[];
+                itemBlocks = [
+                    { t: lead.t, c: [ballot!, space!, P.Span([id, classes, marked], rest)] },
+                    ...itemBlocks.slice(1),
+                ];
+            } else {
+                itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
+            }
         }
         return itemBlocks;
     });
@@ -2442,6 +2591,38 @@ function scalarValue(ctx: Ctx, key: string, raw: string): P.MetaValue {
     return P.MetaInlines(textInlines(value));
 }
 
+/**
+ * Trojan-Source controls (U+202A-202E, U+2066-2069), mirrored from the
+ * engine, which strips them from every rendered text and code run but keeps
+ * LRM/RLM. Raw passthrough is left alone, as the engine leaves it.
+ */
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/gu;
+
+/** Strip {@link BIDI_CONTROLS} in place from Str, Code, CodeBlock and Math; returns the count. */
+function stripBidi(value: unknown): number {
+    let count = 0;
+    const strip = (s: string): string => s.replace(BIDI_CONTROLS, () => {
+        count++;
+        return '';
+    });
+    const stack: unknown[] = [value];
+    while (stack.length) {
+        const v = stack.pop();
+        if (Array.isArray(v)) {
+            for (const x of v) stack.push(x);
+            continue;
+        }
+        if (!v || typeof v !== 'object') continue;
+        const node = v as { t?: string; c?: unknown };
+        if (node.t === 'Str' && typeof node.c === 'string') node.c = strip(node.c);
+        else if ((node.t === 'Code' || node.t === 'CodeBlock' || node.t === 'Math') && Array.isArray(node.c)
+            && typeof node.c[1] === 'string') node.c[1] = strip(node.c[1]);
+        else if (node.t === 'RawInline' || node.t === 'RawBlock') continue;
+        for (const x of Object.values(node)) stack.push(x);
+    }
+    return count;
+}
+
 // --- Entry point ---
 
 export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): ConvertResult {
@@ -2470,6 +2651,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         footnoteDefs,
         crossrefTargets: new Map(),
         headingIdByText: new Map(),
+        headingIds: resolvedHeadingIds(ast),
         captionTargets: new Set(),
         tight: false,
         inCrossref: false,
@@ -2481,6 +2663,9 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         symbols: options.symbols ?? {},
         listTable: options.listTable ?? true,
         noteCount: 0,
+        noteDepth: 0,
+        openNotes: new Set(),
+        liftedNotes: [],
         parseBlocks: options.parseBlocks,
         blockScalars: new Map(),
     };
@@ -2493,12 +2678,17 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
 
     const meta = parseMeta(ctx, frontmatter);
 
+    const converted = blocks(ctx, body);
+    const stripped = stripBidi(meta) + stripBidi(converted);
+    if (stripped > 0) {
+        warn(ctx, `bidi: ${stripped} bidi override or isolate control(s) stripped from text and code, as the engine's writers strip them`, { count: stripped });
+    }
     const diagnostics = ctx.diagnostics;
     return {
         doc: {
             'pandoc-api-version': [...P.PANDOC_API_VERSION],
             meta,
-            blocks: blocks(ctx, body),
+            blocks: converted,
         },
         warnings: ctx.warnings,
         diagnostics,
@@ -2555,7 +2745,13 @@ function collectCrossrefTargets(
         if (n.type === 'heading') {
             const children = (n.children as CNode[] | undefined) ?? [];
             const a = (n.attrs ?? {}) as CAttrs;
-            const id = a.id ?? slugify(plainText(children));
+            let id = a.id ?? ctx.headingIds.get(n);
+            if (id === undefined) {
+                const base = slugify(plainText(children));
+                id = base;
+                for (let k = 2; [...ctx.headingIds.values()].includes(id); k++) id = `${base}-${k}`;
+            }
+            ctx.headingIds.set(n, id);
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
             const text = headingTextKey(plainText(children));
             // First heading wins, the same way the id map resolves a duplicate.

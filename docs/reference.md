@@ -143,11 +143,11 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `/italic/`, `*bold*`, `/*both*/` | Emph, Strong, Strong+Emph |
 | `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
-| Headings + `{#id .class}` attributes | Header with Attr |
+| Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
 | `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
 | Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |
-| Footnotes (reference and inline `^[..]`) | Note |
+| Footnotes (reference and inline `^[..]`) | Note. Pandoc's notes do not nest, so a note referenced inside another note follows it as a sibling note (`nested-note-lifted`); under `roundtrip: true` the nesting is kept for the way back |
 | Math `` $`..` `` / `` $$`..` `` | Math Inline / Display |
 | Images/quotes with `^ caption` lines | Figure |
 | A bare `::: figure` composite (PART 9 section 4c) | Figure of nested Figures - pandoc's subfigure model - with the group caption on the outer one. An opener carrying a title or a `[label]` is not this production and stays a Div |
@@ -162,6 +162,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
 | A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
 | A reference link, image or footnote nothing defines (`[r][]`, `[^f]`) | the literal source as text, which is what Carve renders, plus a warning naming the label |
+| A cross-reference nothing defines (`</#plan>`) | the literal source as text, as Carve renders it, plus a `crossref-unresolved` warning |
 
 The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs
@@ -196,6 +197,14 @@ diagnostic.
 > This covers link and image **destinations**. An `{onclick=…}`, `{style=…}` or
 > `{srcdoc=…}` attribute, which Carve's HTML writer also refuses, still reaches
 > pandoc - see [#163](https://github.com/markup-carve/pandoc-carve/issues/163).
+
+## Bidi override controls are stripped
+
+The Trojan Source controls U+202A-202E and U+2066-2069 are removed from text,
+code spans, code blocks and math before the document reaches pandoc, as
+Carve's own writers remove them. The directional marks U+200E and U+200F stay,
+and raw passthrough is left untouched. A document that had any reports one
+`bidi-control-stripped` diagnostic (class `normalized`) with the count.
 
 ## Why a bridge, not a pandoc reader?
 

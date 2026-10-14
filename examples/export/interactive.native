@@ -1,6 +1,9 @@
 [ Header
     1
-    ( "" , [] , [] )
+    ( "Interactive-constructs-and-graceful-degradation"
+    , []
+    , []
+    )
     [ Str "Interactive"
     , Space
     , Str "constructs"
@@ -148,7 +151,7 @@
     , Space
     , Str "it."
     ]
-, Header 2 ( "" , [] , [] ) [ Str "Tabs" ]
+, Header 2 ( "Tabs" , [] , [] ) [ Str "Tabs" ]
 , Para
     [ Str "A"
     , Space
@@ -263,7 +266,9 @@
         ]
     ]
 , Header
-    2 ( "" , [] , [] ) [ Str "Code" , Space , Str "group" ]
+    2
+    ( "Code-group" , [] , [] )
+    [ Str "Code" , Space , Str "group" ]
 , Para
     [ Str "Same"
     , Space
@@ -315,7 +320,7 @@
         ( "" , [ "js" ] , [] ) "export default { port: 3000 };"
     , CodeBlock ( "" , [ "json" ] , [] ) "{ \"port\": 3000 }"
     ]
-, Header 2 ( "" , [] , [] ) [ Str "Spoiler" ]
+, Header 2 ( "Spoiler" , [] , [] ) [ Str "Spoiler" ]
 , Para
     [ Str "A"
     , Space
@@ -377,7 +382,7 @@
         , Str "42."
         ]
     ]
-, Header 2 ( "" , [] , [] ) [ Str "Disclosure" ]
+, Header 2 ( "Disclosure" , [] , [] ) [ Str "Disclosure" ]
 , Div
     ( "" , [ "admonition" , "details" ] , [] )
     [ Para [ Strong [ Str "Show" , Space , Str "details" ] ]
@@ -409,7 +414,7 @@
     ]
 , Header
     2
-    ( "" , [] , [] )
+    ( "Mermaid-and-math" , [] , [] )
     [ Str "Mermaid" , Space , Str "and" , Space , Str "math" ]
 , Para
     [ Str "The"

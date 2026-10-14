@@ -1,5 +1,7 @@
 [ Header
-    1 ( "" , [] , [] ) [ Str "Table" , Space , Str "spans" ]
+    1
+    ( "Table-spans" , [] , [] )
+    [ Str "Table" , Space , Str "spans" ]
 , Para
     [ Str "Carve"
     , Space

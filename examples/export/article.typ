@@ -1,4 +1,5 @@
 = Introduction
+<Introduction>
 This is a small, hand-written Carve document. It exercises the
 constructs that survive a round-trip through Pandoc into #emph[every]
 writer: emphasis, #strong[strong] text, links, lists, tables, footnotes,
@@ -10,6 +11,7 @@ this.#footnote[Footnotes become Pandoc `Note` nodes and render natively
 in LaTeX, Typst, DOCX, and the rest.]
 
 == Lists
+<Lists>
 - First item
 - Second item, with #emph[emphasis]
   - A nested item
@@ -19,6 +21,7 @@ in LaTeX, Typst, DOCX, and the rest.]
 + Ordered two
 
 == A table
+<A-table>
 #figure(
   align(center)[#table(
     columns: 3,
@@ -33,6 +36,7 @@ in LaTeX, Typst, DOCX, and the rest.]
   )
 
 == Math and raw passthrough
+<Math-and-raw-passthrough>
 Inline math: $e^(i pi) + 1 = 0$.
 
 A target-routed raw span reaches only the LaTeX writer and is dropped by
