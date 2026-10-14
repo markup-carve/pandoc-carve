@@ -4,12 +4,12 @@
 
 ### Fixes
 
-- Every heading carries the id the engine gives it, so `</#id>` and collapsed `[Heading][]` links land on a target in every pandoc output. Ids come from the engine's resolver instead of a local slug rule that disagreed on punctuation, a leading digit, duplicates and image alt text.
-- An unresolved cross-reference converts to its literal `</#id>` source, as the engine renders it.
-- A div's `[label]` caption is parsed as inline content: code and emphasis render, and a comment inside it no longer leaks into the output.
-- An attributed task item (`-{.c} [x] done`) stays a task item; its attributes ride on a Span after the checkbox.
-- A footnote referenced inside another footnote follows it as a sibling note instead of vanishing (`nested-note-lifted`), and a self-referencing footnote no longer overflows the stack (`nested-note-cycle-dropped`). `pandocToCarve` writes a note that holds a note as a definition instead of nested `^[...]`.
-- Bidi override and isolate controls are stripped from text and code, as the engine strips them (`bidi-control-stripped`).
+- Every heading carries the id the engine gives it, so `</#id>` and collapsed `[Heading][]` links land on a target in every pandoc output. Ids come from the engine's resolver instead of a local slug rule that disagreed on punctuation, a leading digit, duplicates and image alt text (#253).
+- An unresolved cross-reference converts to its literal `</#id>` source, as the engine renders it (#253).
+- A div's `[label]` caption is parsed as inline content: code and emphasis render, and a comment inside it no longer leaks into the output (#253).
+- An attributed task item (`-{.c} [x] done`) stays a task item; its attributes ride on a Span after the checkbox (#253).
+- A footnote referenced inside another footnote follows it as a sibling note instead of vanishing (`nested-note-lifted`), and a self-referencing footnote no longer overflows the stack (`nested-note-cycle-dropped`). `pandocToCarve` writes a note that holds a note as a definition instead of nested `^[...]` (#253).
+- Bidi override and isolate controls are stripped from text and code, as the engine strips them (`bidi-control-stripped`) (#253).
 
 ## 0.1.9 - 2026-10-14
 
