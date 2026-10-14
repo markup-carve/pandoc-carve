@@ -18,7 +18,7 @@ jobs:
   test:
     # The spec bump bot force-pushes its draft PR, which is red until marked
     # ready; marking it ready (ready_for_review) runs the full suite.
-    if: ${{ !(github.event.pull_request.draft && github.head_ref == 'automation/bump-spec') }}
+    if: ${{ !(github.event.pull_request.draft && github.head_ref == 'automation/bump-spec' && github.event.pull_request.head.repo.full_name == github.repository) }}
     # Names key on track, not the version, so a Pandoc bump keeps the required-check names.
     name: ${{ matrix.track == 'current' && format('test ({0})', matrix.node) || format('compatibility ({0})', matrix.node) }}
     runs-on: ubuntu-latest
