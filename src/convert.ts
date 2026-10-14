@@ -902,8 +902,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                     ctx.inCrossref = false;
                 }
             }
-            warn(ctx, `crossref: unresolved target "${target}" - emitting target text`);
-            return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), [P.Str(target)], [`#${target}`, ''])];
+            // The engine renders an unresolved crossref as its literal source.
+            warn(ctx, `crossref: unresolved target "${target}" - emitting the literal source`);
+            return textInlines(`</#${target}>`);
         }
         // The wire has two nodes here, split so that a profile can deny one
         // without the other (markup-carve/carve#405): `footnote_ref` (`[^a]`)

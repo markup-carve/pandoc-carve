@@ -105,11 +105,12 @@ test('name lookups compare case exactly (carve#2732)', () => {
   const links = para.c.filter((x) => x.t === 'Link');
   assert.deepEqual(links.map((l) => [l.c[0][1], l.c[2][0]]), [
     [['crossref'], '#Plan'],
-    [['crossref', 'unresolved'], '#plan'],
     [[], '#Plan'],
-    [['crossref', 'unresolved'], '#fig-one'],
   ]);
   assert.ok(para.c.some((x) => x.t === 'Str' && x.c.includes('[plan][]')));
+  // An unresolved crossref is its literal source, as the engine renders it.
+  assert.ok(para.c.some((x) => x.t === 'Str' && x.c === '</#plan>'));
+  assert.ok(para.c.some((x) => x.t === 'Str' && x.c === '</#fig-one>'));
 });
 
 test('a crossref reaches an id spelled in either normalization form', () => {

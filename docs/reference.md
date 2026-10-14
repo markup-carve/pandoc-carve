@@ -143,7 +143,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `/italic/`, `*bold*`, `/*both*/` | Emph, Strong, Strong+Emph |
 | `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
-| Headings + `{#id .class}` attributes | Header with Attr |
+| Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
 | `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
 | Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |
@@ -162,6 +162,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | Ordered markers `1.` / `1)` / `a.` / `iv.` | OrderedList with the matching style and delimiter. Pandoc's example list `(@)` and its `(1)` marker have no Carve form and are reported |
 | A no-break space the parser resolved (`\ `) | U+00A0 (the engines publish a private-use sentinel for it) |
 | A reference link, image or footnote nothing defines (`[r][]`, `[^f]`) | the literal source as text, which is what Carve renders, plus a warning naming the label |
+| A cross-reference nothing defines (`</#plan>`) | the literal source as text, as Carve renders it, plus a `crossref-unresolved` warning |
 
 The complete node-by-node contract lives in the test goldens. Worked
 input/output pairs in both directions - including how interactive constructs
