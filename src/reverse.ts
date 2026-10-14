@@ -370,7 +370,7 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
 function link(ctx: Ctx, c: never): CNode[] {
     const [a, xs, [href, title]] = c as [Attr, PandocNode[], [string, string]];
     const [, classes] = a;
-    if (classes.includes('uri') || classes.includes('email')) {
+    if ((classes.includes('uri') || classes.includes('email')) && autolinkParses(href, stringify(xs))) {
         const node: CNode = { type: 'autolink', href, text: stringify(xs) };
         // `uri`/`email` is the class the forward direction SYNTHESIZES to say
         // what kind of link this is, so it is not the author's and does not
@@ -384,11 +384,36 @@ function link(ctx: Ctx, c: never): CNode[] {
     if (classes.includes('crossref')) {
         return [{ type: 'heading_ref', target: href.replace(/^#/, '') }];
     }
+    if (href === '') {
+        // `[text]()` is literal text in Carve, and `[text](<>)` links to `<>`.
+        warn(ctx, 'link: an empty destination has no Carve spelling - the link text is kept without the link');
+        return inlines(ctx, xs);
+    }
     const node: CNode = { type: 'link', href, children: inlines(ctx, xs) };
     if (title) node.title = title;
-    const attrs = fromAttr(a);
+    // An autolink the engine cannot spell arrives here; its class is synthesized.
+    const label = stringify(xs);
+    const autolinkShaped = href === label || href === `mailto:${label}`;
+    const attrs = fromAttr([a[0], autolinkShaped ? classes.filter((c) => c !== 'uri' && c !== 'email') : classes, a[2]]);
     if (attrs) node.attrs = attrs;
     return [node];
+}
+
+/**
+ * Whether `<text>` reads back as an autolink to `href`. The engine's autolink
+ * grammar is narrower than pandoc's (an internationalized address is one it
+ * rejects), and such a link is written as an ordinary link instead.
+ */
+function autolinkParses(href: string, text: string): boolean {
+    try {
+        const doc = parseCarve(`<${text}>`) as { children?: { children?: { type?: string; href?: string }[] }[] };
+        const only = doc.children?.[0]?.children;
+        // An empty href is a denied scheme the forward direction blanked; the
+        // engine blanks it again when it renders the autolink.
+        return only?.length === 1 && only[0]?.type === 'autolink' && (href === '' || only[0]?.href === href);
+    } catch {
+        return false;
+    }
 }
 
 /** Restore convert.ts's classed-span degradations to native Carve nodes. */
@@ -628,8 +653,6 @@ function blocks(ctx: Ctx, xs: PandocNode[] | undefined): CNode[] {
     for (const x of xs) out.push(...block(ctx, x));
     return out;
 }
-
-const KNOWN_ADMONITIONS = new Set(['note', 'tip', 'warning', 'danger', 'info', 'caution', 'important']);
 
 function block(ctx: Ctx, n: PandocNode): CNode[] {
     const c = n.c as never;
@@ -1581,7 +1604,23 @@ const bulletListOf = (items: CNode[]): CNode => ({
 function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {
     // Block cells take the list-table path before this function is called.
     const first = cellBlocks[0];
-    return first ? mergeText(inlines(ctx, first.c as PandocNode[])) : [];
+    return first ? mergeText(flattenCellBreaks(ctx, inlines(ctx, first.c as PandocNode[]))) : [];
+}
+
+/**
+ * A pipe-table row is one line, so a break inside a cell would end the row and
+ * turn the whole table into a paragraph. A soft break is a space anyway; a hard
+ * break has no spelling in a cell and is reported.
+ */
+function flattenCellBreaks(ctx: Ctx, nodes: CNode[]): CNode[] {
+    return nodes.map((n) => {
+        if (n.type === 'soft_break') return text(' ');
+        if (n.type === 'hard_break') {
+            warn(ctx, 'table: a hard break inside a cell has no pipe-table spelling - written as a space');
+            return text(' ');
+        }
+        return Array.isArray(n.children) ? { ...n, children: flattenCellBreaks(ctx, n.children as CNode[]) } : n;
+    });
 }
 
 function captionFromBlocks(ctx: Ctx, capBlocks: PandocNode[] | undefined): CNode[] | null {
@@ -1825,11 +1864,11 @@ function div(ctx: Ctx, c: never): CNode[] {
     let kind: string | undefined;
     let rest: string[] = [];
     const wrapper = classes.includes('directive') ? 'directive' : classes.includes('admonition') ? 'admonition' : undefined;
+    // Only the bridge's own `admonition`/`directive` marker makes one: a
+    // pandoc Div classed `note` is an ordinary div that happens to use the word.
     if (wrapper) {
         rest = classes.filter((x) => x !== wrapper);
         kind = rest.shift();
-    } else if (classes.length === 1 && KNOWN_ADMONITIONS.has(classes[0]!)) {
-        kind = classes[0];
     }
 
     if (kind) {
@@ -2026,6 +2065,9 @@ export function pandocToCarve(doc: PandocDoc, target: 'source' | 'ast' = 'source
     const ast: CNode = { type: 'document', children };
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
     dropDerivableHeadingIds(ast);
+    if (target === 'source' && hasRejoinedFraming(children, false)) {
+        warn(ctx, "list: a tight item's second paragraph inside an indented container is rejoined to its first by the Carve writer");
+    }
     const yaml = metaToYaml(ctx, doc.meta ?? {});
     if (yaml) ast.frontmatter = { format: 'yaml', content: yaml };
     return { ast, warnings: ctx.warnings, diagnostics: ctx.diagnostics };
@@ -2116,3 +2158,31 @@ function containsNote(value: unknown): boolean {
     if ((value as PandocNode).t === 'Note') return true;
     return containsNote((value as PandocNode).c);
 }
+
+/**
+ * Whether a tight list nested in a list item or a definition holds an item
+ * with two adjacent paragraphs. The writer spells the second one as a `+`
+ * continuation it places at the wrong column there, so it reads back joined
+ * to the first.
+ */
+function hasRejoinedFraming(nodes: unknown, indented: boolean): boolean {
+    if (!Array.isArray(nodes)) return false;
+    return nodes.some((value) => {
+        if (!value || typeof value !== 'object') return false;
+        const node = value as CNode;
+        if (node.type === 'list') {
+            const items = (node.items as CNode[] | undefined) ?? [];
+            if (indented && node.tight && items.some((item) => {
+                const kids = (item.children as CNode[] | undefined) ?? [];
+                return kids.some((kid, i) => kid.type === 'paragraph' && kids[i + 1]?.type === 'paragraph');
+            })) return true;
+            return items.some((item) => hasRejoinedFraming(item.children, true));
+        }
+        if (node.type === 'definition_list') {
+            const items = (node.items as { definitions?: unknown[] }[] | undefined) ?? [];
+            return items.some((item) => (item.definitions ?? []).some((d) => hasRejoinedFraming(d, true)));
+        }
+        return hasRejoinedFraming(node.children, indented);
+    });
+}
+

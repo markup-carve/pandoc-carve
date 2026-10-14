@@ -110,6 +110,8 @@ interface Ctx {
      * other reference.
      */
     headingIdByText: Map<string, string>;
+    /** The labels of the note definitions referenced so far. */
+    citedNotes: Set<string>;
     /** The labels of the note definitions being expanded, to stop a cycle. */
     openNotes: Set<string>;
     /** How many notes the conversion is inside of. */
@@ -423,7 +425,8 @@ function labelInlines(ctx: Ctx, label: string): P.Inline[] {
  * that the reverse importer would mistake for this internal marker.
  */
 function labelKv(ctx: Ctx, n: CNode): [string, string][] {
-    return ctx.roundtrip && hasLabel(n) ? [['carve.label', n.label]] : [];
+    // An empty label still renders (an empty caption line), so it crosses too.
+    return ctx.roundtrip && typeof n.label === 'string' ? [['carve.label', n.label]] : [];
 }
 
 // Glyphs for the smart-typography kinds that do not carry one on the node.
@@ -813,7 +816,39 @@ function liftedNote(ctx: Ctx, body: () => P.Block[]): P.Inline[] {
     return notes;
 }
 
+/** Pandoc reads an empty title as no title, so an authored `""` cannot cross. */
+function emptyTitle(ctx: Ctx, n: CNode, kind: 'link' | 'image'): void {
+    if (n.title === '') {
+        warn(ctx, `${kind}: an empty title is dropped - pandoc reads an empty title as none`, { construct: kind }, n.pos);
+    }
+}
+
+/**
+ * Inline nodes whose pandoc constructor has no Attr slot (or, for the classed
+ * Span stand-ins, whose slot the bridge's own class fills), so an attribute run
+ * on them is dropped - said once per node rather than silently.
+ */
+const NO_ATTR_SLOT: Record<string, string> = {
+    emphasis: 'Emph',
+    strong: 'Strong',
+    underline: 'Underline',
+    strike: 'Strikeout',
+    subscript: 'Subscript',
+    superscript: 'Superscript',
+    highlight: 'Span .mark',
+    insert: 'Span .insertion',
+    delete: 'Span .deletion',
+    substitution: 'Span .substitution',
+    footnote_ref: 'Note',
+    inline_footnote: 'Note',
+};
+
 function inline(ctx: Ctx, n: CNode): P.Inline[] {
+    const slotless = NO_ATTR_SLOT[n.type];
+    if (slotless && hasAttrs(n.attrs as CAttrs | undefined)) {
+        warn(ctx, `attribute: the attributes on a ${n.type} are dropped - pandoc's ${slotless} has no slot for them`,
+            { construct: n.type }, n.pos);
+    }
     switch (n.type) {
         case 'text':
             return textInlines(String(n.value ?? ''));
@@ -889,6 +924,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             }
             const unresolved = unresolvedReference(ctx, n, 'link');
             if (unresolved) return unresolved;
+            emptyTitle(ctx, n, 'link');
             return [
                 P.Link(toAttr(ctx, n.attrs), inLink(ctx, n), [
                     safeDestination(ctx, String(n.href ?? ''), 'link'),
@@ -925,6 +961,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'image': {
             const unresolved = unresolvedReference(ctx, n, 'image');
             if (unresolved) return unresolved;
+            emptyTitle(ctx, n, 'image');
             return [
                 P.Image(toAttr(ctx, n.attrs), textInlines(String(n.alt ?? '')), [
                     safeDestination(ctx, String(n.src ?? ''), 'image'),
@@ -1017,6 +1054,11 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
                 return textInlines(`[^${id}]`);
             }
+            if (ctx.citedNotes.has(id)) {
+                warn(ctx, `footnote: [^${id}] is referenced more than once - pandoc's Note has no identity, so each reference carries its own copy`,
+                    { reference: `[^${id}]` }, n.pos);
+            }
+            ctx.citedNotes.add(id);
             if (ctx.openNotes.has(id)) {
                 warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
                 return [];
@@ -1319,21 +1361,30 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
  */
 function lineBlock(ctx: Ctx, n: CNode): P.Block {
     const lines: P.Inline[][] = [];
+    let emptyLine = false;
     const stanzas = (n.children as CNode[] | undefined) ?? [];
     stanzas.forEach((stanza, i) => {
         if (i > 0) lines.push([]);
         const kids = (stanza.children as CNode[] | undefined) ?? [stanza];
         let current: CNode[] = [];
+        let broke = false;
         for (const kid of kids) {
             if (kid.type === 'hard_break' || kid.type === 'soft_break') {
+                if (current.length === 0 && broke) emptyLine = true;
                 lines.push(inlines(ctx, current));
                 current = [];
+                broke = true;
                 continue;
             }
             current.push(kid);
         }
+        if (current.length === 0 && broke) emptyLine = true;
         lines.push(inlines(ctx, current));
     });
+    if (emptyLine) {
+        warn(ctx, 'line block: a hard break that leaves an empty line becomes an empty entry, which pandoc cannot tell from a stanza break',
+            { construct: 'line_block' }, n.pos);
+    }
     return P.LineBlock(lines);
 }
 
@@ -1350,6 +1401,10 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
         case 'code_block': {
             const lang = n.lang ? [String(n.lang)] : [];
             const [id, classes, kvs] = toAttr(ctx, n.attrs);
+            if (lang.length === 0 && classes.length > 0) {
+                warn(ctx, `code block: a class without a language is read as the language by pandoc's writers - "${classes[0]}"`,
+                    { construct: 'code_block', class: classes[0] }, n.pos);
+            }
             return [
                 P.CodeBlock(
                     P.attr(id, [...lang, ...classes], kvs),
@@ -1666,6 +1721,11 @@ function table(
     caption: P.Inline[] | null,
     shortCaption: P.Inline[] | null = null,
 ): P.Block {
+    const valigned = ((n.columns as { valign?: string }[] | undefined) ?? []).some((c) => c?.valign)
+        || ((n.rows as { cells?: { valign?: string }[] }[] | undefined) ?? []).some((r) => r?.cells?.some((c) => c?.valign));
+    if (valigned) {
+        warn(ctx, "table: vertical alignment is dropped - pandoc's Table has no slot for it", { construct: 'table' }, n.pos);
+    }
     if (!caption && Array.isArray(n.caption)) {
         ctx.captionKind = captionLabel(n.caption as CNode[]);
         caption = inlines(ctx, n.caption as CNode[]);
@@ -2665,6 +2725,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         noteCount: 0,
         noteDepth: 0,
         openNotes: new Set(),
+        citedNotes: new Set(),
         liftedNotes: [],
         parseBlocks: options.parseBlocks,
         blockScalars: new Map(),
@@ -2835,6 +2896,9 @@ function figureGroupTargets(
         const letter = panelLetter(panelIndex++);
         if (resolved && a.id && !ctx.crossrefTargets.has(a.id)) {
             ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${resolved}${letter}` }]);
+            // A panel caption holds no `#` either, so the crossref has to
+            // cross as the plain link it renders as (see `captionTargets`).
+            ctx.captionTargets.add(a.id);
         }
         collectCrossrefTargets(ctx, [child], captionCounts, true);
     }

@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { findPandoc } from './helpers.mjs';
+import { carveToHtml } from '@markup-carve/carve';
 
 const load = name => JSON.parse(readFileSync(new URL(`./fixtures/table-readers/${name}.json`, import.meta.url)));
 const tables = blocks => {
@@ -115,4 +116,33 @@ test('blank-row fallback converts notes and inline diagnostics once', () => {
   const result = pandocToCarve(doc);
   assert.equal((result.carve.match(/^\[\^fn\d+\]:/gm) ?? []).length, 1);
   assert.equal(result.warnings.filter(w => /small.?caps/i.test(w)).length, 1);
+});
+
+test('a soft break inside a cell is a space, so the row stays a table row', () => {
+  const result = pandocToCarve(load('markdown-multiline-softbreak'));
+  const html = carveToHtml(result.carve);
+  assert.match(html, /<table>/, result.carve);
+  assert.match(html, /<td[^>]*>Example of a row that spans multiple lines\.<\/td>/);
+  assert.deepEqual(result.diagnostics.filter((d) => d.code === 'table-cell-break-flattened'), []);
+});
+
+test('a hard break inside a cell becomes a space and says so', () => {
+  const result = pandocToCarve(load('markdown-grid-hardbreak'));
+  assert.match(carveToHtml(result.carve), /<td>one two<\/td>/);
+  const found = result.diagnostics.filter((d) => d.code === 'table-cell-break-flattened');
+  assert.equal(found.length, 1, JSON.stringify(result.diagnostics));
+  assert.equal(found[0].class, 'lossy');
+});
+
+test('a soft break nested in emphasis inside a cell is a space too', () => {
+  const cell = (inlines) => [['', [], []], { t: 'AlignDefault' }, 1, 1, [{ t: 'Plain', c: inlines }]];
+  const row = (cells) => [['', [], []], cells];
+  const doc = { 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Table', c: [
+    ['', [], []], [null, []], [[{ t: 'AlignDefault' }, { t: 'ColWidthDefault' }]],
+    [['', [], []], []],
+    [[['', [], []], 0, [], [row([cell([{ t: 'Emph', c: [{ t: 'Str', c: 'a' }, { t: 'SoftBreak' }, { t: 'Str', c: 'b' }] }])])]]],
+    [['', [], []], []],
+  ] }] };
+  const result = pandocToCarve(doc);
+  assert.match(carveToHtml(result.carve), /<td><em>a b<\/em><\/td>/, result.carve);
 });
