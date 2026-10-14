@@ -1,14 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.1.9 - 2026-10-14
 
 ### Fixes
 
 - Every heading carries the id the engine gives it, so `</#id>` and collapsed `[Heading][]` links land on a target in every pandoc output. Ids come from the engine's resolver instead of a local slug rule that disagreed on punctuation, a leading digit, duplicates and image alt text (#253).
-- An unresolved cross-reference converts to its literal `</#id>` source, as the engine renders it (#253).
+- An unresolved cross-reference converts to its literal `</#id>` source, as the engine renders it. Under `roundtrip: true` it stays a cross-reference, so the reverse direction restores it (#253, #257).
 - A div's `[label]` caption is parsed as inline content: code and emphasis render, and a comment inside it no longer leaks into the output (#253).
 - An attributed task item (`-{.c} [x] done`) stays a task item; its attributes ride on a Span after the checkbox (#253).
-- A footnote referenced inside another footnote follows it as a sibling note instead of vanishing (`nested-note-lifted`), and a self-referencing footnote no longer overflows the stack (`nested-note-cycle-dropped`). `pandocToCarve` writes a note that holds a note as a definition instead of nested `^[...]` (#253).
+- A footnote referenced inside another footnote follows it as a sibling note instead of vanishing (`nested-note-lifted`), and a self-referencing footnote no longer overflows the stack (`nested-note-cycle-dropped`, without a `note-reference-duplicated` for the dropped reference). `pandocToCarve` writes a note that holds a note as a definition instead of nested `^[...]` (#253, #257).
 - Bidi override and isolate controls are stripped from text and code, as the engine strips them (`bidi-control-stripped`) (#253).
 - `pandocToCarve` and `pandocToCarveAst` refuse a Pandoc document nested deeper than the engine's render cap or 32 nested lists with `PandocImportLimitError` and a `pandoc-nesting-too-deep` diagnostic, instead of overflowing the stack or hanging in the writer. The CLI writes the diagnostic to its `--diagnostics` report and exits 1 (#255).
 - `pandocToCarve` folds a soft break inside a table cell to a space, so pandoc multiline and grid tables stay tables instead of turning into a literal paragraph. A hard break in a cell becomes a space with `table-cell-break-flattened` (#254).
@@ -16,11 +16,6 @@
 - `pandocToCarve` no longer turns a pandoc Div classed only `note` or `warning` into an admonition; only the bridge's own admonition marker does (#254).
 - Every round-trip loss in the spec corpus now reports at least one diagnostic. New codes: `inline-attributes-dropped`, `note-reference-duplicated`, `empty-title-dropped`, `code-block-class-read-as-language`, `line-block-hard-break-dropped`, `table-vertical-alignment-dropped`, `list-item-framing-lost` (#254).
 - A crossref to a composite figure's panel converts to the link it renders as, and an empty container label (`[]`) survives `roundtrip: true` (#254).
-
-## 0.1.9 - 2026-10-14
-
-### Fixes
-
 - A note converted from pandoc keeps its label. Against carve 0.1.11 it came back as `[^]` (#248).
 - A table continuation line converts to a space between the joined words (#248).
 - Table spans follow the spec's span walk: a `^` or `<` that would cover another cell stays a cell of its own, so no cell is dropped (#248, #250).
