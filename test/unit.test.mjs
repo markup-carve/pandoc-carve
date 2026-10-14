@@ -591,6 +591,19 @@ test('tab panel [label] degrades to a div-label caption (graceful degradation)',
   assert.deepEqual(panelB.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Usage' }] }]);
 });
 
+test('a [label] caption is inline content, and a comment in it does not leak', () => {
+  const [div] = blocks(':::[`code` /em/ {-a %% secret-}]\nBody.\n:::');
+  const caption = div.c[1][0];
+  assert.deepEqual(caption.c, [{ t: 'Strong', c: [
+    { t: 'Code', c: [['', [], []], 'code'] },
+    { t: 'Space' },
+    { t: 'Emph', c: [{ t: 'Str', c: 'em' }] },
+    { t: 'Space' },
+    { t: 'Span', c: [['', ['deletion'], []], [{ t: 'Str', c: 'a' }]] },
+  ] }]);
+  assert.ok(!JSON.stringify(div).includes('secret'));
+});
+
 test('title precedes the [label] caption when a div carries both', () => {
   const [div] = blocks('::: note "Heads up" [side]\nBody.\n:::');
   assert.deepEqual(div.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Heads' }, { t: 'Space' }, { t: 'Str', c: 'up' }] }]);

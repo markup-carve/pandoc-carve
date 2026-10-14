@@ -378,7 +378,36 @@ function hasLabel(n: CNode): n is CNode & { label: string } {
  * exactly; a flattened caption Para would be indistinguishable from a title.
  */
 function labelCaption(ctx: Ctx, n: CNode): P.Block[] {
-    return !ctx.roundtrip && hasLabel(n) ? [P.Para([P.Strong(textInlines(n.label))])] : [];
+    return !ctx.roundtrip && hasLabel(n) ? [P.Para([P.Strong(labelInlines(ctx, n.label))])] : [];
+}
+
+/**
+ * A container label is an inline run (`CARVE-P9-041`), held as text on the
+ * node. It is parsed as a paragraph behind an escaped `.`, which no inline
+ * construct can absorb and which keeps a leading `#` or `-` from opening a
+ * block; the `.` is then taken back off.
+ */
+function labelInlines(ctx: Ctx, label: string): P.Inline[] {
+    if (!ctx.parseBlocks || /[\r\n]/.test(label)) return textInlines(label);
+    let parsed: CNode[];
+    try {
+        parsed = ctx.parseBlocks(`\\.${label}`) as CNode[];
+    } catch {
+        return textInlines(label);
+    }
+    const para = parsed.length === 1 && parsed[0]?.type === 'paragraph' ? parsed[0] : undefined;
+    const nodes = [...((para?.children as CNode[] | undefined) ?? [])];
+    const first = nodes[0];
+    if (first?.type === 'text' && String(first.value ?? '').startsWith('.')) {
+        const rest = String(first.value).slice(1);
+        if (rest) nodes[0] = { ...first, value: rest };
+        else nodes.shift();
+    } else if (first?.type === 'escaped_text' && first.value === '.') {
+        nodes.shift();
+    } else {
+        return textInlines(label);
+    }
+    return inlines(ctx, nodes);
 }
 
 /**
