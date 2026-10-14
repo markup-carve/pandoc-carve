@@ -837,10 +837,8 @@ function orderedList(ctx: Ctx, c: never): CNode {
     if (start !== 1) node.start = start;
     const olType = OL_STYLE[style.t];
     if (olType) node.olType = olType;
-    // Source-style metadata for AST consumers; renderCarve currently
-    // normalizes to `1.` regardless (fmt canonical form).
+    // AST contract 1.1 records only the non-default `)`; `.` is absence.
     if (delim?.t === 'OneParen' || delim?.t === 'TwoParens') node.delim = ')';
-    else if (delim?.t === 'Period') node.delim = '.';
 
     // Pandoc's `Example` list is `(@)` numbering: ONE counter shared by every
     // example list in the document, and items can be labelled and referenced
@@ -1578,7 +1576,6 @@ const bulletListOf = (items: CNode[]): CNode => ({
     ordered: false,
     tight: items.every((item) => ((item.children as CNode[] | undefined) ?? []).length <= 1),
     items,
-    bulletChar: '-',
 });
 
 function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {

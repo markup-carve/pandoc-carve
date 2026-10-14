@@ -213,9 +213,8 @@ test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
   assert.deepEqual(tasks.c[1][0].c.slice(0, 2), [{ t: 'Str', c: '☐' }, { t: 'Space' }]);
 });
 
-test('ordered-list delimiter maps to Period/OneParen when the AST carries it', async () => {
-  // carve-js records `delim` from PR 342 onward; until the dependency ships
-  // it, exercise the mapping with a hand-built AST through convert().
+test('ordered-list delimiter maps to Period/OneParen, absence meaning Period', async () => {
+  // AST contract 1.1 omits the default `.` delimiter.
   const { convert } = await import('../dist/convert.js');
   const list = (delim) => ({
     type: 'document',
@@ -226,7 +225,7 @@ test('ordered-list delimiter maps to Period/OneParen when the AST carries it', a
   });
   assert.equal(convert(list(')')).doc.blocks[0].c[0][2].t, 'OneParen');
   assert.equal(convert(list('.')).doc.blocks[0].c[0][2].t, 'Period');
-  assert.equal(convert(list(undefined)).doc.blocks[0].c[0][2].t, 'DefaultDelim');
+  assert.equal(convert(list(undefined)).doc.blocks[0].c[0][2].t, 'Period');
 });
 
 test('import records the pandoc list delimiter on the Carve AST', async () => {
@@ -237,7 +236,7 @@ test('import records the pandoc list delimiter on the Carve AST', async () => {
     blocks: [{ t: 'OrderedList', c: [[1, { t: 'Decimal' }, { t: delim }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
   });
   assert.equal(pandocToCarve(doc('OneParen')).ast.children[0].delim, ')');
-  assert.equal(pandocToCarve(doc('Period')).ast.children[0].delim, '.');
+  assert.equal(pandocToCarve(doc('Period')).ast.children[0].delim, undefined);
   assert.equal(pandocToCarve(doc('DefaultDelim')).ast.children[0].delim, undefined);
 });
 

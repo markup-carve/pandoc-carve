@@ -691,6 +691,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             return [P.SoftBreak];
         case 'hard_break':
             return [P.LineBreak];
+        case 'cell_wrap':
+            // A table continuation-line join; the contract renders it as one space.
+            return [P.Space];
         case 'emphasis':
             return [P.Emph(kids(ctx, n))];
         case 'strong':
@@ -1377,9 +1380,8 @@ function list(ctx: Ctx, n: CNode): P.Block {
     });
     if (n.ordered) {
         const style = OL_TYPE[String(n.olType ?? '')] ?? 'Decimal';
-        // `delim` lands in the Carve AST with carve-js PR 342; older parsers
-        // simply leave it undefined and we emit pandoc's default.
-        const delim = n.delim === ')' ? 'OneParen' : n.delim === '.' ? 'Period' : 'DefaultDelim';
+        // AST contract 1.1 omits the default `.` delimiter, so absence means Period.
+        const delim = n.delim === ')' ? 'OneParen' : 'Period';
         return P.OrderedList(Number(n.start ?? 1), style, converted, delim);
     }
     return P.BulletList(converted);
