@@ -461,3 +461,16 @@ test('a percent-leading comment says the same thing in either spelling (#168)', 
     assert.equal(roundtrip(a + '\n'), roundtrip(b + '\n'));
   }
 });
+
+test('reverse: a code span the writer cannot spell degrades instead of throwing', () => {
+  const source = '- ::: |\n    ```\n  :::\n    ```\n  :::\n  para\ntail\n';
+  const result = pandocToCarve(carveToPandoc(source).doc);
+  assert.match(result.carve, /`[^`\n]*:::[^`\n]*`/);
+  assert.deepEqual(result.diagnostics.map((d) => d.code), ['field-unspellable']);
+});
+
+test('reverse: a block note comes back with its label', () => {
+  const back = roundtrip('see[^a]\n\n[^a]: note\n\n  more\n');
+  assert.match(back, /see\[\^fn1\]/);
+  assert.match(back, /\[\^fn1\]: note/);
+});

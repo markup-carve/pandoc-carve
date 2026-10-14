@@ -1,6 +1,6 @@
 {
   "name": "@markup-carve/pandoc-carve",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Carve to Pandoc bridge: convert Carve markup to Pandoc's JSON AST and reach every pandoc output format (LaTeX, Typst, DOCX, PDF, ...)",
   "keywords": [
     "carve",
@@ -55,7 +55,7 @@
     "source": "https://github.com/markup-carve/pandoc-carve"
   },
   "dependencies": {
-    "@markup-carve/carve": "^0.1.10"
+    "@markup-carve/carve": "^0.1.11"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

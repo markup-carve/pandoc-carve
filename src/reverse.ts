@@ -345,7 +345,7 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             }
             const id = `fn${++ctx.noteCounter}`;
             ctx.footnoteDefs[id] = blocks(ctx, noteBlocks);
-            return [{ type: 'footnote_ref', id }];
+            return [{ type: 'footnote_ref', label: id }];
         }
         case 'Span':
             {
@@ -837,10 +837,8 @@ function orderedList(ctx: Ctx, c: never): CNode {
     if (start !== 1) node.start = start;
     const olType = OL_STYLE[style.t];
     if (olType) node.olType = olType;
-    // Source-style metadata for AST consumers; renderCarve currently
-    // normalizes to `1.` regardless (fmt canonical form).
+    // AST contract 1.1 records only the non-default `)`; `.` is absence.
     if (delim?.t === 'OneParen' || delim?.t === 'TwoParens') node.delim = ')';
-    else if (delim?.t === 'Period') node.delim = '.';
 
     // Pandoc's `Example` list is `(@)` numbering: ONE counter shared by every
     // example list in the document, and items can be labelled and referenced
@@ -1070,7 +1068,8 @@ function table(
     // Row-head columns no longer send a table to the list-table form: the pipe
     // table marks those cells directly (see `rowHeadCols` above), which is
     // readable, needs no extension, and round-trips. Block cells need the
-    // list-table form, as do blank rows without attributes or alignment.
+    // list-table form. A wholly blank row is a pipe-table row since the spec
+    // ruled an explicitly delimited row of blank cells a table (corpus 589).
     //
     // A FOOT USED TO BE A SECOND REASON, AND IT WAS A REAL ONE AT THE TIME.
     // The clause read `|| (ctx.target === 'source' && footRaw.length > 0)`.
@@ -1090,22 +1089,7 @@ function table(
     // (corpus 376, spec f074372), so at the time the pipe form genuinely could
     // not carry a foot and the list-table detour was the only way to keep it.
     // The limitation is gone, so the detour is too.
-    const occupied: boolean[][] = allRaw.map(() => []);
-    const hasBlankRows = allRaw.some((row, r) => {
-        let col = 0;
-        let blank = nCols > 0;
-        for (const raw of row[1]) {
-            while (occupied[r]![col]) col++;
-            const [attr, align, height, width, content] = raw as [Attr, PandocNode, number, number, PandocNode[]];
-            if (width > 1 || height > 1 || content.length || fromAttr(attr) || align.t !== 'AlignDefault') blank = false;
-            for (let down = 1; down < height && r + down < allRaw.length; down++) {
-                for (let across = 0; across < width; across++) occupied[r + down]![col + across] = true;
-            }
-            col += width;
-        }
-        return blank && !occupied[r]!.some(Boolean);
-    });
-    const useListTable = ctx.target === 'source' && (hasBlockCells || hasBlankRows);
+    const useListTable = ctx.target === 'source' && hasBlockCells;
 
     const pending: ('rowspan' | undefined)[][] = allRaw.map(() => Array<'rowspan' | undefined>(nCols));
     const rows: CNode[] = [];
@@ -1194,7 +1178,6 @@ function table(
             attrs: fromAttr(a),
             colAligns,
             colWidths: columns.map((column) => column.width),
-            blankRows: !hasBlockCells && hasBlankRows,
         });
     }
 
@@ -1261,7 +1244,10 @@ function table(
         && groupBodies.every((b) => b.bodyRows > 0)
         && adjacentRunsDiffer
         && !leadingRunFillsTheRow
-        && headRaw.length === 0 && footRaw.length === 0
+        // A head is the leading run of fully marked rows, so it is safe beside
+        // a collapse as long as the first body does not open with one
+        // (`leadingRunFillsTheRow`). Corpus 589-31.
+        && footRaw.length === 0
         && !headAttrs && !footAttrs;
     const collapsed: RowGroupBody[] = [{
         headRows: 0,
@@ -1442,7 +1428,6 @@ interface ListTableInput {
     attrs: CAttrs | undefined;
     colAligns: string[];
     colWidths: Array<number | undefined>;
-    blankRows?: boolean;
 }
 
 /**
@@ -1462,12 +1447,7 @@ interface ListTableInput {
  */
 function listTable(ctx: Ctx, input: ListTableInput): CNode {
     const { rows, cellBlocksAt, headRows, footRows, bodies, caption, attrs, colAligns, colWidths } = input;
-    warn(
-        ctx,
-        input.blankRows
-            ? 'table: a blank row has no pipe-table source spelling - emitted as a `::: list-table` (structure preserved)'
-            : 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)',
-    );
+    warn(ctx, 'table: a cell holds block content, which a pipe table cannot spell - emitted as a `::: list-table` (structure preserved)');
     if (bodies.some((b) => b.attrs)) {
         warn(ctx, 'list-table: a body group\'s attributes are dropped - the extension has no body to hang them on');
     }
@@ -1578,7 +1558,6 @@ const bulletListOf = (items: CNode[]): CNode => ({
     ordered: false,
     tight: items.every((item) => ((item.children as CNode[] | undefined) ?? []).length <= 1),
     items,
-    bulletChar: '-',
 });
 
 function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {

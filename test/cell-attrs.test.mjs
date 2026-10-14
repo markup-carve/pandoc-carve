@@ -59,7 +59,8 @@ test('cell attrs: both Attrs come back on the way in', () => {
 });
 
 test('cell attrs: the round trip preserves them through Carve source', () => {
-  const strip = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'pos' ? undefined : v)));
+  // separatorWidths records the authored separator row, which pandoc has no slot for.
+  const strip = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'pos' || k === 'separatorWidths' ? undefined : v)));
   const source = pandocToCarve(carveToPandoc(SRC).doc).carve;
   assert.ok(source.includes('{#c1 .hi k=v}'), source);
   assert.ok(source.includes('{.rowcls}'), source);

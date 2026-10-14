@@ -213,9 +213,8 @@ test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
   assert.deepEqual(tasks.c[1][0].c.slice(0, 2), [{ t: 'Str', c: '☐' }, { t: 'Space' }]);
 });
 
-test('ordered-list delimiter maps to Period/OneParen when the AST carries it', async () => {
-  // carve-js records `delim` from PR 342 onward; until the dependency ships
-  // it, exercise the mapping with a hand-built AST through convert().
+test('ordered-list delimiter maps to Period/OneParen, absence meaning Period', async () => {
+  // AST contract 1.1 omits the default `.` delimiter.
   const { convert } = await import('../dist/convert.js');
   const list = (delim) => ({
     type: 'document',
@@ -226,7 +225,7 @@ test('ordered-list delimiter maps to Period/OneParen when the AST carries it', a
   });
   assert.equal(convert(list(')')).doc.blocks[0].c[0][2].t, 'OneParen');
   assert.equal(convert(list('.')).doc.blocks[0].c[0][2].t, 'Period');
-  assert.equal(convert(list(undefined)).doc.blocks[0].c[0][2].t, 'DefaultDelim');
+  assert.equal(convert(list(undefined)).doc.blocks[0].c[0][2].t, 'Period');
 });
 
 test('import records the pandoc list delimiter on the Carve AST', async () => {
@@ -237,7 +236,7 @@ test('import records the pandoc list delimiter on the Carve AST', async () => {
     blocks: [{ t: 'OrderedList', c: [[1, { t: 'Decimal' }, { t: delim }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
   });
   assert.equal(pandocToCarve(doc('OneParen')).ast.children[0].delim, ')');
-  assert.equal(pandocToCarve(doc('Period')).ast.children[0].delim, '.');
+  assert.equal(pandocToCarve(doc('Period')).ast.children[0].delim, undefined);
   assert.equal(pandocToCarve(doc('DefaultDelim')).ast.children[0].delim, undefined);
 });
 
@@ -350,17 +349,15 @@ test('structural short captions map to Pandoc without changing the full caption'
   assert.equal(table.c[1][1][0].c[0].c, 'Full');
 });
 
-test('table span inversion: colspan and rowspan land on origin cell', () => {
+test('table span inversion: colspan lands on origin cell, a blocked ^ stays a cell', () => {
   const [t] = blocks('|= A |= B |\n| x  | <  |\n| ^  | y  |');
   const bodyRows = t.c[4][0][3];
-  // row 1: single cell with colSpan 2
   const row1Cells = bodyRows[0][1];
   assert.equal(row1Cells.length, 1);
   assert.equal(row1Cells[0][3], 2, 'colSpan');
-  assert.equal(row1Cells[0][2], 2, 'rowSpan (x also spans down via ^ below)');
-  // row 2: only the y cell remains
-  const row2Cells = bodyRows[1][1];
-  assert.equal(row2Cells.length, 1);
+  // Extending x down would cover y, so the ^ is blocked (corpus 579).
+  assert.equal(row1Cells[0][2], 1, 'rowSpan');
+  assert.equal(bodyRows[1][1].length, 2);
 });
 
 test('2D table span: rowspan+colspan block counts rows, not continuations', () => {
@@ -743,4 +740,10 @@ test('an unresolved reference is the literal source, and it is named', () => {
   });
   assert.deepEqual(resolved.warnings, []);
   assert.deepEqual(carveToPandoc('[x](/y)\n').warnings, []);
+});
+
+test('the last marked header row sets the column alignment', () => {
+  const [t] = blocks('|=> a |\n|=< b |\n| c |');
+  assert.equal(t.c[2][0][0].t, 'AlignLeft');
+  assert.equal(t.c[3][1][0][1][0][1].t, 'AlignRight', 'the first header cell keeps its own marker');
 });

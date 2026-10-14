@@ -321,3 +321,10 @@ test('an unknown block extension renders its declared fallback', () => {
     JSON.stringify(diagnostics),
   );
 });
+
+test('a table continuation join (cell_wrap) becomes one Space', () => {
+  const { doc, warnings } = carveToPandoc('| a | x |\n+ b | y |\n')
+  const cell = doc.blocks[0].c[4][0][3][0][1][0][4]
+  assert.deepEqual(cell, [{ t: 'Plain', c: [{ t: 'Str', c: 'a' }, { t: 'Space' }, { t: 'Str', c: 'b' }] }])
+  assert.deepEqual(warnings, [])
+})

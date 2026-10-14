@@ -112,7 +112,7 @@ test('cli: normalized include renames do not fail on loss', () => {
   const result = run([file, '-t', 'json', '--diagnostics', '-', '--fail-on-loss']);
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stderr);
-  const renamed = report.diagnostics.find(item => item.code === 'include-heading-id-rename');
+  const renamed = report.diagnostics.find(item => item.code === 'include-id-rename');
   assert.equal(renamed.fidelity, 'normalized');
 });
 

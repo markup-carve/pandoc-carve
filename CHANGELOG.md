@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.1.9 - 2026-10-14
+
+### Fixes
+
+- A note converted from pandoc keeps its label. Against carve 0.1.11 it came back as `[^]` (#248).
+- A table continuation line converts to a space between the joined words (#248).
+- Table spans follow the spec's span walk: a `^` or `<` that would cover another cell stays a cell of its own, so no cell is dropped (#248, #250).
+- A header row holding a `<` span stays a header row. With several header rows, the last one that marks a column sets its alignment, as in the engine (#248).
+- A wholly blank row stays a pipe-table row instead of turning the table into `::: list-table`, and a trailing row of empty row-header cells no longer comes back as a second body (#248, #250).
+- A tab inside a heading is part of its name for collapsed references, as the engine reads it (#248).
+- `--fail-on-loss` treats the engine's `include-id-rename` as normalized again (#248).
+- `pandocToCarve` no longer throws on a code span the Carve writer cannot spell. It writes the line breaks as spaces and reports `field-unspellable` (#248).
+- An ordered list with no `delim` converts with pandoc's `Period`, and the reader leaves the default `.` and `-` out of the AST (#248).
+
+### Changed
+
+- Requires `@markup-carve/carve` 0.1.11 or later (#248).
+
 ## 0.1.8 - 2026-10-08
 
 ### Changed
