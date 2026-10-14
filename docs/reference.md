@@ -198,6 +198,14 @@ diagnostic.
 > `{srcdoc=…}` attribute, which Carve's HTML writer also refuses, still reaches
 > pandoc - see [#163](https://github.com/markup-carve/pandoc-carve/issues/163).
 
+## Bidi override controls are stripped
+
+The Trojan Source controls U+202A-202E and U+2066-2069 are removed from text,
+code spans, code blocks and math before the document reaches pandoc, as
+Carve's own writers remove them. The directional marks U+200E and U+200F stay,
+and raw passthrough is left untouched. A document that had any reports one
+`bidi-control-stripped` diagnostic (class `normalized`) with the count.
+
 ## Why a bridge, not a pandoc reader?
 
 A native `Text.Pandoc.Readers.Carve` upstream would be a fourth full Carve

@@ -57,6 +57,7 @@ const RULES: Rule[] = [
     { test: /^ordered list:/, code: 'ordered-list-marker-normalized', class: 'normalized' },
     { test: /^list: an empty item/, code: 'empty-list-item-spelled', class: 'normalized' },
     { test: /^task state:/, code: 'task-state-dropped', class: 'lossy' },
+    { test: /^bidi: /, code: 'bidi-control-stripped', class: 'normalized' },
     { test: /^math: attributes/, code: 'math-attributes-dropped', class: 'lossy' },
     { test: /^symbol:/, code: 'symbol-unresolved', class: 'degraded' },
     { test: /^url: a denied scheme/, code: 'unsafe-url-scheme', class: 'lossy' },

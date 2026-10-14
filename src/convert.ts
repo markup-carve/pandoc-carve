@@ -2591,6 +2591,38 @@ function scalarValue(ctx: Ctx, key: string, raw: string): P.MetaValue {
     return P.MetaInlines(textInlines(value));
 }
 
+/**
+ * Trojan-Source controls (U+202A-202E, U+2066-2069), mirrored from the
+ * engine, which strips them from every rendered text and code run but keeps
+ * LRM/RLM. Raw passthrough is left alone, as the engine leaves it.
+ */
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/gu;
+
+/** Strip {@link BIDI_CONTROLS} in place from Str, Code, CodeBlock and Math; returns the count. */
+function stripBidi(value: unknown): number {
+    let count = 0;
+    const strip = (s: string): string => s.replace(BIDI_CONTROLS, () => {
+        count++;
+        return '';
+    });
+    const stack: unknown[] = [value];
+    while (stack.length) {
+        const v = stack.pop();
+        if (Array.isArray(v)) {
+            for (const x of v) stack.push(x);
+            continue;
+        }
+        if (!v || typeof v !== 'object') continue;
+        const node = v as { t?: string; c?: unknown };
+        if (node.t === 'Str' && typeof node.c === 'string') node.c = strip(node.c);
+        else if ((node.t === 'Code' || node.t === 'CodeBlock' || node.t === 'Math') && Array.isArray(node.c)
+            && typeof node.c[1] === 'string') node.c[1] = strip(node.c[1]);
+        else if (node.t === 'RawInline' || node.t === 'RawBlock') continue;
+        for (const x of Object.values(node)) stack.push(x);
+    }
+    return count;
+}
+
 // --- Entry point ---
 
 export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): ConvertResult {
@@ -2646,12 +2678,17 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
 
     const meta = parseMeta(ctx, frontmatter);
 
+    const converted = blocks(ctx, body);
+    const stripped = stripBidi(meta) + stripBidi(converted);
+    if (stripped > 0) {
+        warn(ctx, `bidi: ${stripped} bidi override or isolate control(s) stripped from text and code, as the engine's writers strip them`, { count: stripped });
+    }
     const diagnostics = ctx.diagnostics;
     return {
         doc: {
             'pandoc-api-version': [...P.PANDOC_API_VERSION],
             meta,
-            blocks: blocks(ctx, body),
+            blocks: converted,
         },
         warnings: ctx.warnings,
         diagnostics,
