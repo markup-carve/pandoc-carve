@@ -6,8 +6,10 @@ import { pandocToCarve as reverse } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
 import type { ConversionDiagnostic } from './diagnostics.js';
 import { diagnostic, migrationReport, type MigrationReport } from './diagnostics.js';
+import { checkImportLimits, PandocImportLimitError, MAX_PANDOC_DEPTH } from './import-limits.js';
 
 export { PANDOC_API_VERSION, type PandocDoc } from './pandoc.js';
+export { PandocImportLimitError, MAX_PANDOC_DEPTH, MAX_LIST_DEPTH } from './import-limits.js';
 export type { ConvertOptions, ConvertResult } from './convert.js';
 export type { ParseOptions } from './parse-options.js';
 export type { ReverseResult } from './reverse.js';
@@ -240,6 +242,7 @@ export function carveToPandocJson(
  */
 export function pandocToCarve(doc: PandocDoc | string): { carve: string; warnings: string[]; diagnostics: ConversionDiagnostic[]; report: MigrationReport } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
+    checkImportLimits(parsed);
     const { ast, warnings, diagnostics } = reverse(parsed);
     return {
         carve: writeCarve(ast, warnings, diagnostics),
@@ -254,6 +257,11 @@ function writeCarve(ast: unknown, warnings: string[], diagnostics: ConversionDia
     try {
         return write(ast);
     } catch (error) {
+        // The Carve tree can nest deeper than the Pandoc one (a list item is a
+        // node of its own), so the engine's cap can still be reached here.
+        if (error instanceof carve.RenderDepthError) {
+            throw new PandocImportLimitError('nodes', MAX_PANDOC_DEPTH + 1, MAX_PANDOC_DEPTH);
+        }
         // The writer cannot spell some multiline code spans (a line block is
         // one). Pandoc's own writers treat a newline in `Code` as a space, so
         // fold it and say so rather than failing the whole document.
@@ -288,6 +296,7 @@ export function pandocToCarveAst(
     doc: PandocDoc | string,
 ): { ast: CarveAstDocument; warnings: string[]; diagnostics: ConversionDiagnostic[]; report: MigrationReport } {
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
+    checkImportLimits(parsed);
     const { ast, warnings, diagnostics } = reverse(parsed, 'ast');
     return { ast: toCarveAst(ast, engineSerializer), warnings, diagnostics, report: migrationReport(diagnostics) };
 }
