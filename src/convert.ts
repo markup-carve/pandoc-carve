@@ -1463,7 +1463,19 @@ function list(ctx: Ctx, n: CNode): P.Block {
                 ? [...kvs, ['carve-list-item', 'true'],
                     ...(carried ? [[TASK_STATE_KEY, state] as [string, string]] : [])]
                 : kvs;
-            itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
+            const lead = itemBlocks[0];
+            if (typeof item.checked === 'boolean' && lead && (lead.t === 'Plain' || lead.t === 'Para')) {
+                // Pandoc reads a task only from a ballot that OPENS the item's
+                // first block, so a wrapping Div would hide it. The item's
+                // attributes ride on a Span after the ballot instead.
+                const [ballot, space, ...rest] = lead.c as P.Inline[];
+                itemBlocks = [
+                    { t: lead.t, c: [ballot!, space!, P.Span([id, classes, marked], rest)] },
+                    ...itemBlocks.slice(1),
+                ];
+            } else {
+                itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
+            }
         }
         return itemBlocks;
     });

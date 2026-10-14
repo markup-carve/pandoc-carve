@@ -21,7 +21,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import * as carve from '@markup-carve/carve';
-import { carveAstToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
+import { findPandoc, pandocRender } from './helpers.mjs';
+
+const pandoc = findPandoc();
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const validate = new Ajv2020({ strict: false }).compile(
@@ -41,12 +44,18 @@ const listAst = (item) => ({
 
 /* --- The readers, and the controls that prove each one can answer both ways. */
 
-/** The Div the roundtrip envelope wraps a list item in, or null. */
+/**
+ * The Attr carrying a list item's attributes and roundtrip envelope, or null.
+ * A task item keeps its ballot first, so the Attr rides on a Span after it;
+ * any other item is wrapped in a Div.
+ */
 function itemDiv(doc) {
   const list = doc.blocks[0];
   const item = (list?.c?.[1] ?? list?.c)?.[0];
   const first = item?.[0];
-  return first?.t === 'Div' ? first.c[0] : null;
+  if (first?.t === 'Div') return first.c[0];
+  const span = (first?.t === 'Plain' || first?.t === 'Para') ? first.c[2] : undefined;
+  return span?.t === 'Span' ? span.c[0] : null;
 }
 
 /** The value the envelope carries for the task state, or null. */
@@ -61,8 +70,8 @@ test('DEAD READER: each reader answers differently on a pair built to disagree',
   const carried = carveAstToPandoc(listAst({ type: 'list_item', checked: false, taskState: '-' }), { roundtrip: true });
   const plain = carveAstToPandoc(listAst({ type: 'list_item', checked: false }), { roundtrip: true });
 
-  assert.ok(itemDiv(carried.doc), 'itemDiv found no Div on the document that has one');
-  assert.equal(itemDiv(plain.doc), null, 'itemDiv reported a Div on a plain unchecked item');
+  assert.ok(itemDiv(carried.doc), 'itemDiv found no envelope on the document that has one');
+  assert.equal(itemDiv(plain.doc), null, 'itemDiv reported an envelope on a plain unchecked item');
   assert.equal(carriedState(carried.doc), '-', 'carriedState did not read the state it was given');
   assert.equal(carriedState(plain.doc), null, 'carriedState invented a state');
 
@@ -176,4 +185,29 @@ test('carve -> pandoc -> carve: every extended state survives as source', {
   const back = pandocToCarve(doc).carve;
   assert.equal(carve.carveToHtml(back), carve.carveToHtml(source));
   for (const state of EXTENDED) assert.ok(back.includes(`[${state}]`), `"${state}" is missing from:\n${back}`);
+});
+
+/* --- An attributed task item stays a task item. */
+
+test('carve -> pandoc: an attributed task item keeps its ballot as the first inline', () => {
+  for (const roundtrip of [false, true]) {
+    const { doc } = carveToPandoc('-{.c} [x] attributed\n', { roundtrip });
+    const [item] = doc.blocks[0].c;
+    assert.equal(item[0].t, 'Plain', JSON.stringify(item));
+    assert.deepEqual(item[0].c.slice(0, 2), [{ t: 'Str', c: '\u2612' }, { t: 'Space' }]);
+    const span = item[0].c[2];
+    assert.equal(span.t, 'Span');
+    assert.deepEqual(span.c[0][1], ['c']);
+  }
+});
+
+test('pandoc renders an attributed task item as a task', { skip: !pandoc && 'pandoc is not installed' }, () => {
+  const html = pandocRender(pandoc, carveToPandoc('-{.c} [x] attributed\n').doc, 'html');
+  assert.match(html, /<input type="checkbox" checked/);
+});
+
+test('carve -> pandoc -> carve: an attributed task item survives', () => {
+  const source = '-{.c} [x] attributed\n-{#i} [ ] open\n';
+  const back = pandocToCarve(carveToPandoc(source, { roundtrip: true }).doc).carve;
+  assert.equal(carve.carveToHtml(back), carve.carveToHtml(source), back);
 });

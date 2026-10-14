@@ -732,13 +732,27 @@ function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: bo
         let source = item;
         let attrs: CAttrs | undefined;
         let taskState: string | null = null;
-        if (item.length === 1 && item[0]?.t === 'Div') {
-            const [attr, inner] = item[0].c as [Attr, PandocNode[]];
-            if (attr[2].some(([key, value]) => key === 'carve-list-item' && value === 'true')) {
-                taskState = readTaskState(attr[2]);
-                attrs = fromAttr([attr[0], attr[1], attr[2].filter(([key]) => key !== 'carve-list-item' && key !== TASK_STATE_KEY)]);
+        const isEnvelope = (attr: Attr): boolean =>
+            attr[2].some(([key, value]) => key === 'carve-list-item' && value === 'true');
+        const readEnvelope = (attr: Attr): void => {
+            taskState = readTaskState(attr[2]);
+            attrs = fromAttr([attr[0], attr[1], attr[2].filter(([key]) => key !== 'carve-list-item' && key !== TASK_STATE_KEY)]);
+        };
+        const lead = item[0];
+        const leadInlines = lead && (lead.t === 'Plain' || lead.t === 'Para') ? lead.c as PandocNode[] : undefined;
+        const span = leadInlines?.length === 3 && leadInlines[0]?.t === 'Str' && /^[☐☒]$/.test(String(leadInlines[0].c))
+            && leadInlines[1]?.t === 'Space' && leadInlines[2]?.t === 'Span' ? leadInlines[2] : undefined;
+        if (item.length === 1 && lead?.t === 'Div') {
+            const [attr, inner] = lead.c as [Attr, PandocNode[]];
+            if (isEnvelope(attr)) {
+                readEnvelope(attr);
                 source = inner;
             }
+        } else if (span && isEnvelope((span.c as [Attr, PandocNode[]])[0])) {
+            // A task item's envelope rides on a Span after its ballot.
+            const [attr, inner] = span.c as [Attr, PandocNode[]];
+            readEnvelope(attr);
+            source = [{ t: lead!.t, c: [leadInlines![0]!, leadInlines![1]!, ...inner] } as PandocNode, ...item.slice(1)];
         }
         if (source.some((b) => b.t === 'Para')) tight = false;
         const children = blocks(ctx, source);
