@@ -110,6 +110,12 @@ interface Ctx {
      * other reference.
      */
     headingIdByText: Map<string, string>;
+    /** The labels of the note definitions being expanded, to stop a cycle. */
+    openNotes: Set<string>;
+    /** How many notes the conversion is inside of. */
+    noteDepth: number;
+    /** Notes referenced inside the current note, to follow it (see liftedNote). */
+    liftedNotes: P.Inline[];
     /** Every heading's id, explicit or derived (pass 1). */
     headingIds: Map<CNode, string>;
     /**
@@ -769,6 +775,44 @@ function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inli
     return out;
 }
 
+/**
+ * A Note, with any note referenced from inside it lifted out to follow it.
+ *
+ * Pandoc's notes do not nest - its writers drop a Note inside a Note - so a
+ * reference in a note body becomes a sibling note right after the outer one,
+ * and a diagnostic says the reference moved. A roundtrip conversion keeps the
+ * nesting: the reverse direction reads it back, and pandoc's JSON carries it.
+ */
+function liftedNote(ctx: Ctx, body: () => P.Block[]): P.Inline[] {
+    if (ctx.roundtrip) {
+        const note = P.Note(body());
+        ctx.noteCount++;
+        return [note];
+    }
+    if (ctx.noteDepth > 0) {
+        warn(ctx, 'footnote: a note referenced inside a note is lifted to follow it - pandoc\'s notes do not nest');
+    }
+    const outer = ctx.liftedNotes;
+    ctx.liftedNotes = [];
+    ctx.noteDepth++;
+    let content: P.Block[];
+    let lifted: P.Inline[];
+    try {
+        content = body();
+    } finally {
+        ctx.noteDepth--;
+        lifted = ctx.liftedNotes;
+        ctx.liftedNotes = outer;
+    }
+    ctx.noteCount++;
+    const notes = [P.Note(content), ...lifted];
+    if (ctx.noteDepth > 0) {
+        ctx.liftedNotes.push(...notes);
+        return [];
+    }
+    return notes;
+}
+
 function inline(ctx: Ctx, n: CNode): P.Inline[] {
     switch (n.type) {
         case 'text':
@@ -946,9 +990,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             // a citation inside the note carries that note's number rather than
             // the next one - which is what pandoc's markdown reader produces.
             if (Array.isArray(n.inline)) {
-                const note = P.Note([P.Para(inlines(ctx, n.inline as CNode[]))]);
-                ctx.noteCount++;
-                return [note];
+                return liftedNote(ctx, () => [P.Para(inlines(ctx, n.inline as CNode[]))]);
             }
             const id = String(n.label ?? n.id ?? '');
             const def = ctx.footnoteDefs[id];
@@ -975,9 +1017,16 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
                 return textInlines(`[^${id}]`);
             }
-            const note = P.Note(blocks(ctx, def));
-            ctx.noteCount++;
-            return [note];
+            if (ctx.openNotes.has(id)) {
+                warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
+                return [];
+            }
+            ctx.openNotes.add(id);
+            try {
+                return liftedNote(ctx, () => blocks(ctx, def));
+            } finally {
+                ctx.openNotes.delete(id);
+            }
         }
         case 'math':
             // PANDOC'S `Math` IS `Math MathType Text` - two children and no
@@ -2582,6 +2631,9 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         symbols: options.symbols ?? {},
         listTable: options.listTable ?? true,
         noteCount: 0,
+        noteDepth: 0,
+        openNotes: new Set(),
+        liftedNotes: [],
         parseBlocks: options.parseBlocks,
         blockScalars: new Map(),
     };

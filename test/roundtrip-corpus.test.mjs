@@ -147,10 +147,7 @@ const KNOWN_LOSSY = new Set([
   // `{.c}` over a fence comes back as `` ```c ``.
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base-2.crv',
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base.crv',
-  '312-a-note-body-s-own-references-resolve-2.crv',
-  '312-a-note-body-s-own-references-resolve-3.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-6.crv',
-  '315-an-inline-note-s-content-resolves-after-the-note-7.crv',
   '318-composite-figures-2.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',

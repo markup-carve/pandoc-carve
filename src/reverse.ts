@@ -340,7 +340,11 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             // accept both, because the type string is a single value. That is
             // why this waited for the lockfile to move rather than emitting
             // the new names defensively.
-            if (noteBlocks.length === 1 && (noteBlocks[0]!.t === 'Para' || noteBlocks[0]!.t === 'Plain')) {
+            // An inline note cannot hold another (`^[a ^[b]]` renders the inner
+            // one as literal text), so a note with a note inside is written as
+            // a definition, where a nested note does resolve.
+            if (noteBlocks.length === 1 && (noteBlocks[0]!.t === 'Para' || noteBlocks[0]!.t === 'Plain')
+                && !containsNote(noteBlocks[0]!.c)) {
                 return [{ type: 'inline_footnote', inline: inlines(ctx, noteBlocks[0]!.c as PandocNode[]) }];
             }
             const id = `fn${++ctx.noteCounter}`;
@@ -2104,4 +2108,11 @@ function dropDerivableHeadingIds(ast: CNode): void {
         if (order.length === 0) delete h.attrs;
         else h.attrs = { ...rest, order };
     }
+}
+
+function containsNote(value: unknown): boolean {
+    if (Array.isArray(value)) return value.some(containsNote);
+    if (!value || typeof value !== 'object') return false;
+    if ((value as PandocNode).t === 'Note') return true;
+    return containsNote((value as PandocNode).c);
 }

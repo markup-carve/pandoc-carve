@@ -65,6 +65,8 @@ const RULES: Rule[] = [
     { test: /^extension: ruby/, code: 'ruby-flattened', class: 'degraded' },
     { test: /^extension: block extension/, code: 'block-extension-fallback-rendered', class: 'degraded' },
     { test: /^extension:/, code: 'inline-extension-degraded', class: 'degraded' },
+    { test: /^footnote: a cyclic reference/, code: 'nested-note-cycle-dropped', class: 'lossy' },
+    { test: /^footnote: a note referenced inside a note is lifted/, code: 'nested-note-lifted', class: 'degraded' },
     { test: /^(?:link|image|footnote): missing definition/, code: 'reference-unresolved', class: 'degraded' },
     { test: /^crossref:/, code: 'crossref-unresolved', class: 'degraded' },
     { test: /^list-table: structure/, code: 'list-table-structure-degraded', class: 'degraded' },

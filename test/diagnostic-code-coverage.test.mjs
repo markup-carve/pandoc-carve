@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
 import { diagnostic } from '../dist/diagnostics.js';
+import { carveToHtml } from '@markup-carve/carve';
 
 const carveDoc = (children) => ({ type: 'document', children });
 const pandocDoc = (blocks = [], meta = {}) => ({ 'pandoc-api-version': [1, 23, 1], meta, blocks });
@@ -107,4 +108,28 @@ test('an orphan table rowspan produces table-rowspan-origin-missing', () => {
 test('the removed cell-flattening rule no longer claims its old code', () => {
   const result = diagnostic('pandoc-to-carve', 'table: block-level cell content "BulletList" flattened to text');
   assert.equal(result.code, 'table-unclassified-loss');
+});
+
+test('a note referenced inside a note is lifted to follow it, with nested-note-lifted', () => {
+  const result = carveToPandoc('A[^a].\n\n[^a]: see [^b]\n\n[^b]: two\n');
+  expectCode(result, 'nested-note-lifted', 'carve-to-pandoc', 'degraded', 'degraded');
+  const para = result.doc.blocks[0].c;
+  assert.deepEqual(para.map((x) => x.t), ['Str', 'Note', 'Note', 'Str']);
+  assert.ok(!JSON.stringify(para[1].c).includes('"Note"'), 'the outer note holds no note');
+  assert.deepEqual(para[2].c, [{ t: 'Para', c: [{ t: 'Str', c: 'two' }] }]);
+});
+
+test('a note that references itself converts, with nested-note-cycle-dropped', () => {
+  const result = carveToPandoc('A[^a].\n\n[^a]: see [^a]\n');
+  expectCode(result, 'nested-note-cycle-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  assert.deepEqual(result.doc.blocks[0].c.map((x) => x.t), ['Str', 'Note', 'Str']);
+});
+
+test('pandoc -> carve: a note holding a note is written as a definition, not ^[ ^[ ]]', () => {
+  const inner = { t: 'Note', c: [{ t: 'Para', c: [{ t: 'Str', c: 'two' }] }] };
+  const outer = { t: 'Note', c: [{ t: 'Para', c: [{ t: 'Str', c: 'see' }, { t: 'Space' }, inner] }] };
+  const { carve } = pandocToCarve(pandocDoc([{ t: 'Para', c: [{ t: 'Str', c: 'One' }, outer] }]));
+  assert.doesNotMatch(carve, /\^\[[^\]]*\^\[/);
+  const html = carveToHtml(carve);
+  assert.match(html, /<li id="fn2">\s*<p>two/);
 });
