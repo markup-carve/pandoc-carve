@@ -123,6 +123,18 @@ test('a note that references itself converts, with nested-note-cycle-dropped', (
   const result = carveToPandoc('A[^a].\n\n[^a]: see [^a]\n');
   expectCode(result, 'nested-note-cycle-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
   assert.deepEqual(result.doc.blocks[0].c.map((x) => x.t), ['Str', 'Note', 'Str']);
+  // The cyclic reference is dropped, not copied, so it is no duplicate.
+  expectCode(result, 'note-reference-duplicated', 'carve-to-pandoc', 'degraded', 'degraded', 0);
+});
+
+test('an unresolved crossref survives roundtrip as a crossref, not escaped text', () => {
+  const source = 'See </#nowhere>.\n';
+  const forward = carveToPandoc(source, { roundtrip: true });
+  expectCode(forward, 'crossref-unresolved', 'carve-to-pandoc', 'degraded', 'degraded');
+  assert.equal(pandocToCarve(forward.doc).carve, source);
+  // Without roundtrip it stays the literal source every pandoc writer prints.
+  const plain = carveToPandoc(source).doc.blocks[0].c;
+  assert.ok(!plain.some((x) => x.t === 'Link'));
 });
 
 test('pandoc -> carve: a note holding a note is written as a definition, not ^[ ^[ ]]', () => {
