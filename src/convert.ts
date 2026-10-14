@@ -1013,7 +1013,12 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 }
             }
             // The engine renders an unresolved crossref as its literal source.
+            // Roundtrip keeps the classed link so the reverse direction restores
+            // the crossref rather than an escaped `</\#id>`.
             warn(ctx, `crossref: unresolved target "${target}" - emitting the literal source`);
+            if (ctx.roundtrip) {
+                return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), textInlines(`</#${target}>`), [`#${target}`, ''])];
+            }
             return textInlines(`</#${target}>`);
         }
         // The wire has two nodes here, split so that a profile can deny one
@@ -1054,15 +1059,15 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
                 warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
                 return textInlines(`[^${id}]`);
             }
+            if (ctx.openNotes.has(id)) {
+                warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
+                return [];
+            }
             if (ctx.citedNotes.has(id)) {
                 warn(ctx, `footnote: [^${id}] is referenced more than once - pandoc's Note has no identity, so each reference carries its own copy`,
                     { reference: `[^${id}]` }, n.pos);
             }
             ctx.citedNotes.add(id);
-            if (ctx.openNotes.has(id)) {
-                warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
-                return [];
-            }
             ctx.openNotes.add(id);
             try {
                 return liftedNote(ctx, () => blocks(ctx, def));
