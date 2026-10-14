@@ -193,10 +193,14 @@ Nothing else is touched. An `https:`, `mailto:`, `tel:`, `ftp:`, relative or
 fragment destination reaches pandoc exactly as written, and emits no
 diagnostic.
 
-> [!NOTE]
-> This covers link and image **destinations**. An `{onclick=…}`, `{style=…}` or
-> `{srcdoc=…}` attribute, which Carve's HTML writer also refuses, still reaches
-> pandoc - see [#163](https://github.com/markup-carve/pandoc-carve/issues/163).
+Attributes follow the same policy. An event handler (`{onclick=...}`, any name
+starting with `on`), `srcdoc` or `formaction` is dropped with an
+`unsafe-attribute-name` diagnostic. A value carrying a denied scheme, in any
+attribute or in any entry of `srcset`, `imagesrcset`, `ping` or
+`attributionsrc`, and a `style` value with `url(`, `expression(`, `@import`,
+`behavior:` or `-moz-binding`, reaches pandoc blank, with an
+`unsafe-attribute-value` diagnostic. Both are `lossy`. An ordinary `style`
+value passes through unchanged.
 
 ## Bidi override controls are stripped
 
