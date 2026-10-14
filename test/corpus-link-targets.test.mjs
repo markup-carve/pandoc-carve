@@ -202,10 +202,20 @@ const corpus = existsSync(corpusDir)
  * fix.
  */
 const KNOWN_DIVERGENT = new Map([
-  // Empty, and the empty state is load-bearing: the six `model:` rows that
-  // stood here were a bridge defect, not a model limit. PART 12 section 3a
-  // publishes a nested link as a node and makes "links never nest" a rule for
-  // the RENDER seam, so the bridge owed the unwrap and now does it.
+  // No `model:` rows: the six that stood here were a bridge defect, not a model
+  // limit. PART 12 section 3a publishes a nested link as a node and makes
+  // "links never nest" a rule for the RENDER seam, so the bridge owed the unwrap
+  // and now does it.
+  //
+  // pin: rulings in carve 21879d7 that engine 0.1.10 predates. Measured: engine
+  // 0.1.11 converts all six to the sidecar's targets, so they come off at the
+  // engine bump.
+  ['121-scheme-probe-strips-unicode-whitespace.crv', 'pin: a no-break space after `[a]:` is not a separator, so there is no definition (carve#2982)'],
+  ['559-a-tab-inside-a-line-is-content-in-a-label-and-after-a-definition-marker.crv', 'pin: a tab inside a reference label is content, not a space (carve#2982)'],
+  ['559-a-tab-inside-a-line-is-content-in-a-label-and-after-a-definition-marker-2.crv', 'pin: a form feed inside a reference label is content (carve#2982)'],
+  ['559-a-tab-inside-a-line-is-content-in-a-label-and-after-a-definition-marker-5.crv', 'pin: a tab after a definition marker is not a separator (carve#2982)'],
+  ['451-a-container-in-a-host-body-owns-a-line-past-its-own-content-column.crv', 'pin: a link definition past a box column opens on its authored base (carve#3095)'],
+  ['587-a-link-definition-or-an-attribute-line-past-a-box-s-column-opens-on-its-authored-base.crv', 'pin: as 451, a definition past the box column is still a definition (carve#3095)'],
 ]);
 
 test('the sidecar comparison runs over the whole corpus, not a sample', () => {

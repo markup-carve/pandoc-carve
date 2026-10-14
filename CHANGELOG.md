@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixes
+
+- A table head row that holds a `<` colspan marker stays in pandoc's
+  `TableHead`. It used to fall into the body with its cells read as row
+  headers, because the marker cell carries no header flag of its own.
+
 ## 0.1.8 - 2026-10-08
 
 ### Changed

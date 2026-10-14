@@ -1535,9 +1535,12 @@ function table(
     }
     const groups = read.groups;
 
-    // Split leading all-header rows into the table head.
+    // Split leading all-header rows into the table head. A `<` continuation
+    // carries no header flag of its own; it belongs to the cell on its left.
+    const isHeadRow = (row: CCell[]): boolean =>
+        row.some((c) => !c.span) && row.every((c) => c.header || c.span === 'colspan');
     let headCount = 0;
-    while (headCount < rows.length && rows[headCount]!.length > 0 && rows[headCount]!.every((c) => c.header)) {
+    while (headCount < rows.length && isHeadRow(rows[headCount]!)) {
         headCount++;
     }
     if (groups) headCount = groups.headRows;

@@ -33,7 +33,7 @@
  *    targets and would not notice a silent blanking.
  *
  * 3. THE NEGATIVE CONTROLS. A sanitizer that blanks too much is the worse bug,
- *    and nothing in the seven documents would catch it: they contain no link
+ *    and nothing in the six documents would catch it: they contain no link
  *    that must survive. So an ordinary `https:`, a relative destination, a
  *    fragment and a `mailto:` are asserted untouched and silent.
  *
@@ -287,10 +287,13 @@ test('every obfuscation in the battery is actually denied, and every control kep
 // ---------------------------------------------------------------- arm 2
 
 /**
- * The seven documents #157 named, with what each one exercises.
+ * The documents #157 named, with what each one exercises.
  *
  * The count is asserted below: a corpus checkout that lost one of these would
- * otherwise shrink the question silently.
+ * otherwise shrink the question silently. `121-scheme-probe-strips-unicode-
+ * whitespace` was the seventh. Since carve#2982 the no-break space after its
+ * `[a]:` is not a separator, so the document holds no definition and no
+ * destination, and its sidecar renders both lines as text.
  */
 const CORPUS_CASES = [
   ['108-security-hardening.crv', ['javascript']],
@@ -299,7 +302,6 @@ const CORPUS_CASES = [
   ['108-security-hardening-4.crv', ['ms-msdt']],
   ['108-security-hardening-5.crv', ['shell', 'ms-msdt']],
   ['108-security-hardening-7.crv', ['javascript']],
-  ['121-scheme-probe-strips-unicode-whitespace.crv', ['javascript']],
 ];
 
 test('the spec corpus submodule is checked out', () => {
@@ -311,7 +313,7 @@ test('the spec corpus submodule is checked out', () => {
 });
 
 if (existsSync(corpusDir)) {
-  test('the seven #157 documents reach pandoc with the destination blanked', () => {
+  test('the six #157 documents reach pandoc with the destination blanked', () => {
     let checked = 0;
     for (const [file, schemes] of CORPUS_CASES) {
       const path = join(corpusDir, file);
@@ -338,10 +340,10 @@ if (existsSync(corpusDir)) {
       }
       checked += 1;
     }
-    assert.equal(checked, 7, 'all seven #157 documents must be checked');
+    assert.equal(checked, 6, 'all six #157 documents must be checked');
   });
 
-  test('the sidecar agrees: each of the seven states an empty destination', () => {
+  test('the sidecar agrees: each of the six states an empty destination', () => {
     // The spec's own words, not the engine's - the sidecar is the one artifact
     // in the checkout the engine did not produce.
     for (const [file] of CORPUS_CASES) {

@@ -317,6 +317,14 @@ test('table: a head cell marker becomes the column, and only the column', () => 
   );
 });
 
+test('table: a colspan marker in a head row keeps the row in the head', () => {
+  const [t] = blocks('|= a |<|= b |\n| 1 | 2 | 3 |');
+  const head = t.c[3][1];
+  assert.equal(head.length, 1, 'the `<` continuation does not demote the row to the body');
+  assert.deepEqual(head[0][1].map((cell) => cell[3]), [2, 1], 'two head cells, the first spanning two columns');
+  assert.equal(t.c[4][0][3].length, 1, 'one body row');
+});
+
 test('structural short captions map to Pandoc without changing the full caption', () => {
   const doc = {
     type: 'document',
