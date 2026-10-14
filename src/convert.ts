@@ -657,7 +657,8 @@ function collapsedHeadingRef(ctx: Ctx, n: CNode): string | undefined {
 
 /** The key a collapsed reference and a heading's text meet on (PART 9R R1). */
 function headingTextKey(text: string): string {
-    return text.replace(/[ \t\n\f\r]+/g, ' ').replace(/^ | $/g, '').normalize('NFC');
+    // A tab is key content, not a separator (corpus 565).
+    return text.replace(/[ \n\r]+/g, ' ').replace(/^ | $/g, '').normalize('NFC');
 }
 
 function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inline[] | null {
@@ -1539,7 +1540,12 @@ function table(
 
     // Split leading all-header rows into the table head.
     let headCount = 0;
-    while (headCount < rows.length && rows[headCount]!.length > 0 && rows[headCount]!.every((c) => c.header)) {
+    // A span marker carries no header flag of its own, as in the engine's walk.
+    while (
+        headCount < rows.length
+        && rows[headCount]!.some((c) => c.span === undefined)
+        && rows[headCount]!.every((c) => c.header || c.span !== undefined)
+    ) {
         headCount++;
     }
     if (groups) headCount = groups.headRows;
@@ -1605,8 +1611,13 @@ function table(
     const colAligns: P.Alignment[] = Array.from({ length: width }, (_, c) => {
         const declared = ALIGN[columns[c]?.align ?? ''];
         if (declared) return declared;
-        const cell = firstRow[c];
-        return firstRowIsHead && cell ? ALIGN[cell.align ?? ''] ?? 'AlignDefault' : 'AlignDefault';
+        if (!firstRowIsHead) return 'AlignDefault';
+        // The last header row that marks the column sets its default, as in the engine.
+        for (let r = headCount - 1; r >= 0; r--) {
+            const marked = rows[r]![c]?.align;
+            if (marked) return ALIGN[marked] ?? 'AlignDefault';
+        }
+        return 'AlignDefault';
     });
 
     // origin[r][c] -> the origin record covering grid position (r, c).
@@ -1622,6 +1633,8 @@ function table(
         const row = rows[r]!;
         for (let c = 0; c < row.length; c++) {
             const cc = row[c]!;
+            // Already claimed by the strip of a `^` to its left.
+            if (origin[r]![c]) continue;
             // Pandoc omits covered positions entirely, so a continuation that
             // RESOLVES leaves nowhere to hang its attributes. The grammar
             // cannot produce that shape (a cell carrying attributes is never a
@@ -1636,17 +1649,24 @@ function table(
             };
             if (cc.span === 'colspan') {
                 const org = origin[r]![c - 1];
-                if (org) {
-                    // max() keeps 2D blocks correct: interior continuations of
-                    // a lower row must not widen the origin again.
-                    if (r === org.row) org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
+                // Widening a cell that started in an earlier row would cover
+                // cells already placed above (PART 9 section 13 T5).
+                if (org && org.row === r) {
+                    org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
                     origin[r]![c] = org;
                     droppedAttrs();
                     continue;
                 }
                 warn(ctx, `table: colspan continuation at row ${r + 1}, col ${c + 1} has no origin - emitting empty cell`);
             } else if (cc.span === 'rowspan') {
-                const org = r > 0 ? origin[r - 1]![c] : undefined;
+                const above = r > 0 ? origin[r - 1]![c] : undefined;
+                // T5: only the origin's own column extends it, and only when the
+                // rest of its strip in this row is markers, so a span never
+                // covers another cell.
+                const org = above && above.col === c
+                    && row.slice(c + 1, c + above.cell.colSpan).every((next, k) => next.span !== undefined && !origin[r]![c + 1 + k])
+                    ? above
+                    : undefined;
                 if (org) {
                     // POLICY: clip, do not restructure. Carve is the richer
                     // model here - its rows are one flat list, so a rowspan may
@@ -1667,7 +1687,7 @@ function table(
                         // max(): a 2D block has one rowspan continuation per
                         // covered column - count rows, not continuations.
                         org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
-                        origin[r]![c] = org;
+                        for (let k = c; k < c + org.cell.colSpan && k < row.length; k++) origin[r]![k] = org;
                         droppedAttrs();
                         continue;
                     }
@@ -1683,9 +1703,10 @@ function table(
             // A head cell's marker became the ColSpec above, so repeating it
             // here would emit an override pandoc does not need and the source
             // never had.
-            const cellAlign: P.Alignment = firstRowIsHead && r === 0
+            const ownAlign: P.Alignment = ALIGN[cc.align ?? ''] ?? 'AlignDefault';
+            const cellAlign: P.Alignment = firstRowIsHead && r === 0 && ownAlign === colAligns[c]
                 ? 'AlignDefault'
-                : ALIGN[cc.align ?? ''] ?? 'AlignDefault';
+                : ownAlign;
             const pc = P.cell(cellBlocks, cellAlign, toAttr(ctx, cc.attrs));
             origin[r]![c] = { cell: pc, row: r, col: c };
             emitted[r]![c] = pc;

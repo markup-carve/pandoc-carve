@@ -54,21 +54,21 @@ test('Figure and alignment-Div attributes merge into the table with the caption'
   assert.deepEqual(result.diagnostics.map(d => d.code), ['table-wrapper-id-dropped', 'table-wrapper-id-dropped']);
 });
 
-test('blank rows keep their cells and position through the list-table source form', () => {
+test('blank rows keep their cells and position as a pipe-table row', () => {
   const doc = load('latex-blank-row');
   const result = pandocToCarve(doc);
-  assert.match(result.carve, /::: list-table/);
-  assert.deepEqual(result.diagnostics.map(d => [d.code, d.fidelity]),
-    [['table-blank-row-spelled', 'normalized']]);
+  assert.match(result.carve, /^\| \| \|$/m);
+  assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(normalized(carveToPandoc(result.carve).doc.blocks), normalized(doc.blocks));
   assert.equal(pandocToCarveAst(doc).ast.children[0].type, 'table');
 });
 
-test('row attributes lost by the list-table source form are reported', () => {
+test('a blank row keeps its row attributes', () => {
   const doc = load('latex-blank-row');
   doc.blocks[0].c[4][0][3][0][0] = ['blank-row', [], []];
   const result = pandocToCarve(doc);
-  assert.equal(result.diagnostics.find(d => d.code === 'list-table-row-attributes-dropped').fidelity, 'dropped');
+  assert.match(result.carve, /^\| \| \|\{#blank-row\}$/m);
+  assert.deepEqual(result.diagnostics, []);
   assert.equal(pandocToCarveAst(doc).ast.children[0].rows[1].attrs.id, 'blank-row');
 });
 

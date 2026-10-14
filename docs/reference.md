@@ -254,10 +254,8 @@ a processor with neither extension enabled would render.
   against `resources/ast-schema.json` can still be incoherent - the bridge
   checks it itself rather than trusting a green validator.
 - A pandoc table with block content in a cell (a list, two paragraphs, a code
-  block) is imported as `::: list-table` rather than a pipe table, and that is
-  also the source form for a table containing a wholly blank row without cell
-  attributes or alignment. That row has no pipe-table spelling; `table-blank-row-spelled` reports the
-  structure-preserving conversion as normalization. PART 9 §16's pipe-table cell
+  block) is imported as `::: list-table` rather than a pipe table. A wholly
+  blank row stays a pipe-table row (`| | |`). PART 9 §16's pipe-table cell
   holds inlines, so there is no pipe form for it, and the extension's cells are
   list items that hold full blocks. Structure is preserved; what the extension
   cannot spell is reported instead - row attributes, a body group's attributes,

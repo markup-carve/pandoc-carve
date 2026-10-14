@@ -5,7 +5,7 @@ import { parseExtensions, type ParseOptions } from './parse-options.js';
 import { pandocToCarve as reverse } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
 import type { ConversionDiagnostic } from './diagnostics.js';
-import { migrationReport, type MigrationReport } from './diagnostics.js';
+import { diagnostic, migrationReport, type MigrationReport } from './diagnostics.js';
 
 export { PANDOC_API_VERSION, type PandocDoc } from './pandoc.js';
 export type { ConvertOptions, ConvertResult } from './convert.js';
@@ -242,11 +242,41 @@ export function pandocToCarve(doc: PandocDoc | string): { carve: string; warning
     const parsed: PandocDoc = typeof doc === 'string' ? (JSON.parse(doc) as PandocDoc) : doc;
     const { ast, warnings, diagnostics } = reverse(parsed);
     return {
-        carve: carve.renderCarve(engineRenderTree(ast) as Parameters<typeof carve.renderCarve>[0]),
+        carve: writeCarve(ast, warnings, diagnostics),
         warnings,
         diagnostics,
         report: migrationReport(diagnostics),
     };
+}
+
+function writeCarve(ast: unknown, warnings: string[], diagnostics: ConversionDiagnostic[]): string {
+    const write = (tree: unknown): string => carve.renderCarve(engineRenderTree(tree as typeof ast) as Parameters<typeof carve.renderCarve>[0]);
+    try {
+        return write(ast);
+    } catch (error) {
+        // The writer cannot spell some multiline code spans (a line block is
+        // one). Pandoc's own writers treat a newline in `Code` as a space, so
+        // fold it and say so rather than failing the whole document.
+        if (!(error instanceof Error) || !/cannot spell code/.test(error.message)) throw error;
+        let folded = false;
+        const fold = (node: unknown): unknown => {
+            if (Array.isArray(node)) return node.map(fold);
+            if (!node || typeof node !== 'object') return node;
+            const out: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(node)) out[key] = fold(value);
+            if (out['type'] === 'code' && typeof out['value'] === 'string' && /[\r\n]/.test(out['value'])) {
+                out['value'] = out['value'].replace(/\r\n?|\n/g, ' ');
+                folded = true;
+            }
+            return out;
+        };
+        const retried = fold(ast);
+        if (!folded) throw error;
+        const message = 'code: a line break inside a code span has no Carve spelling here - written as a space';
+        warnings.push(message);
+        diagnostics.push(diagnostic('pandoc-to-carve', message));
+        return write(retried);
+    }
 }
 
 /**

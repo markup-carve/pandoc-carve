@@ -335,7 +335,7 @@ function diagnosticsForIncludes(
 const NORMALIZED_INCLUDE_RULES = new Set([
     'include-footnote-rename',
     'include-heading-clamp',
-    'include-heading-id-rename',
+    'include-id-rename',
 ]);
 
 function displayIncludeFile(file: string | undefined, root: string | undefined, fallback: string): string {

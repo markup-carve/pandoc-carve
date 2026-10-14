@@ -71,8 +71,6 @@ const KNOWN_LOSSY = new Set([
   // `field-unspellable` rather than losing it in silence.
   '524-an-empty-code-payload-renders-no-characters-2.crv',
   '101-table-header-cell-rowspan.crv',
-  '106-blocked-span-marker-renders-as-empty-cell.crv',
-  '107-colspan-marker-scans-left-past-a-consumed-cell.crv',
   // A BLANKED DESTINATION HAS NO CARVE SPELLING. The bridge now applies PART 9
   // §25 on the way out, so a denied scheme leaves as an empty target and says
   // so with an `unsafe-url-scheme` diagnostic (#157). Coming back,
@@ -99,7 +97,6 @@ const KNOWN_LOSSY = new Set([
   '108-security-hardening-7.crv',
   '536-a-denied-destination-takes-one-render-loss-row-per-sink.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
-  '121-scheme-probe-strips-unicode-whitespace.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
   // The 0.1.6 engine parsed a different tree here before the bridge saw it.
   // Only this one still does at 0.1.7.
@@ -141,6 +138,21 @@ const KNOWN_LOSSY = new Set([
   '302-a-math-span-s-base-class-keeps-the-class-slot-in-place-2.crv',
   '302-a-math-span-s-base-class-keeps-the-class-slot-in-place.crv',
   '311-a-footnote-in-reference-link-text-nests-the-anchors-too-3.crv',
+  // PANDOC'S `Note` HAS NO IDENTITY. A note cited twice becomes two notes on
+  // the return leg, and the attribute or id on a reference has no slot.
+  '311-a-footnote-in-reference-link-text-nests-the-anchors-too-4.crv',
+  '573-a-footnote-reference-in-link-text-keeps-its-id-on-the-sup-2.crv',
+  '573-a-footnote-reference-in-link-text-keeps-its-id-on-the-sup.crv',
+  // A LINE-BLOCK CODE SPAN HOLDING A FENCE LINE has no spelling the engine's
+  // writer accepts once its layout is gone, so the newlines fold to spaces and
+  // the bridge reports `field-unspellable`.
+  '561-a-line-block-payload-span-pairs-past-the-content-column-2.crv',
+  '561-a-line-block-payload-span-pairs-past-the-content-column.crv',
+  // A CLASS ON A CODE BLOCK IS READ AS ITS LANGUAGE. Pandoc's `CodeBlock` has
+  // one class list and its writers treat the first class as the language, so
+  // `{.c}` over a fence comes back as `` ```c ``.
+  '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base-2.crv',
+  '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base.crv',
   '312-a-note-body-s-own-references-resolve-2.crv',
   '312-a-note-body-s-own-references-resolve-3.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-6.crv',

@@ -49,6 +49,18 @@
             "if": { "properties": { "code": { "const": "carrier-markers-damaged" } }, "required": ["code"] },
             "then": { "properties": { "fidelity": { "const": "degraded" }, "confidence": { "const": "fallback" } } }
           }
+        ,
+          {
+            "$comment": "CARVE-P11-063: an invalid opener marker drops together with its closer, reported once per dropped pair or marker.",
+            "if": { "properties": { "code": { "const": "carrier-marker-dropped" } }, "required": ["code"] },
+            "then": { "properties": { "fidelity": { "const": "degraded" }, "confidence": { "const": "fallback" } } }
+          }
+        ,
+          {
+            "$comment": "An HTML code element with no Carve spelling at its position stays raw HTML, so a target that escapes or omits raw HTML changes it.",
+            "if": { "properties": { "code": { "const": "raw-code-fallback" } }, "required": ["code"] },
+            "then": { "properties": { "severity": { "const": "warning" }, "fidelity": { "const": "degraded" }, "confidence": { "const": "exact" } } }
+          }
         ]
       }
     }

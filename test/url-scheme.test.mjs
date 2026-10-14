@@ -287,7 +287,10 @@ test('every obfuscation in the battery is actually denied, and every control kep
 // ---------------------------------------------------------------- arm 2
 
 /**
- * The seven documents #157 named, with what each one exercises.
+ * The #157 documents still holding a link, with what each one exercises.
+ *
+ * Corpus 121 left the list when the spec ruled that a definition separator is
+ * ASCII space only: its U+202F line is now a paragraph with no destination.
  *
  * The count is asserted below: a corpus checkout that lost one of these would
  * otherwise shrink the question silently.
@@ -299,7 +302,6 @@ const CORPUS_CASES = [
   ['108-security-hardening-4.crv', ['ms-msdt']],
   ['108-security-hardening-5.crv', ['shell', 'ms-msdt']],
   ['108-security-hardening-7.crv', ['javascript']],
-  ['121-scheme-probe-strips-unicode-whitespace.crv', ['javascript']],
 ];
 
 test('the spec corpus submodule is checked out', () => {
@@ -311,7 +313,7 @@ test('the spec corpus submodule is checked out', () => {
 });
 
 if (existsSync(corpusDir)) {
-  test('the seven #157 documents reach pandoc with the destination blanked', () => {
+  test('the six #157 documents reach pandoc with the destination blanked', () => {
     let checked = 0;
     for (const [file, schemes] of CORPUS_CASES) {
       const path = join(corpusDir, file);
@@ -338,10 +340,10 @@ if (existsSync(corpusDir)) {
       }
       checked += 1;
     }
-    assert.equal(checked, 7, 'all seven #157 documents must be checked');
+    assert.equal(checked, 6, 'all six #157 documents must be checked');
   });
 
-  test('the sidecar agrees: each of the seven states an empty destination', () => {
+  test('the sidecar agrees: each of the six states an empty destination', () => {
     // The spec's own words, not the engine's - the sidecar is the one artifact
     // in the checkout the engine did not produce.
     for (const [file] of CORPUS_CASES) {
@@ -428,7 +430,6 @@ test('an obfuscated scheme authored in Carve SOURCE is blanked', async () => {
     ['![a](java' + DEL + 'script:x)', 'image'],
     ['[a][r]\n\n[r]: java' + DEL + 'script:x', 'link'],
     ['[a](JaVaScRiPt:x)', 'link'],
-    ['[a][r]\n\n[r]: \u202Fjavascript:x', 'link'],
   ];
   for (const [source, construct] of cases) {
     const result = carveToPandoc(source);
@@ -443,4 +444,10 @@ test('an obfuscated scheme authored in Carve SOURCE is blanked', async () => {
     // And the engine agrees, asked directly rather than assumed.
     assert.equal(engineKeeps(renderHtml, diagnostic.details.destination, construct), false);
   }
+});
+
+test('a U+202F definition separator opens no definition, so no destination reaches pandoc', () => {
+  const result = carveToPandoc('[a][r]\n\n[r]: \u202Fjavascript:x');
+  assert.deepEqual(targets(result.doc), []);
+  assert.deepEqual(unsafe(result), []);
 });
