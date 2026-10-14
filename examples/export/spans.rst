@@ -1,3 +1,5 @@
+.. _Table-spans:
+
 Table spans
 ===========
 

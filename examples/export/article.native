@@ -1,4 +1,5 @@
-[ Header 1 ( "" , [] , [] ) [ Str "Introduction" ]
+[ Header
+    1 ( "Introduction" , [] , [] ) [ Str "Introduction" ]
 , Para
     [ Str "This"
     , Space
@@ -134,7 +135,7 @@
             ]
         ]
     ]
-, Header 2 ( "" , [] , [] ) [ Str "Lists" ]
+, Header 2 ( "Lists" , [] , [] ) [ Str "Lists" ]
 , BulletList
     [ [ Plain [ Str "First" , Space , Str "item" ] ]
     , [ Plain
@@ -160,7 +161,7 @@
     , [ Plain [ Str "Ordered" , Space , Str "two" ] ]
     ]
 , Header
-    2 ( "" , [] , [] ) [ Str "A" , Space , Str "table" ]
+    2 ( "A-table" , [] , [] ) [ Str "A" , Space , Str "table" ]
 , Table
     ( "" , [] , [] )
     (Caption Nothing [])
@@ -264,7 +265,7 @@
     (TableFoot ( "" , [] , [] ) [])
 , Header
     2
-    ( "" , [] , [] )
+    ( "Math-and-raw-passthrough" , [] , [] )
     [ Str "Math"
     , Space
     , Str "and"

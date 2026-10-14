@@ -17,7 +17,7 @@ import { diagnostic, migrationReport, type ConversionDiagnostic, type MigrationR
 import { provenanceAttr } from './provenance.js';
 import { blankDeniedDestination, probeScheme } from './url-scheme.js';
 import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
-import { SMART_PUNCTUATION_GLYPHS } from '@markup-carve/carve';
+import { SMART_PUNCTUATION_GLYPHS, fromAstJson, resolve } from '@markup-carve/carve';
 
 // The Carve AST is plain data; we type the parts we read.
 interface CNode {
@@ -110,6 +110,8 @@ interface Ctx {
      * other reference.
      */
     headingIdByText: Map<string, string>;
+    /** Every heading's id, explicit or derived (pass 1). */
+    headingIds: Map<CNode, string>;
     /**
      * The crossref targets that are NUMBERED CAPTIONS rather than headings.
      *
@@ -274,12 +276,68 @@ function smallCapsOrSpan(a: P.Attr, xs: P.Inline[]): P.Inline {
     return P.Span([id, rest, kvs], [caps]);
 }
 
-/** Carve's heading slug: case-preserving, GitHub-style. */
+/**
+ * Fallback heading slug, for a tree the engine's own resolver refuses. Mirrors
+ * the engine's rule: NFC, invisible controls dropped, each run of non-
+ * alphanumeric ASCII one `-`, an `s-` prefix before a leading digit.
+ */
 function slugify(text: string): string {
-    return text
-        .trim()
-        .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-        .replace(/\s+/g, '-');
+    const s = text
+        .normalize('NFC')
+        .replace(/[\u202a-\u202e\u2066-\u2069\u200b-\u200d\u2060\ufeff\u00ad]/gu, '')
+        .replace(/[^0-9A-Za-z\u{80}-\u{10FFFF}]+/gu, '-')
+        .replace(/^-+|-+$/g, '');
+    if (s === '') return 's';
+    return /^\p{N}/u.test(s) ? `s-${s}` : s;
+}
+
+const HEADING_TAG = 'data-pandoc-carve-heading';
+
+/**
+ * The id the engine's `resolve()` gives every heading, keyed by the node.
+ *
+ * Asking the resolver rather than re-deriving: it owns the slug rule, the
+ * dedup suffix and the id namespace shared with explicit ids on other
+ * elements. Each heading in a copy is tagged so the answer maps back even
+ * though ingest moves footnote bodies around. Empty when the resolver refuses
+ * the tree; pass 1 then falls back to {@link slugify}.
+ */
+function resolvedHeadingIds(ast: CarveAstDocument): Map<CNode, string> {
+    const byTag: CNode[] = [];
+    const copy = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(copy);
+        if (!value || typeof value !== 'object') return value;
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value)) out[k] = copy(v);
+        if ((value as CNode).type === 'heading') {
+            const attrs = (out.attrs ?? {}) as CAttrs;
+            out.attrs = { ...attrs, keyValues: { ...(attrs.keyValues ?? {}), [HEADING_TAG]: String(byTag.length) } };
+            byTag.push(value as CNode);
+        }
+        return out;
+    };
+    const ids = new Map<CNode, string>();
+    try {
+        const tagged = copy(ast);
+        if (byTag.length === 0) return ids;
+        const resolved = resolve(fromAstJson(tagged as Parameters<typeof fromAstJson>[0]));
+        const stack: unknown[] = [resolved];
+        while (stack.length) {
+            const value = stack.pop();
+            if (Array.isArray(value)) stack.push(...value);
+            else if (value && typeof value === 'object') {
+                const node = value as CNode;
+                const attrs = node.attrs as CAttrs | undefined;
+                const tag = node.type === 'heading' ? attrs?.keyValues?.[HEADING_TAG] : undefined;
+                const original = tag === undefined ? undefined : byTag[Number(tag)];
+                if (original && attrs?.id) ids.set(original, attrs.id);
+                stack.push(...Object.values(node));
+            }
+        }
+    } catch {
+        ids.clear();
+    }
+    return ids;
 }
 
 function plainText(nodes: CNode[]): string {
@@ -1207,7 +1265,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             return [ctx.tight ? P.Plain(xs) : P.Para(xs)];
         }
         case 'heading':
-            return [P.Header(Number(n.level ?? 1), toAttr(ctx, n.attrs), kids(ctx, n))];
+            return [P.Header(Number(n.level ?? 1), toAttr(ctx, { ...(n.attrs ?? {}), id: ctx.headingIds.get(n) ?? (n.attrs as CAttrs | undefined)?.id }), kids(ctx, n))];
         case 'block_quote':
             return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
@@ -2470,6 +2528,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         footnoteDefs,
         crossrefTargets: new Map(),
         headingIdByText: new Map(),
+        headingIds: resolvedHeadingIds(ast),
         captionTargets: new Set(),
         tight: false,
         inCrossref: false,
@@ -2555,7 +2614,13 @@ function collectCrossrefTargets(
         if (n.type === 'heading') {
             const children = (n.children as CNode[] | undefined) ?? [];
             const a = (n.attrs ?? {}) as CAttrs;
-            const id = a.id ?? slugify(plainText(children));
+            let id = a.id ?? ctx.headingIds.get(n);
+            if (id === undefined) {
+                const base = slugify(plainText(children));
+                id = base;
+                for (let k = 2; [...ctx.headingIds.values()].includes(id); k++) id = `${base}-${k}`;
+            }
+            ctx.headingIds.set(n, id);
             if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
             const text = headingTextKey(plainText(children));
             // First heading wins, the same way the id map resolves a duplicate.

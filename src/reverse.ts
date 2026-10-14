@@ -9,7 +9,7 @@
  * carve -> pandoc -> carve round-trips clean.
  */
 
-import { parse as parseCarve, renderCarve } from '@markup-carve/carve';
+import { parse as parseCarve, renderCarve, resolve } from '@markup-carve/carve';
 import type { PandocDoc, PandocNode, Attr } from './pandoc.js';
 import type { RowGroupBody, RowGroups } from './row-groups.js';
 import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
@@ -2007,6 +2007,7 @@ export function pandocToCarve(doc: PandocDoc, target: 'source' | 'ast' = 'source
     }
     const ast: CNode = { type: 'document', children };
     if (Object.keys(ctx.footnoteDefs).length) ast.footnoteDefs = ctx.footnoteDefs;
+    dropDerivableHeadingIds(ast);
     const yaml = metaToYaml(ctx, doc.meta ?? {});
     if (yaml) ast.frontmatter = { format: 'yaml', content: yaml };
     return { ast, warnings: ctx.warnings, diagnostics: ctx.diagnostics };
@@ -2018,4 +2019,75 @@ function containsShortCaption(value: unknown): boolean {
     const record = value as Record<string, unknown>;
     if (Array.isArray(record.shortCaption) && record.shortCaption.length > 0) return true;
     return Object.values(record).some(containsShortCaption);
+}
+
+const HEADING_TAG = 'data-pandoc-carve-heading';
+
+/**
+ * Drop a heading id the engine would derive at that position anyway.
+ *
+ * The forward direction writes every heading's resolved id onto `Header`, so
+ * without this a round trip would spell each one out as `{#id}`. Removal is
+ * applied only when re-resolving proves every heading keeps its id; a pandoc
+ * id that differs from the derived one stays explicit.
+ */
+function dropDerivableHeadingIds(ast: CNode): void {
+    const headings: CNode[] = [];
+    const walk = (value: unknown): void => {
+        if (Array.isArray(value)) value.forEach(walk);
+        else if (value && typeof value === 'object') {
+            if ((value as CNode).type === 'heading') headings.push(value as CNode);
+            Object.values(value).forEach(walk);
+        }
+    };
+    walk(ast);
+    const explicit = headings.filter((h) => typeof (h.attrs as CAttrs | undefined)?.id === 'string');
+    if (explicit.length === 0) return;
+    const resolvedIds = (strip: Set<CNode>): (string | undefined)[] | null => {
+        const index = new Map(headings.map((h, i) => [h, i]));
+        const copy = (value: unknown): unknown => {
+            if (Array.isArray(value)) return value.map(copy);
+            if (!value || typeof value !== 'object') return value;
+            const out: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(value)) out[k] = copy(v);
+            const at = index.get(value as CNode);
+            if (at !== undefined) {
+                const { id: _id, ...rest } = (out.attrs ?? {}) as CAttrs;
+                const attrs: CAttrs = strip.has(value as CNode) ? rest : { ...rest, ...(_id ? { id: _id } : {}) };
+                out.attrs = { ...attrs, keyValues: { ...(attrs.keyValues ?? {}), [HEADING_TAG]: String(at) } };
+            }
+            return out;
+        };
+        try {
+            const ids: (string | undefined)[] = new Array(headings.length);
+            const stack: unknown[] = [resolve(copy(ast) as Parameters<typeof resolve>[0])];
+            while (stack.length) {
+                const value = stack.pop();
+                if (Array.isArray(value)) stack.push(...value);
+                else if (value && typeof value === 'object') {
+                    const node = value as CNode;
+                    const attrs = node.attrs as CAttrs | undefined;
+                    const tag = node.type === 'heading' ? attrs?.keyValues?.[HEADING_TAG] : undefined;
+                    if (tag !== undefined) ids[Number(tag)] = attrs?.id;
+                    stack.push(...Object.values(node));
+                }
+            }
+            return ids;
+        } catch {
+            return null;
+        }
+    };
+    const baseline = resolvedIds(new Set());
+    const derived = resolvedIds(new Set(explicit));
+    if (!baseline || !derived) return;
+    const strip = new Set(explicit.filter((h) => derived[headings.indexOf(h)] === (h.attrs as CAttrs).id));
+    if (strip.size === 0) return;
+    const after = resolvedIds(strip);
+    if (!after || after.some((id, i) => id !== baseline[i])) return;
+    for (const h of strip) {
+        const { id: _id, ...rest } = h.attrs as CAttrs;
+        const order = (rest.order ?? []).filter((o) => o !== '#id');
+        if (order.length === 0) delete h.attrs;
+        else h.attrs = { ...rest, order };
+    }
 }

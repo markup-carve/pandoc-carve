@@ -1,4 +1,5 @@
-\section{Interactive constructs and graceful degradation}
+\section{Interactive constructs and graceful
+degradation}\label{Interactive-constructs-and-graceful-degradation}
 
 pandoc-carve runs \textbf{no} renderer extensions - it maps the parsed
 core AST to Pandoc. So every script-dependent construct (tabs,
@@ -8,7 +9,7 @@ only the interaction is dropped. This file is the worked proof - compare
 it against the generated \texttt{interactive.md} /
 \texttt{interactive.tex} / \texttt{.typ} / \texttt{.native} beside it.
 
-\subsection{Tabs}
+\subsection{Tabs}\label{Tabs}
 
 A \texttt{{[}label{]}} on each panel is a grouping identifier. With a
 tabs extension it becomes a clickable tab button; here, with no
@@ -23,7 +24,7 @@ Run \texttt{npm\ install\ @markup-carve/pandoc-carve}.
 
 Call the \emph{converter} on your \texttt{.crv} source.
 
-\subsection{Code group}
+\subsection{Code group}\label{Code-group}
 
 Same grouping mechanism, code panels instead of prose. Each fence keeps
 its language (so syntax highlighting survives every writer); the panels
@@ -41,7 +42,7 @@ stack.
 \end{Highlighting}
 \end{Shaded}
 
-\subsection{Spoiler}
+\subsection{Spoiler}\label{Spoiler}
 
 A quoted title survives as a caption; the ``hide until revealed''
 interaction is meaningless offline, so the body is simply shown.
@@ -50,13 +51,13 @@ interaction is meaningless offline, so the body is simply shown.
 
 The hidden \emph{answer} is 42.
 
-\subsection{Disclosure}
+\subsection{Disclosure}\label{Disclosure}
 
 \textbf{Show details}
 
 A disclosure carries its title and body through as a labelled block.
 
-\subsection{Mermaid and math}
+\subsection{Mermaid and math}\label{Mermaid-and-math}
 
 The diagram source is never lost - it stays a fenced code block that a
 Markdown host can re-render, and a build step can pre-render to an image
