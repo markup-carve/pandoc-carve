@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Pull requests share one group per PR so a new push cancels the stale run;
+# every other event gets its own group, since GitHub keeps one pending run per group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Every job below carries a timeout-minutes bound. Without one a job inherits
 # GitHub's 360-minute default, and a stalled step can burn hours unnoticed.
 jobs:
