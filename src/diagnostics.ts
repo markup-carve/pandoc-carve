@@ -90,6 +90,7 @@ const RULES: Rule[] = [
     { test: /^table: a foot row's row header is dropped/, code: 'table-foot-row-header-dropped', class: 'lossy' },
     { test: /^table: the body rows disagree on how many leading cells/, code: 'table-row-heads-degraded', class: 'degraded' },
     { test: /^table: the rows of a declared body group disagree/, code: 'table-row-heads-degraded', class: 'degraded' },
+    { test: /^table: a hard break inside a cell/, code: 'table-cell-break-flattened', class: 'lossy' },
     { test: /^table:/, code: 'table-unclassified-loss', class: 'unsupported' },
 ];
 

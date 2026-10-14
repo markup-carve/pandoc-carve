@@ -1581,7 +1581,23 @@ const bulletListOf = (items: CNode[]): CNode => ({
 function cellInlines(ctx: Ctx, cellBlocks: PandocNode[]): CNode[] {
     // Block cells take the list-table path before this function is called.
     const first = cellBlocks[0];
-    return first ? mergeText(inlines(ctx, first.c as PandocNode[])) : [];
+    return first ? mergeText(flattenCellBreaks(ctx, inlines(ctx, first.c as PandocNode[]))) : [];
+}
+
+/**
+ * A pipe-table row is one line, so a break inside a cell would end the row and
+ * turn the whole table into a paragraph. A soft break is a space anyway; a hard
+ * break has no spelling in a cell and is reported.
+ */
+function flattenCellBreaks(ctx: Ctx, nodes: CNode[]): CNode[] {
+    return nodes.map((n) => {
+        if (n.type === 'soft_break') return text(' ');
+        if (n.type === 'hard_break') {
+            warn(ctx, 'table: a hard break inside a cell has no pipe-table spelling - written as a space');
+            return text(' ');
+        }
+        return Array.isArray(n.children) ? { ...n, children: flattenCellBreaks(ctx, n.children as CNode[]) } : n;
+    });
 }
 
 function captionFromBlocks(ctx: Ctx, capBlocks: PandocNode[] | undefined): CNode[] | null {
