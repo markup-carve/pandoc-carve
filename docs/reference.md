@@ -117,6 +117,26 @@ const { carve, warnings, diagnostics, report } = pandocToCarve(pandocJsonString)
 const { ast, warnings: astWarnings } = pandocToCarveAst(pandocJsonString);
 ```
 
+A document nested too deeply to import is refused before conversion. Both
+functions throw `PandocImportLimitError` when Pandoc nodes nest deeper than
+`MAX_PANDOC_DEPTH` (the engine's render cap, 232) or lists nest deeper than
+`MAX_LIST_DEPTH` (32). The error carries a `diagnostic` with the code
+`pandoc-nesting-too-deep` and `details: { kind, depth, limit }`. The CLI exits
+1 on it and, with `--diagnostics`, writes that diagnostic to the report. The
+list limit exists because the Carve writer slows down steeply on deeply nested
+loose lists.
+
+```js
+import { pandocToCarve, PandocImportLimitError } from '@markup-carve/pandoc-carve';
+
+try {
+  pandocToCarve(untrustedJson);
+} catch (error) {
+  if (error instanceof PandocImportLimitError) console.error(error.diagnostic);
+  else throw error;
+}
+```
+
 Round-trips are tested as a hard gate: `carve -> pandoc AST -> carve` must
 render byte-identical HTML to the original source across the test corpus.
 For exact restoration of attribute placement (`{.lead}` on a paragraph or
@@ -193,10 +213,14 @@ Nothing else is touched. An `https:`, `mailto:`, `tel:`, `ftp:`, relative or
 fragment destination reaches pandoc exactly as written, and emits no
 diagnostic.
 
-> [!NOTE]
-> This covers link and image **destinations**. An `{onclick=…}`, `{style=…}` or
-> `{srcdoc=…}` attribute, which Carve's HTML writer also refuses, still reaches
-> pandoc - see [#163](https://github.com/markup-carve/pandoc-carve/issues/163).
+Attributes follow the same policy. An event handler (`{onclick=...}`, any name
+starting with `on`), `srcdoc` or `formaction` is dropped with an
+`unsafe-attribute-name` diagnostic. A value carrying a denied scheme, in any
+attribute or in any entry of `srcset`, `imagesrcset`, `ping` or
+`attributionsrc`, and a `style` value with `url(`, `expression(`, `@import`,
+`behavior:` or `-moz-binding`, reaches pandoc blank, with an
+`unsafe-attribute-value` diagnostic. Both are `lossy`. An ordinary `style`
+value passes through unchanged.
 
 ## Bidi override controls are stripped
 

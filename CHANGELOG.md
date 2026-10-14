@@ -10,6 +10,7 @@
 - An attributed task item (`-{.c} [x] done`) stays a task item; its attributes ride on a Span after the checkbox (#253).
 - A footnote referenced inside another footnote follows it as a sibling note instead of vanishing (`nested-note-lifted`), and a self-referencing footnote no longer overflows the stack (`nested-note-cycle-dropped`). `pandocToCarve` writes a note that holds a note as a definition instead of nested `^[...]` (#253).
 - Bidi override and isolate controls are stripped from text and code, as the engine strips them (`bidi-control-stripped`) (#253).
+- `pandocToCarve` and `pandocToCarveAst` refuse a Pandoc document nested deeper than the engine's render cap or 32 nested lists with `PandocImportLimitError` and a `pandoc-nesting-too-deep` diagnostic, instead of overflowing the stack or hanging in the writer. The CLI writes the diagnostic to its `--diagnostics` report and exits 1 (#255).
 
 ## 0.1.9 - 2026-10-14
 

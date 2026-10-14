@@ -246,8 +246,19 @@ async function importToCarve(args: Args): Promise<void> {
         json = result.stdout;
     }
 
-    const { pandocToCarve } = await import('./index.js');
-    const { carve, warnings, diagnostics } = pandocToCarve(json);
+    const { pandocToCarve, PandocImportLimitError } = await import('./index.js');
+    let converted: ReturnType<typeof pandocToCarve>;
+    try {
+        converted = pandocToCarve(json);
+    } catch (error) {
+        if (!(error instanceof PandocImportLimitError)) throw error;
+        if (args.diagnosticsFile !== undefined) {
+            report(args, [error.message], [error.diagnostic], 'pandoc-json');
+            process.exit(1);
+        }
+        throw error;
+    }
+    const { carve, warnings, diagnostics } = converted;
     const reportDiagnostics = args.from === 'json' ? diagnostics : [
         ...diagnostics,
         {
