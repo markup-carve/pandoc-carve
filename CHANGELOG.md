@@ -11,6 +11,11 @@
 - A footnote referenced inside another footnote follows it as a sibling note instead of vanishing (`nested-note-lifted`), and a self-referencing footnote no longer overflows the stack (`nested-note-cycle-dropped`). `pandocToCarve` writes a note that holds a note as a definition instead of nested `^[...]` (#253).
 - Bidi override and isolate controls are stripped from text and code, as the engine strips them (`bidi-control-stripped`) (#253).
 - `pandocToCarve` and `pandocToCarveAst` refuse a Pandoc document nested deeper than the engine's render cap or 32 nested lists with `PandocImportLimitError` and a `pandoc-nesting-too-deep` diagnostic, instead of overflowing the stack or hanging in the writer. The CLI writes the diagnostic to its `--diagnostics` report and exits 1 (#255).
+- `pandocToCarve` folds a soft break inside a table cell to a space, so pandoc multiline and grid tables stay tables instead of turning into a literal paragraph. A hard break in a cell becomes a space with `table-cell-break-flattened`.
+- `pandocToCarve` writes an autolink the engine cannot spell (an internationalized email address) as an ordinary link, and a link with an empty destination as its text with `link-empty-destination-dropped`.
+- `pandocToCarve` no longer turns a pandoc Div classed only `note` or `warning` into an admonition; only the bridge's own admonition marker does.
+- Every round-trip loss in the spec corpus now reports at least one diagnostic. New codes: `inline-attributes-dropped`, `note-reference-duplicated`, `empty-title-dropped`, `code-block-class-read-as-language`, `line-block-hard-break-dropped`, `table-vertical-alignment-dropped`, `list-item-framing-lost`.
+- A crossref to a composite figure's panel converts to the link it renders as, and an empty container label (`[]`) survives `roundtrip: true`.
 
 ## 0.1.9 - 2026-10-14
 
