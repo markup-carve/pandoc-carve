@@ -675,8 +675,8 @@ function kids(ctx: Ctx, n: CNode): P.Inline[] {
  * this package's deliverable.
  *
  * One break, because that is what the clause adds. A payload that ends mid-line
- * publishes no break and keeps none here. `raw_block` is untouched: the same
- * clause says raw blocks keep their existing encoding.
+ * publishes no break and keeps none here. `raw_block.content` follows the same
+ * rule since spec #2916, and pandoc's `RawBlock` carries no final break either.
  */
 function codePayload(ctx: Ctx, content: string, n: CNode): string {
     if (!content.endsWith('\n')) return content;
@@ -687,10 +687,11 @@ function codePayload(ctx: Ctx, content: string, n: CNode): string {
     // returns `""` for both a blank-line payload and an empty fence - but this
     // is the only place that still knows the difference, so it says so.
     if (payload === '') {
+        const raw = n.type === 'raw_block';
         warn(
             ctx,
-            "code block: a blank-only payload reaches pandoc as an empty one - pandoc's CodeBlock cannot hold the difference",
-            { construct: 'code_block' },
+            `${raw ? 'raw block' : 'code block'}: a blank-only payload reaches pandoc as an empty one - pandoc's ${raw ? 'RawBlock' : 'CodeBlock'} cannot hold the difference`,
+            { construct: raw ? 'raw_block' : 'code_block' },
             n.pos,
         );
     }
@@ -1418,7 +1419,7 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             ];
         }
         case 'raw_block':
-            return [P.RawBlock(String(n.format ?? ''), String(n.content ?? ''))];
+            return [P.RawBlock(String(n.format ?? ''), codePayload(ctx, String(n.content ?? ''), n))];
         case 'citation_definition':
             return [citationDefinition(ctx, n)];
         case 'thematic_break':

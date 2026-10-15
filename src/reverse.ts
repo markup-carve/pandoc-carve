@@ -723,7 +723,11 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
         }
         case 'RawBlock': {
             const [format, content] = c as [string, string];
-            return [{ type: 'raw_block', format, content }];
+            // One final break, as a parsed fence carries (`CARVE-P12-064`).
+            // Unlike `CodeBlock`, pandoc's readers disagree here: markdown and
+            // rst publish `"a"`, gfm, commonmark_x, djot and org `"a\n"`.
+            const ends = content === '' || content.endsWith('\n');
+            return [{ type: 'raw_block', format, content: ends ? content : content + '\n' }];
         }
         case 'HorizontalRule':
             return [{ type: 'thematic_break' }];
