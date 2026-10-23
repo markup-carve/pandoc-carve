@@ -1382,7 +1382,10 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
     // lost by skipping it; they are already on whatever the definition feeds,
     // which is where they render.
     if (!result.length) return result;
-    if (!ATTR_CARRYING.has(n.type) && hasAttrs(a)) {
+    // A sole image's attrs are already on the Pandoc Image inside its Para; an
+    // unresolved reference comes out as text and still needs the wrapper.
+    const imageCarries = n.type === 'image' && (result[0]?.c as P.Inline[] | undefined)?.[0]?.t === 'Image';
+    if (!ATTR_CARRYING.has(n.type) && !imageCarries && hasAttrs(a)) {
         // In roundtrip mode the carve-block marker lets the reverse direction
         // restore the attrs onto the inner block instead of keeping a wrapper.
         const [id, classes, kvs] = toAttr(ctx, a);

@@ -771,3 +771,23 @@ test('the last marked header row sets the column alignment', () => {
   assert.equal(t.c[2][0][0].t, 'AlignLeft');
   assert.equal(t.c[3][1][0][1][0][1].t, 'AlignRight', 'the first header cell keeps its own marker');
 });
+
+test('a sole image keeps its attributes on the Image, without a wrapper Div', async () => {
+  const { pandocToCarve } = await import('../dist/index.js');
+  const { carveToHtml } = await import('@markup-carve/carve');
+  const image = { t: 'Image', c: [['', ['c'], [['width', '50']]], [{ t: 'Str', c: 'alt' }], ['i.png', '']] };
+  for (const src of ['![alt](i.png){.c width=50}\n', '{.c width=50}\n![alt](i.png)\n']) {
+    for (const opts of [{}, { roundtrip: true }, { wrapperMarker: true }]) {
+      const { doc } = carveToPandoc(src, opts);
+      assert.deepEqual(doc.blocks, [{ t: 'Para', c: [image] }], `${src} ${JSON.stringify(opts)}`);
+      assert.equal(carveToHtml(pandocToCarve(doc).carve), carveToHtml(src));
+    }
+  }
+});
+
+test('a sole image whose reference is unresolved keeps its attributes on the wrapper', () => {
+  const ast = { type: 'document', children: [{ type: 'image', src: '', alt: 'a', ref: 'missing', rawRef: '![a][missing]', attrs: { classes: ['c'] } }] };
+  const { doc } = carveAstToPandoc(ast);
+  assert.equal(doc.blocks[0].t, 'Div', JSON.stringify(doc.blocks));
+  assert.deepEqual(doc.blocks[0].c[0][1], ['c']);
+});
