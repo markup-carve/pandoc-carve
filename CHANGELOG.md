@@ -9,6 +9,7 @@
 - `pandocToCarve` dissolves the section Divs Pandoc's Djot and HTML readers put around each section back into headings, restoring the heading's id and attributes (#264).
 - `pandocToCarve` drops the `wrapper="1"` marker Pandoc's Djot reader puts on a Span around an attributed inline, and puts the attributes on that inline (#266).
 - An attributed sole image is no longer wrapped in a Div that repeats its attributes (#265).
+- `pandocToCarve` imports a symbol Pandoc's Djot reader has no emoji for (`:foo_bar:`, a `.symbol` Span holding the bare name) as the symbol instead of `[foo_bar]{.symbol}` (#271).
 
 ### Improvements
 
