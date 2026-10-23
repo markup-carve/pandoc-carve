@@ -405,9 +405,33 @@ function autolinkParses(href: string, text: string): boolean {
 }
 
 /** Restore convert.ts's classed-span degradations to native Carve nodes. */
+/** Pandoc inlines without an Attr slot whose Carve node takes attributes. */
+const ATTR_TAKING_INLINES = new Set(['Emph', 'Strong', 'Underline', 'Strikeout', 'Superscript', 'Subscript', 'SmallCaps']);
+
 function span(ctx: Ctx, c: never): CNode[] {
     const [a, xs] = c as [Attr, PandocNode[]];
     const [, classes, kvs] = a;
+    // Pandoc's Djot reader marks the Span it puts around an attributed inline
+    // with a leading `wrapper="1"`; the attrs belong on that inline when Carve
+    // can carry them there, and on a plain span otherwise.
+    if (kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1') {
+        const attrs = fromAttr([a[0], classes, kvs.slice(1)]);
+        const [only] = xs;
+        if (xs.length === 1 && only && ATTR_TAKING_INLINES.has(only.t)) {
+            const converted = inline(ctx, only);
+            const target = converted.length === 1 ? converted[0] : undefined;
+            if (target && !target.attrs) {
+                if (attrs) target.attrs = attrs;
+                return [target];
+            }
+            const node: CNode = { type: 'span', children: converted };
+            if (attrs) node.attrs = attrs;
+            return [node];
+        }
+        const node: CNode = { type: 'span', children: inlines(ctx, xs) };
+        if (attrs) node.attrs = attrs;
+        return [node];
+    }
     const kv = Object.fromEntries(kvs);
     const cls = classes[0];
     switch (cls) {
