@@ -517,7 +517,7 @@ test('block attrs on non-Attr blocks preserved via Div wrapper (codex finding 2)
 
   // Roundtrip mode adds the restore marker; default stays clean.
   const marked = carveToPandoc('{.lead}\nparagraph text', { roundtrip: true }).doc.blocks[0];
-  assert.deepEqual(marked.c[0], ['', ['lead'], [['carve-block', 'paragraph']]]);
+  assert.deepEqual(marked.c[0], ['', ['lead'], [['wrapper', '1'], ['carve-block', 'paragraph']]]);
 
   const [qdiv] = blocks('{#q}\n> quote');
   assert.equal(qdiv.t, 'Div');

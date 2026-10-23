@@ -164,7 +164,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
 | Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it |
-| A block attribute line on a paragraph, quote or list | Div with the attributes around the block, since those Pandoc nodes have no Attr. On import, a single-block Div marked `wrapper="1"` (Pandoc's Djot reader) or `carve-block` puts the attributes back on the block |
+| A block attribute line on a paragraph, quote, list or thematic break | Div with the attributes around the block, since those Pandoc nodes have no Attr. With `wrapperMarker` the Div leads with `wrapper="1"` (see [Attribute wrappers](#attribute-wrappers)). On import, a single-block Div marked `wrapper="1"` (Pandoc's Djot reader) or `carve-block` puts the attributes back on the block |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
 | `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
 | Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |
@@ -251,6 +251,7 @@ conformance corpus as the oracle any port has to pass.
 ```js
 carveToPandoc(src, {
   roundtrip: true,               // stamp attr wrappers for exact re-import
+  wrapperMarker: true,           // mark attr wrappers with Pandoc's wrapper="1"
   symbols: { heart: '♥' },       // resolve :name: symbols like the renderer would
   listTable: false,              // opt OUT: keep ::: list-table as a degraded div
   citations: false,              // opt OUT: read [@key] as an @mention
@@ -258,7 +259,7 @@ carveToPandoc(src, {
 });
 ```
 
-CLI equivalents: `--roundtrip`, `--symbols map.json`, `--no-list-table`,
+CLI equivalents: `--roundtrip`, `--wrapper-marker`, `--symbols map.json`, `--no-list-table`,
 `--no-citations`.
 
 `listTable` and `citations` default ON, because the reverse direction writes
@@ -268,6 +269,34 @@ one it recognizes on the way back. With `citations` off the parser reaches the
 becomes mentions; with `listTable` off a table this bridge itself wrote as
 `::: list-table` returns as a `Div` of nested lists. Turn them off to get what
 a processor with neither extension enabled would render.
+
+### Attribute wrappers
+
+Pandoc's `Para`, `BlockQuote`, lists and `HorizontalRule` have no `Attr`, so a
+block attribute line on one of them exports as a `Div` around the block. With
+`wrapperMarker: true` that `Div` leads its key-values with `wrapper="1"`, the
+marker Pandoc's own Djot reader writes. Pandoc's HTML and Djot writers then put
+the attributes on the block itself:
+
+| Writer | Default | `wrapperMarker: true` |
+|---|---|---|
+| html | `<div class="lead"><p>text</p></div>` | `<p class="lead">text</p>` |
+| djot | `{.lead}` on a `:::` div | `{.lead}` on the paragraph |
+
+It is off by default because the other writers print the marker or act on it:
+Markdown writes `::: {.lead wrapper="1"}`, CommonMark, GFM, MediaWiki and
+Textile write `data-wrapper="1"`, and Jira turns the `Div` into a panel. LaTeX,
+Typst, DOCX, ODT, RST and plain text come out the same either way. Pandoc's
+HTML reader keeps no attributes on a `<p>`, so an HTML round trip loses the ones
+the marker moved there.
+
+A wrapped `Plain`, which is how a tight list item's attributed paragraph
+arrives, stays unmarked: Pandoc's HTML writer drops the attributes of a marked
+`Plain` altogether. `roundtrip: true` turns the marker on and keeps
+`carve-block` after it. On import, a single-block `Div` whose first `wrapper`
+key is `"1"` puts its other attributes back on the block. An authored leading
+`wrapper=1` on the Carve side gets the marker in front of it in every mode, so
+it survives that import.
 
 ## Limitations
 

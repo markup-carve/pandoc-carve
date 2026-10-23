@@ -51,6 +51,14 @@ export interface ConvertOptions {
      */
     roundtrip?: boolean;
     /**
+     * Lead an attr-wrapper Div around a `Para`, `BlockQuote`, list or rule with
+     * `wrapper="1"`, Pandoc's own marker: its HTML and Djot writers then put
+     * the attributes on the block itself. Off by default because the
+     * Markdown-family, MediaWiki and Textile writers print the marker and the
+     * Jira writer turns the Div into a panel. `roundtrip` turns it on.
+     */
+    wrapperMarker?: boolean;
+    /**
      * Resolve `:name:` symbols to replacement text (mirrors the renderer's
      * symbols map). Unresolved symbols degrade to a classed Span + warning.
      */
@@ -185,6 +193,7 @@ interface Ctx {
      */
     inPanel: boolean;
     roundtrip: boolean;
+    wrapperMarker: boolean;
     symbols: Record<string, string>;
     listTable: boolean;
     /**
@@ -1334,6 +1343,19 @@ const ATTR_CARRYING = new Set([
     'citation_definition',
 ]);
 
+/**
+ * The wrapped blocks Pandoc's writers unwrap on `wrapper="1"`. `Plain` is left
+ * out on purpose: its HTML writer then drops the attributes altogether.
+ */
+const WRAPPER_MARKED = new Set([
+    'Para',
+    'BlockQuote',
+    'BulletList',
+    'OrderedList',
+    'DefinitionList',
+    'HorizontalRule',
+]);
+
 function block(ctx: Ctx, n: CNode): P.Block[] {
     const result = blockInner(ctx, n);
     // A block-attribute line can attach attrs to ANY block. Pandoc's Para,
@@ -1351,9 +1373,14 @@ function block(ctx: Ctx, n: CNode): P.Block[] {
         // In roundtrip mode the carve-block marker lets the reverse direction
         // restore the attrs onto the inner block instead of keeping a wrapper.
         const [id, classes, kvs] = toAttr(ctx, a);
-        const marked: [string, string][] = ctx.roundtrip
-            ? [...kvs, ['carve-block', n.type]]
-            : kvs;
+        const marked: [string, string][] = [...kvs];
+        // An authored leading `wrapper=1` reads as the marker on import, so it
+        // gets the real marker in front of it even with the option off.
+        const authored = kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1';
+        if ((ctx.wrapperMarker || authored) && result.length === 1 && WRAPPER_MARKED.has(result[0]!.t)) {
+            marked.unshift(['wrapper', '1']);
+        }
+        if (ctx.roundtrip) marked.push(['carve-block', n.type]);
         return [P.Div([id, classes, marked], result)];
     }
     return result;
@@ -2726,6 +2753,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         captionKind: undefined,
         inPanel: false,
         roundtrip: options.roundtrip ?? false,
+        wrapperMarker: options.wrapperMarker ?? options.roundtrip ?? false,
         symbols: options.symbols ?? {},
         listTable: options.listTable ?? true,
         noteCount: 0,

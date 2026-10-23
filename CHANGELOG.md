@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- `wrapperMarker: true` (CLI `--wrapper-marker`) leads the Div around an attributed paragraph, quote, list or thematic break with Pandoc's `wrapper="1"`, so Pandoc's HTML and Djot writers put the attributes on the block itself. `roundtrip: true` turns it on (#261).
+
 ## 0.1.9 - 2026-10-14
 
 ### Fixes
