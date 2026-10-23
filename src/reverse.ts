@@ -95,7 +95,8 @@ interface CAttrs {
 
 function fromAttr(a: Attr | undefined): CAttrs | undefined {
     if (!a) return undefined;
-    const [id, classes, kvs] = a;
+    const [id, rawClasses, kvs] = a;
+    const classes = splitClasses(rawClasses);
     const attrs: CAttrs = {};
     const order: string[] = [];
     if (id) {
@@ -113,6 +114,10 @@ function fromAttr(a: Attr | undefined): CAttrs | undefined {
     if (!order.length) return undefined;
     attrs.order = order;
     return attrs;
+}
+
+function splitClasses(classes: string[]): string[] {
+    return classes.flatMap((entry) => entry.split(/\s+/).filter(Boolean));
 }
 
 /**
@@ -362,7 +367,7 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
 
 function link(ctx: Ctx, c: never): CNode[] {
     const [a, xs, [href, title]] = c as [Attr, PandocNode[], [string, string]];
-    const [, classes] = a;
+    const classes = splitClasses(a[1]);
     if ((classes.includes('uri') || classes.includes('email')) && autolinkParses(href, stringify(xs))) {
         const node: CNode = { type: 'autolink', href, text: stringify(xs) };
         // `uri`/`email` is the class the forward direction SYNTHESIZES to say
@@ -406,16 +411,17 @@ function autolinkParses(href: string, text: string): boolean {
 
 /** Restore convert.ts's classed-span degradations to native Carve nodes. */
 /** Pandoc inlines without an Attr slot whose Carve node takes attributes. */
-const ATTR_TAKING_INLINES = new Set(['Emph', 'Strong', 'Underline', 'Strikeout', 'Superscript', 'Subscript', 'SmallCaps']);
+const ATTR_TAKING_INLINES = new Set(['Emph', 'Strong', 'Underline', 'Strikeout', 'Superscript', 'Subscript', 'SmallCaps', 'Note', 'Math']);
 
 function span(ctx: Ctx, c: never): CNode[] {
     const [a, xs] = c as [Attr, PandocNode[]];
-    const [, classes, kvs] = a;
+    const [id, rawClasses, kvs] = a;
+    const classes = splitClasses(rawClasses);
     // Pandoc's Djot reader marks the Span it puts around an attributed inline
     // with a leading `wrapper="1"`; the attrs belong on that inline when Carve
     // can carry them there, and on a plain span otherwise.
     if (kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1') {
-        const attrs = fromAttr([a[0], classes, kvs.slice(1)]);
+        const attrs = fromAttr([id, classes, kvs.slice(1)]);
         const [only] = xs;
         if (xs.length === 1 && only && ATTR_TAKING_INLINES.has(only.t)) {
             const converted = inline(ctx, only);
@@ -432,11 +438,30 @@ function span(ctx: Ctx, c: never): CNode[] {
         if (attrs) node.attrs = attrs;
         return [node];
     }
+    if (xs.length === 1 && (xs[0]!.t === 'Note' || xs[0]!.t === 'Math')) {
+        const converted = inline(ctx, xs[0]!);
+        const target = converted.length === 1 ? converted[0] : undefined;
+        if (target && !target.attrs) {
+            const attrs = fromAttr([id, classes, kvs]);
+            if (attrs) target.attrs = attrs;
+            return [target];
+        }
+    }
     const kv = Object.fromEntries(kvs);
-    const cls = classes[0];
+    const cls = classes.find((name) => [
+        'mark', 'mention', 'tag', 'symbol', 'emoji', 'abbr', 'insertion', 'inserted',
+        'deletion', 'deleted', 'substitution', 'comment-annotation',
+    ].includes(name) || name.startsWith('ext-')) ?? classes[0];
+    const withAttrs = (node: CNode, consumed: string[], keys: string[] = []): CNode => {
+        const attrs = fromAttr([id, classes.filter((name) => !consumed.includes(name)), kvs.filter(([key]) => !keys.includes(key))]);
+        if (attrs) node.attrs = attrs;
+        return node;
+    };
+    const marked = (type: string, markers: string[]): CNode[] =>
+        wrapped(ctx, type, xs).map((node) => withAttrs(node, markers));
     switch (cls) {
         case 'mark':
-            return wrapped(ctx, 'highlight', xs);
+            return marked('highlight', ['mark']);
         case 'mention':
             if (kv['data-user']) return [{ type: 'mention', user: kv['data-user'] }];
             break;
@@ -444,7 +469,10 @@ function span(ctx: Ctx, c: never): CNode[] {
             if (kv['data-tag']) return [{ type: 'tag', name: kv['data-tag'] }];
             break;
         case 'symbol':
-            if (kv['data-symbol']) return [{ type: 'symbol', name: kv['data-symbol'] }];
+            if (kv['data-symbol']) return [withAttrs({ type: 'symbol', name: kv['data-symbol'] }, ['symbol'], ['data-symbol'])];
+            break;
+        case 'emoji':
+            if (kv['data-emoji']) return [withAttrs({ type: 'symbol', name: kv['data-emoji'] }, ['emoji'], ['data-emoji'])];
             break;
         case 'abbr':
             if (kv['title']) {
@@ -456,9 +484,11 @@ function span(ctx: Ctx, c: never): CNode[] {
             }
             break;
         case 'insertion':
-            return wrapped(ctx, 'insert', xs);
+        case 'inserted':
+            return marked('insert', ['insertion', 'inserted']);
         case 'deletion':
-            return wrapped(ctx, 'delete', xs);
+        case 'deleted':
+            return marked('delete', ['deletion', 'deleted']);
         case 'substitution': {
             const parts = xs.filter((x) => x.t === 'Span') as PandocNode[];
             if (parts.length === 2) {
@@ -721,7 +751,8 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             return [{ type: 'block_quote', children: blocks(ctx, c as PandocNode[]) }];
         case 'CodeBlock': {
             const [a, content] = c as [Attr, string];
-            const [id, classes, kvs] = a;
+            const [id, rawClasses, kvs] = a;
+            const classes = splitClasses(rawClasses);
             // The inverse of the forward strip, so one break goes back on
             // whatever the payload already ends with: `"a\n"` came from Carve's
             // `"a\n\n"`, a fence whose content ends in a blank line, and only
@@ -780,7 +811,7 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
 
 // --- Lists ---
 
-function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: boolean } {
+function listItems(ctx: Ctx, items: PandocNode[][], djotTasks = false): { items: CNode[]; tight: boolean } {
     let tight = true;
     const converted = items.map((item) => {
         let source = item;
@@ -812,7 +843,7 @@ function listItems(ctx: Ctx, items: PandocNode[][]): { items: CNode[]; tight: bo
         const children = blocks(ctx, source);
         const node: CNode = { type: 'list_item', children };
         if (attrs) node.attrs = attrs;
-        stripTaskMarker(node);
+        stripTaskMarker(node, djotTasks);
         // Only over a marker the forward direction actually wrote: the state
         // pins `checked`, and PART 12 rejects an extended state on a checked
         // item, so a hand-built envelope cannot make an unsatisfiable pair.
@@ -868,23 +899,32 @@ function readTaskState(kvs: [string, string][]): string | null {
 }
 
 /** Detect the ballot-box prefix convert.ts (and pandoc's gfm reader) emit. */
-function stripTaskMarker(item: CNode): void {
+function stripTaskMarker(item: CNode, djotTasks = false): void {
     const first = (item.children as CNode[])[0];
     if (first?.type !== 'paragraph') return;
     const children = first.children as CNode[];
     const lead = children[0];
     if (lead?.type !== 'text') return;
     const value = String(lead.value);
-    const marker = value.startsWith('☒') ? true : value.startsWith('☐') ? false : null;
+    const djot = djotTasks && /^\[[ xX]\] /.test(value);
+    const marker = value.startsWith('☒') ? true : value.startsWith('☐') ? false
+        : djot ? value[1]!.toLowerCase() === 'x' : null;
     if (marker === null) return;
     item.checked = marker;
-    const rest = value.slice(1).replace(/^ /, '');
+    const rest = value.slice(djot ? 3 : 1).replace(/^ /, '');
     if (rest) lead.value = rest;
     else children.shift();
 }
 
 function bulletList(ctx: Ctx, c: never): CNode {
-    const { items, tight } = listItems(ctx, c as PandocNode[][]);
+    const source = c as PandocNode[][];
+    const djotTasks = source.length > 0 && source.every((item) => {
+        const first = item[0];
+        if (first?.t !== 'Plain' && first?.t !== 'Para') return false;
+        const xs = first.c as PandocNode[];
+        return xs[0]?.t === 'Str' && /^\[[ xX]\]$/.test(String(xs[0].c)) && xs[1]?.t === 'Space';
+    });
+    const { items, tight } = listItems(ctx, source, djotTasks);
     return { type: 'list', ordered: false, tight, items };
 }
 
@@ -1871,7 +1911,8 @@ function citationDefinition(
 
 function div(ctx: Ctx, c: never): CNode[] {
     const [a, body] = c as [Attr, PandocNode[]];
-    const [id, classes, rawKvs] = a;
+    const [id, rawClasses, rawKvs] = a;
+    const classes = splitClasses(rawClasses);
 
     // Roundtrip mode carries a fenced div's grouping `[label]` as a kv rather
     // than a flattened caption; pull it back out and rebuild the label token.

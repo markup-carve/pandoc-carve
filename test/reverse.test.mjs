@@ -17,6 +17,21 @@ test('reverse: emphasis family round-trips to source syntax', () => {
   }
 });
 
+test('reverse: inline attributes round-trip with and without wrapper markers', () => {
+  const samples = [
+    '*x*{#i .c k=v}', '/x/{#i .c k=v}', '_x_{#i .c k=v}', '~x~{#i .c k=v}',
+    '{^x^}{#i .c k=v}', '{,x,}{#i .c k=v}', '$`x`{#i .c k=v}',
+    '=x={#i .c k=v}', '{+x+}{#i .c k=v}', '{-x-}{#i .c k=v}', ':heart:{#i .c k=v}',
+    'x[^n]{#i .c k=v}\n\n[^n]: note',
+  ];
+  for (const options of [{}, { wrapperMarker: true }]) {
+    for (const source of samples) {
+      const back = pandocToCarve(carveToPandoc(source, options).doc).carve;
+      assert.match(back, /\{#i \.c k=v\}/, `${source}: ${back}`);
+    }
+  }
+});
+
 test('reverse: bold-italic keeps the nesting pandoc wrote', () => {
   // Pandoc's commonmark and docx readers return `***x***` as Emph[Strong], its
   // markdown reader as Strong[Emph]. Carve spells each: `/*x*/` renders

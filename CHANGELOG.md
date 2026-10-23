@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Improvements
+
+- Djot reader insertions, deletions, emoji and task markers now import as their Carve counterparts. Joined classes and other attributes survive (#267).
+- Inline attributes now survive export and import on formatting, math, footnote references, highlights, insertions, deletions and symbols (#267).
+
 ## 0.1.10 - 2026-10-23
 
 ### Fixes

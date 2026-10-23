@@ -852,21 +852,26 @@ function emptyTitle(ctx: Ctx, n: CNode, kind: 'link' | 'image'): void {
  * on them is dropped - said once per node rather than silently.
  */
 const NO_ATTR_SLOT: Record<string, string> = {
-    emphasis: 'Emph',
-    strong: 'Strong',
-    underline: 'Underline',
-    strike: 'Strikeout',
-    subscript: 'Subscript',
-    superscript: 'Superscript',
-    highlight: 'Span .mark',
-    insert: 'Span .insertion',
-    delete: 'Span .deletion',
     substitution: 'Span .substitution',
-    footnote_ref: 'Note',
     inline_footnote: 'Note',
 };
 
 function inline(ctx: Ctx, n: CNode): P.Inline[] {
+    const result = inlineInner(ctx, n);
+    if (!['strong', 'emphasis', 'underline', 'strike', 'superscript', 'subscript', 'math', 'footnote_ref'].includes(n.type)
+        || !hasAttrs(n.attrs as CAttrs | undefined) || result.length !== 1
+        || (n.type === 'footnote_ref' && result[0]?.t !== 'Note')) return result;
+    const [id, classes, kvs] = toAttr(ctx, n.attrs);
+    const authored = kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1';
+    return [P.Span([id, classes, ctx.wrapperMarker || authored ? [['wrapper', '1'], ...kvs] : kvs], result)];
+}
+
+function classedAttr(ctx: Ctx, n: CNode, marker: string, kvs: [string, string][] = []): P.Attr {
+    const [id, classes, authored] = toAttr(ctx, n.attrs);
+    return [id, [marker, ...classes], [...kvs, ...authored]];
+}
+
+function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
     const slotless = NO_ATTR_SLOT[n.type];
     if (slotless && hasAttrs(n.attrs as CAttrs | undefined)) {
         warn(ctx, `attribute: the attributes on a ${n.type} are dropped - pandoc's ${slotless} has no slot for them`,
@@ -893,7 +898,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'strike':
             return [P.Strikeout(kids(ctx, n))];
         case 'highlight':
-            return [P.Span(P.attr(undefined, ['mark']), kids(ctx, n))];
+            return [P.Span(classedAttr(ctx, n, 'mark'), kids(ctx, n))];
         // An interchange-only wrapper (carve#2212): no Carve source spells it,
         // and it arrives over the AST wire. `SmallCaps` has no Attr slot, so a
         // wrapper's own attributes ride a Span around it - the same place a
@@ -1099,21 +1104,6 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
             }
         }
         case 'math':
-            // PANDOC'S `Math` IS `Math MathType Text` - two children and no
-            // `Attr`, so an attribute block on a math span has nowhere to live.
-            // It cannot be carried without inventing a slot pandoc does not
-            // have or leaking it onto a neighbouring node, so it goes; what it
-            // must not do is go quietly, which is what it did until now. An
-            // accessible name is exactly the kind of attribute whose silent
-            // loss nobody notices until the output is read by a screen reader.
-            if (hasAttrs(n.attrs as CAttrs | undefined)) {
-                warn(
-                    ctx,
-                    "math: attributes on a math span are dropped - pandoc's Math node has no Attr slot",
-                    { construct: 'math', display: n.display === true },
-                    n.pos,
-                );
-            }
             return [
                 n.display
                     ? P.MathDisplay(String(n.content ?? ''))
@@ -1132,9 +1122,11 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'symbol': {
             const name = String(n.name ?? '');
             const mapped = ctx.symbols[name];
-            if (mapped !== undefined) return textInlines(mapped);
+            if (mapped !== undefined) return hasAttrs(n.attrs as CAttrs | undefined)
+                ? [P.Span(classedAttr(ctx, n, 'symbol', [['data-symbol', name]]), textInlines(mapped))]
+                : textInlines(mapped);
             warn(ctx, `symbol: :${name}: has no entry in the symbols map - emitting literal source form`);
-            return [P.Span(P.attr(undefined, ['symbol'], [['data-symbol', name]]), [P.Str(`:${name}:`)])];
+            return [P.Span(classedAttr(ctx, n, 'symbol', [['data-symbol', name]]), [P.Str(`:${name}:`)])];
         }
         case 'abbreviation': {
             const abbr = String(n.abbr ?? '');
@@ -1176,9 +1168,9 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
         case 'span':
             return [smallCapsOrSpan(toAttr(ctx, n.attrs), kids(ctx, n))];
         case 'insert':
-            return [P.Span(P.attr(undefined, ['insertion']), kids(ctx, n))];
+            return [P.Span(classedAttr(ctx, n, 'insertion'), kids(ctx, n))];
         case 'delete':
-            return [P.Span(P.attr(undefined, ['deletion']), kids(ctx, n))];
+            return [P.Span(classedAttr(ctx, n, 'deletion'), kids(ctx, n))];
         case 'substitution': {
             const oldContent = Array.isArray(n.old) ? inlines(ctx, n.old as CNode[]) : [];
             const newContent = Array.isArray(n.new) ? inlines(ctx, n.new as CNode[]) : [];

@@ -1,17 +1,4 @@
-/*
- * WHAT PANDOC'S MODEL CANNOT HOLD IS REPORTED, NOT DROPPED IN SILENCE.
- *
- * Two constructs have nowhere to go on the way out, and until now both went
- * nowhere quietly. A silent drop is the worst shape a loss can take here: the
- * round trip compares rendered HTML, so a loss that both directions agree to
- * make cancels out and the gate stays green over it - which is exactly how
- * these two rode along unnoticed while the corpus was being checked against an
- * engine too old to produce the shapes at all.
- *
- * Neither warning is a fix. There is no slot to map into, and inventing one -
- * or leaking the value onto a neighbouring node - would be worse than losing
- * it. Saying so out loud is the whole of what can be done.
- */
+/* A row header outside the leading run has no Pandoc table slot. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { carveToPandoc } from '../dist/index.js';
@@ -36,13 +23,12 @@ test('and a row header IN the leading run is not, because it survives', () => {
 	assert.deepEqual(codes('|= A |= B |\n|---|---|\n| x | y |\n'), []);
 });
 
-test('attributes on a math span are reported', () => {
-	// Pandoc's `Math` is `Math MathType Text` - two children, no `Attr`. Corpus
-	// `393-...-5`, where the lost attribute is an accessible name.
+test('attributes on a math span ride on a Span', () => {
 	const result = carveToPandoc('An inline $`x = 1` and a named $`y`{aria-label="why"} one.\n', { roundtrip: true });
-	assert.deepEqual(result.diagnostics.map((d) => d.code), ['math-attributes-dropped']);
-	assert.equal(result.diagnostics[0].class, 'lossy');
-	assert.equal(result.diagnostics[0].severity, 'error');
+	assert.deepEqual(result.diagnostics.map((d) => d.code), []);
+	const wrapper = result.doc.blocks[0].c.find((n) => n.t === 'Span');
+	assert.equal(wrapper.c[1][0].t, 'Math');
+	assert.deepEqual(wrapper.c[0][2], [['wrapper', '1'], ['aria-label', 'why']]);
 });
 
 test('and a math span with no attributes is not', () => {
