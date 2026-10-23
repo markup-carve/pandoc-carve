@@ -126,3 +126,17 @@ test('authored inline wrapper key gets a separate leading marker', () => {
   assert.equal(node.type, 'strong');
   assert.deepEqual(node.attrs.keyValues, { wrapper: '1', k: 'v' });
 });
+
+test('a Djot reader symbol without an emoji imports as the symbol', () => {
+  const node = first(doc(span(['symbol', 'extra'], [], [{ t: 'Str', c: 'foo_bar' }])));
+  assert.equal(node.type, 'symbol');
+  assert.equal(node.name, 'foo_bar');
+  assert.deepEqual(node.attrs.classes, ['extra']);
+  assert.equal(pandocToCarve(doc(span(['symbol'], [], [{ t: 'Str', c: 'foo_bar' }], ''))).carve, ':foo_bar:\n');
+});
+
+test('a symbol Span whose text cannot be a symbol name stays a span', () => {
+  for (const body of [[{ t: 'Str', c: '_x' }], [{ t: 'Str', c: 'a:b' }], [{ t: 'Str', c: 'a' }, { t: 'Space' }, { t: 'Str', c: 'b' }]]) {
+    assert.equal(first(doc(span(['symbol'], [], body))).type, 'span');
+  }
+});

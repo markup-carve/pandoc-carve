@@ -409,6 +409,9 @@ function autolinkParses(href: string, text: string): boolean {
     }
 }
 
+/** Carve's `symbol_name` production. */
+const SYMBOL_NAME = /^[A-Za-z0-9+-][A-Za-z0-9_+-]*$/;
+
 /** Restore convert.ts's classed-span degradations to native Carve nodes. */
 /** Pandoc inlines without an Attr slot whose Carve node takes attributes. */
 const ATTR_TAKING_INLINES = new Set(['Emph', 'Strong', 'Underline', 'Strikeout', 'Superscript', 'Subscript', 'SmallCaps', 'Note', 'Math']);
@@ -470,6 +473,10 @@ function span(ctx: Ctx, c: never): CNode[] {
             break;
         case 'symbol':
             if (kv['data-symbol']) return [withAttrs({ type: 'symbol', name: kv['data-symbol'] }, ['symbol'], ['data-symbol'])];
+            // Pandoc's Djot reader spells a symbol without an emoji as the bare name.
+            if (xs.length === 1 && xs[0]!.t === 'Str' && SYMBOL_NAME.test(xs[0]!.c as string)) {
+                return [withAttrs({ type: 'symbol', name: xs[0]!.c as string }, ['symbol'])];
+            }
             break;
         case 'emoji':
             if (kv['data-emoji']) return [withAttrs({ type: 'symbol', name: kv['data-emoji'] }, ['emoji'], ['data-emoji'])];
