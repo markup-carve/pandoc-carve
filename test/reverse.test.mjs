@@ -474,3 +474,42 @@ test('reverse: a block note comes back with its label', () => {
   assert.match(back, /see\[\^fn1\]/);
   assert.match(back, /\[\^fn1\]: note/);
 });
+
+test("reverse: pandoc's wrapper=1 Div restores its attrs onto the inner block", () => {
+  // Pandoc's djot reader wraps an attributed Para/BlockQuote/list this way.
+  const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
+  const hello = [{ t: 'Para', c: [{ t: 'Str', c: 'hello' }] }];
+  const wrap = (attr, body) => doc([{ t: 'Div', c: [attr, body] }]);
+  assert.equal(pandocToCarve(wrap(['', ['c'], [['wrapper', '1']]], hello)).carve, '{.c}\nhello\n');
+  assert.equal(
+    pandocToCarve(wrap(['g', ['a', 'b'], [['wrapper', '1'], ['key', 'v']]], hello)).carve,
+    '{#g .a .b key=v}\nhello\n',
+  );
+  assert.equal(pandocToCarve(wrap(['', ['q'], [['wrapper', '1']]], [{ t: 'BlockQuote', c: hello }])).carve, '{.q}\n> hello\n');
+  const list = [{ t: 'BulletList', c: [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]] }];
+  assert.equal(pandocToCarve(wrap(['x', [], [['wrapper', '1']]], list)).carve, '{#x}\n- a\n');
+  // Only the first wrapper=1 is the marker; an authored wrapper key stays.
+  assert.equal(
+    pandocToCarve(wrap(['', [], [['wrapper', '1'], ['wrapper', 'custom']]], hello)).carve,
+    '{wrapper=custom}\nhello\n',
+  );
+});
+
+test('reverse: a Div that is not a single-block wrapper stays a div', () => {
+  const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
+  const p = (s) => ({ t: 'Para', c: [{ t: 'Str', c: s }] });
+  const two = pandocToCarve(doc([{ t: 'Div', c: [['', ['c'], [['wrapper', '1']]], [p('a'), p('b')]] }])).carve;
+  assert.ok(two.includes(':::'), two);
+  const custom = pandocToCarve(doc([{ t: 'Div', c: [['', ['c'], [['wrapper', 'custom']]], [p('a')]] }])).carve;
+  assert.ok(custom.includes(':::') && custom.includes('wrapper=custom'), custom);
+  // An inner block with attrs of its own is not a wrapper target.
+  const inner = { t: 'Div', c: [['in', [], []], [p('a')]] };
+  const nested = pandocToCarve(doc([{ t: 'Div', c: [['out', [], [['wrapper', '1']]], [inner]] }])).carve;
+  assert.ok(nested.includes('#out') && nested.includes('#in'), nested);
+  // Its footnote is converted once, not once per attempt.
+  const note = { t: 'Note', c: [p('n1'), p('n2')] };
+  const noted = { t: 'Div', c: [['in', [], []], [{ t: 'Para', c: [{ t: 'Str', c: 'a' }, note] }]] };
+  const once = pandocToCarve(doc([{ t: 'Div', c: [['out', [], [['wrapper', '1']]], [noted]] }, p('b')])).carve;
+  assert.deepEqual(once.match(/^\[\^[^\]]+\]:/gm), ['[^fn1]:'], once);
+  assert.ok(once.includes('a[^fn1]'), once);
+});
