@@ -164,6 +164,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
 | Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it |
+| A block attribute line on a paragraph, quote or list | Div with the attributes around the block, since those Pandoc nodes have no Attr. On import, a single-block Div marked `wrapper="1"` (Pandoc's Djot reader) or `carve-block` puts the attributes back on the block |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
 | `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
 | Cell attributes `\|{#id .cls k=v} text`, row attributes `\| a \|{.cls}` | the `Attr` pandoc's Cell and Row already carry |

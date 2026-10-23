@@ -1862,6 +1862,24 @@ function div(ctx: Ctx, c: never): CNode[] {
         }
     }
 
+    // Pandoc's own marker for the same wrapper (its djot reader). Only the
+    // first `wrapper=1` is the marker; a later `wrapper` key was authored.
+    const pandocMarker = kvs.findIndex(([k, v]) => k === 'wrapper' && v === '1');
+    if (!marker && pandocMarker !== -1 && body.length === 1) {
+        // Converted once: a second pass would mint its footnotes twice.
+        const converted = block(ctx, body[0]!);
+        const child = converted.length === 1 ? converted[0]! : undefined;
+        const attrs = fromAttr([id, classes, kvs.filter((_, i) => i !== pandocMarker)]);
+        if (child && !child.attrs) {
+            if (attrs) child.attrs = attrs;
+            return [child];
+        }
+        const node: CNode = { type: 'div', children: converted };
+        if (label !== undefined) node.label = label;
+        if (attrs) node.attrs = attrs;
+        return [node];
+    }
+
     const definition = citationDefinition(ctx, id, classes, kvs, body);
     if (definition) return [definition];
 
