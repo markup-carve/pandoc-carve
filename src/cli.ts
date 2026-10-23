@@ -33,6 +33,9 @@ Common options:
   -s, --standalone   produce a standalone document (pandoc -s; export only)
   --roundtrip        stamp export with markers so a later import restores
                      attribute placement exactly (visible in writer output)
+  --wrapper-marker   lead attribute wrappers with Pandoc's wrapper="1", so its
+                     HTML and Djot writers put the attributes on the block
+                     (export; implied by --roundtrip)
   --no-list-table    keep ::: list-table blocks as the degraded div a processor
                      without the extension renders (export; default converts
                      them to real tables)
@@ -58,6 +61,7 @@ interface Args {
     output?: string;
     standalone: boolean;
     roundtrip: boolean;
+    wrapperMarker: boolean;
     listTable: boolean;
     citations: boolean;
     symbolsFile?: string;
@@ -75,6 +79,7 @@ function parseArgs(argv: string[]): Args {
         to: 'json',
         standalone: false,
         roundtrip: false,
+        wrapperMarker: false,
         listTable: true,
         citations: true,
         includes: true,
@@ -100,6 +105,8 @@ function parseArgs(argv: string[]): Args {
             args.standalone = true;
         } else if (a === '--roundtrip') {
             args.roundtrip = true;
+        } else if (a === '--wrapper-marker') {
+            args.wrapperMarker = true;
         } else if (a === '--no-list-table') {
             args.listTable = false;
         } else if (a === '--no-citations') {
@@ -150,6 +157,7 @@ async function main(): Promise<void> {
         : undefined;
     const options = {
         roundtrip: args.roundtrip,
+        wrapperMarker: args.wrapperMarker || args.roundtrip,
         listTable: args.listTable,
         citations: args.citations,
         symbols,

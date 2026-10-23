@@ -1654,6 +1654,25 @@ function captionFromInlines(ctx: Ctx, caption: PandocNode[] | null | undefined):
  * §4a withdrawn (carve#1213) a captioned host is a `figure` wherever it sits,
  * so the list is not panel-specific and there is no `asPanel` reading left.
  */
+/**
+ * An export wrapper's key-values without its private markers: `carve-block`,
+ * and the leading `wrapper="1"` convert.ts puts before the authored ones on
+ * the blocks it marks. A later `wrapper` key was authored.
+ */
+function wrapperKvs(kvs: [string, string][], inner: PandocNode): [string, string][] {
+    const marked = WRAPPER_MARKED.has(inner.t) && kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1';
+    return (marked ? kvs.slice(1) : kvs).filter(([k]) => k !== 'carve-block');
+}
+
+const WRAPPER_MARKED = new Set([
+    'Para',
+    'BlockQuote',
+    'BulletList',
+    'OrderedList',
+    'DefinitionList',
+    'HorizontalRule',
+]);
+
 const FIGURE_HOSTS = new Set(['Plain', 'Para', 'BlockQuote', 'Table', 'CodeBlock']);
 
 function figure(ctx: Ctx, c: never): CNode[] {
@@ -1690,11 +1709,7 @@ function figure(ctx: Ctx, c: never): CNode[] {
         const only = divBody.length === 1 ? divBody[0]! : undefined;
         if (only && FIGURE_HOSTS.has(only.t)) {
             host = only;
-            hostAttrs = fromAttr([
-                divAttr[0],
-                divAttr[1],
-                divAttr[2].filter(([k]) => k !== 'carve-block'),
-            ]);
+            hostAttrs = fromAttr([divAttr[0], divAttr[1], wrapperKvs(divAttr[2], only)]);
         }
     }
     if (host?.t === 'Table') {
@@ -1856,7 +1871,7 @@ function div(ctx: Ctx, c: never): CNode[] {
     if (marker && body.length === 1) {
         const [child] = block(ctx, body[0]!);
         if (child) {
-            const attrs = fromAttr([id, classes, kvs.filter(([k]) => k !== 'carve-block')]);
+            const attrs = fromAttr([id, classes, wrapperKvs(kvs, body[0]!)]);
             if (attrs) child.attrs = attrs;
             return [child];
         }
