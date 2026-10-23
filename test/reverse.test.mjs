@@ -555,3 +555,17 @@ test('reverse: an authored section div round-trips through the bridge', () => {
   const src = '{.section}\n:::\n# H\n\nx\n:::\n';
   assert.equal(carveToHtml(pandocToCarve(carveToPandoc(src).doc).carve), carveToHtml(src));
 });
+
+test("reverse: pandoc's wrapper=1 Span puts its attrs on the inline it wraps", () => {
+  // The shapes Pandoc's Djot reader gives `word{.c}`, `*bold*{.c}` and `a{#i}`.
+  const doc = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: inl }] });
+  const str = (s) => ({ t: 'Str', c: s });
+  const span = (attr, xs) => ({ t: 'Span', c: [attr, xs] });
+  assert.equal(pandocToCarve(doc([span(['', ['c'], [['wrapper', '1']]], [str('word')])])).carve, '[word]{.c}\n');
+  assert.equal(pandocToCarve(doc([span(['', ['c'], [['wrapper', '1']]], [{ t: 'Strong', c: [str('bold')] }])])).carve, '*bold*{.c}\n');
+  assert.equal(pandocToCarve(doc([span(['', ['c'], [['wrapper', '1']]], [{ t: 'Emph', c: [str('it')] }])])).carve, '/it/{.c}\n');
+  assert.equal(pandocToCarve(doc([span(['i', [], [['wrapper', '1'], ['k', 'v']]], [str('a')])])).carve, '[a]{#i k=v}\n');
+  // An authored later `wrapper` key stays; an unmarked span is untouched.
+  assert.equal(pandocToCarve(doc([span(['', [], [['wrapper', '1'], ['wrapper', 'x']]], [str('t')])])).carve, '[t]{wrapper=x}\n');
+  assert.equal(pandocToCarve(doc([span(['', ['c'], []], [{ t: 'Strong', c: [str('b')] }])])).carve, '[*b*]{.c}\n');
+});
