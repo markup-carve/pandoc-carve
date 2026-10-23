@@ -754,6 +754,16 @@ test('an unresolved reference is the literal source, and it is named', () => {
   });
   assert.deepEqual(resolved.warnings, []);
   assert.deepEqual(carveToPandoc('[x](/y)\n').warnings, []);
+
+  // A bare `[t]:` defines an empty destination, so the reference resolves to it.
+  for (const src of ['[t]:\n\n[a][t]\n', '[a  b]:\n\n[x][a b]\n']) {
+    const empty = carveToPandoc(src);
+    assert.equal(empty.doc.blocks[0].c[0].t, 'Link', src);
+    assert.deepEqual(empty.doc.blocks[0].c[0].c[2], ['', ''], src);
+    assert.deepEqual(empty.warnings, [], src);
+  }
+  // Labels match case-sensitively, as in the engine.
+  assert.deepEqual(carveToPandoc('[T]:\n\n[a][t]\n').doc.blocks[0].c, [{ t: 'Str', c: '[a][t]' }]);
 });
 
 test('the last marked header row sets the column alignment', () => {

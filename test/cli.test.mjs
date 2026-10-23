@@ -5,12 +5,12 @@ import { writeFileSync, readFileSync, mkdtempSync, rmSync, symlinkSync } from 'n
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { findPandoc } from './helpers.mjs';
+import { findPandoc, migrationReportSchema, ownedImporterFixtures } from './helpers.mjs';
 import Ajv2020 from 'ajv/dist/2020.js';
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
 const pandoc = findPandoc();
-const reportSchema = JSON.parse(readFileSync(new URL('./fixtures/migration-report-schema.json', import.meta.url)));
+const reportSchema = migrationReportSchema();
 const validateMigrationReport = new Ajv2020({ strict: true }).compile(reportSchema);
 const assertMigrationReport = report => assert.equal(
   validateMigrationReport(report), true, JSON.stringify(validateMigrationReport.errors),
@@ -203,8 +203,7 @@ test('cli: inbound diagnostics name the original source format', () => {
 });
 
 test('cli: replays every shared Pandoc fidelity fixture', () => {
-  // Synced from the pinned spec submodule, tests/importer-fidelity/manifest.json.
-  const fixtures = JSON.parse(readFileSync(new URL('./fixtures/importer-fidelity.json', import.meta.url)));
+  const fixtures = ownedImporterFixtures();
   for (const fixture of fixtures) {
     const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}-${fixture.id}.json`);
     const result = run(['-', '-f', 'json', '--diagnostics', report], fixture.input);

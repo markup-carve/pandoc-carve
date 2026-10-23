@@ -17,24 +17,29 @@ test('reverse: emphasis family round-trips to source syntax', () => {
   }
 });
 
-test('reverse: bold-italic comes back as the combined form in either nesting', () => {
+test('reverse: bold-italic keeps the nesting pandoc wrote', () => {
   // Pandoc's commonmark and docx readers return `***x***` as Emph[Strong], its
-  // markdown reader as Strong[Emph]; neither order carries meaning.
+  // markdown reader as Strong[Emph]. Carve spells each: `/*x*/` renders
+  // `<strong><em>`, the braced `{/*x*/}` renders `<em><strong>`.
   const para = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [inl] }] });
   const x = [{ t: 'Str', c: 'x' }];
   const emphStrong = para({ t: 'Emph', c: [{ t: 'Strong', c: x }] });
   const strongEmph = para({ t: 'Strong', c: [{ t: 'Emph', c: x }] });
-  assert.equal(pandocToCarve(emphStrong).carve, '/*x*/\n');
+  assert.equal(pandocToCarve(emphStrong).carve, '{/*x*/}\n');
   assert.equal(pandocToCarve(strongEmph).carve, '/*x*/\n');
-  assert.equal(carveToHtml('/*x*/'), carveToHtml(pandocToCarve(emphStrong).carve));
+  assert.match(carveToHtml(pandocToCarve(emphStrong).carve), /<em><strong>x/);
+  assert.match(carveToHtml(pandocToCarve(strongEmph).carve), /<strong><em>x/);
+  // Mid-word, where the bare token cannot open (carve-js 0.1.12).
+  for (const [inner, nesting] of [[emphStrong, '<em><strong>'], [strongEmph, '<strong><em>']]) {
+    const doc = { ...inner, blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'a' }, inner.blocks[0].c[0], { t: 'Str', c: 'b' }] }] };
+    assert.match(carveToHtml(pandocToCarve(doc).carve), new RegExp(`a${nesting}x`));
+  }
 
   // Only a sole child is bold-italic; anything beside it keeps the nesting.
   const mixed = para({ t: 'Emph', c: [{ t: 'Strong', c: x }, { t: 'Str', c: 'y' }] });
   assert.equal(pandocToCarve(mixed).carve, '/{*x*}y/\n');
 
-  // Content that cannot hug `/*` keeps the nesting, or it reparses as emphasis -
-  // and keeps the order pandoc wrote it in, which is a visible difference the
-  // combined token was the only licence to erase.
+  // Content that cannot hug `/*` keeps the nesting, or it reparses as emphasis.
   for (const c of [[], [{ t: 'Space' }, { t: 'Str', c: 'x' }], [{ t: 'Str', c: 'x' }, { t: 'Space' }]]) {
     for (const [outer, inner, nesting] of [['Emph', 'Strong', '<em><strong>'], ['Strong', 'Emph', '<strong><em>']]) {
       const doc = para({ t: outer, c: [{ t: inner, c }] });

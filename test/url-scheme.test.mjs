@@ -231,7 +231,7 @@ test("the mirror probes with the engine's own strip class", async () => {
 test("the mirror answers as the engine's shared helper does", async () => {
   // The helper the engine's own non-HTML writers use, which is the closest
   // analogue to what this bridge is: a target that emits a resolvable URL.
-  const shared = await engineModule('deny-listed-destination.js');
+  const shared = await engineModule('import/markdown/deny-listed-destination.js');
   for (const url of [...OBFUSCATIONS, ...LEGITIMATE, ...DANGEROUS_URL_SCHEMES.map((s) => `${s}:x`)]) {
     assert.equal(
       blankDeniedDestination(url),
