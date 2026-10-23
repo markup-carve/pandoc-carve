@@ -633,6 +633,17 @@ function stringify(xs: PandocNode[]): string {
     return out;
 }
 
+/** Whether `id` is the one Pandoc's `auto_identifiers` derives from `text`, `-N` dedup suffix included. */
+function isPandocAutoId(id: string, text: string): boolean {
+    const slug = text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}_.\-\s]/gu, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/^[^\p{L}]+/u, '') || 'section';
+    return id === slug || new RegExp(`^${slug.replace(/[.\-]/g, '\\$&')}-\\d+$`).test(id);
+}
+
 // --- Blocks ---
 
 function blocks(ctx: Ctx, xs: PandocNode[] | undefined): CNode[] {
@@ -1859,6 +1870,20 @@ function div(ctx: Ctx, c: never): CNode[] {
         if (section[1]) node.level = Number(section[1]);
         if (attrs) node.attrs = attrs;
         return [node];
+    }
+
+    // Pandoc's Djot and HTML readers wrap each section in a Div classed
+    // `section` and move the heading's attrs onto it. Carve sections come from
+    // headings, so the Div dissolves and the attrs go back on the heading. A
+    // heading that kept an id of its own is an authored div's, not this; the
+    // HTML reader's generated id (`auto_identifiers`) does not count as one.
+    const head = body[0];
+    if (classes.includes('section') && head?.t === 'Header' && !kvs.some(([k]) => k === 'carve-block')) {
+        const [level, [headId, headClasses, headKvs], xs] = head.c as [number, Attr, PandocNode[]];
+        if (headId === '' || (id !== '' && isPandocAutoId(headId, stringify(xs)))) {
+            const merged: Attr = [id, [...classes.filter((x) => x !== 'section'), ...headClasses], [...kvs, ...headKvs]];
+            return blocks(ctx, [{ t: 'Header', c: [level, merged, xs] } as PandocNode, ...body.slice(1)]);
+        }
     }
 
     // convert.ts's attr-wrapper marker: restore attrs onto the inner block.

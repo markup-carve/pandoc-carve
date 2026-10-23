@@ -518,3 +518,40 @@ test('reverse: a Div that is not a single-block wrapper stays a div', () => {
   assert.deepEqual(once.match(/^\[\^[^\]]+\]:/gm), ['[^fn1]:'], once);
   assert.ok(once.includes('a[^fn1]'), once);
 });
+
+test("reverse: pandoc's section Divs dissolve back into headings", () => {
+  // The shape Pandoc's Djot and HTML readers give `# A` / text / `## B` / more.
+  const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
+  const p = (s) => ({ t: 'Para', c: [{ t: 'Str', c: s }] });
+  const h = (level, s, attr = ['', [], []]) => ({ t: 'Header', c: [level, attr, [{ t: 'Str', c: s }]] });
+  const sec = (attr, body) => ({ t: 'Div', c: [attr, body] });
+  const nested = doc([sec(['A', ['section'], []], [h(1, 'A'), p('text'), sec(['B', ['section'], []], [h(2, 'B'), p('more')])])]);
+  assert.equal(pandocToCarve(nested).carve, '# A\n\ntext\n\n## B\n\nmore\n');
+  // Djot reader: every heading attr on the Div. HTML reader: classes stay on the Header.
+  assert.equal(pandocToCarve(doc([sec(['h', ['c', 'section'], [['k', 'v']]], [h(1, 'Head')])])).carve, '{#h .c k=v}\n# Head\n');
+  assert.equal(pandocToCarve(doc([sec(['h', ['section'], []], [h(1, 'Head', ['', ['c'], []])])])).carve, '{#h .c}\n# Head\n');
+  // Inside a quote too.
+  assert.equal(pandocToCarve(doc([{ t: 'BlockQuote', c: [sec(['H', ['section'], []], [h(1, 'H')])] }])).carve, '> # H\n');
+  // The HTML reader also generates the heading's own id; the section's id is the real one.
+  assert.equal(pandocToCarve(doc([sec(['Head-One', ['section'], []], [h(1, 'Head One', ['head-one', [], []])])])).carve, '# Head One\n');
+  assert.equal(pandocToCarve(doc([sec(['x', ['section'], []], [h(2, '1. Über: a_b', ['über-a_b-1', [], []])])])).carve, '{#x}\n## 1. Über: a_b\n');
+});
+
+test('reverse: a section-classed Div that is not a pandoc section stays a div', () => {
+  const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
+  const p = (s) => ({ t: 'Para', c: [{ t: 'Str', c: s }] });
+  // A heading that kept its own id: an authored `{.section}` div.
+  const authored = pandocToCarve(doc([{ t: 'Div', c: [['', ['section'], []], [{ t: 'Header', c: [1, ['H', [], []], [{ t: 'Str', c: 'H' }]] }]] }])).carve;
+  assert.ok(authored.includes(':::') && authored.includes('.section'), authored);
+  // A sectioned heading whose id is not the generated one keeps the div.
+  const own = pandocToCarve(doc([{ t: 'Div', c: [['s', ['section'], []], [{ t: 'Header', c: [1, ['mine', [], []], [{ t: 'Str', c: 'Head' }]] }]] }])).carve;
+  assert.ok(own.includes(':::') && own.includes('#mine'), own);
+  // No heading first.
+  const plain = pandocToCarve(doc([{ t: 'Div', c: [['s', ['section'], []], [p('x')]] }])).carve;
+  assert.ok(plain.includes(':::') && plain.includes('#s'), plain);
+});
+
+test('reverse: an authored section div round-trips through the bridge', () => {
+  const src = '{.section}\n:::\n# H\n\nx\n:::\n';
+  assert.equal(carveToHtml(pandocToCarve(carveToPandoc(src).doc).carve), carveToHtml(src));
+});
