@@ -146,9 +146,12 @@ test('pandoc -> carve: a note holding a note is written as a definition, not ^[ 
   assert.match(html, /<li id="fn2">\s*<p>two/);
 });
 
-test('attributes on a node with no pandoc Attr slot produce inline-attributes-dropped', () => {
-  for (const source of ['*x*{.real}\n', 'a[^n]{.k} b\n\n[^n]: x\n', 'a^[x]{.k} b\n', '{++a++}{.a}\n']) {
+test('attributes on remaining slotless nodes produce inline-attributes-dropped', () => {
+  for (const source of ['a^[x]{.k} b\n']) {
     expectCode(carveToPandoc(source), 'inline-attributes-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
+  }
+  for (const source of ['*x*{.real}\n', 'a[^n]{.k} b\n\n[^n]: x\n']) {
+    assert.ok(!carveToPandoc(source).diagnostics.some((d) => d.code === 'inline-attributes-dropped'));
   }
   assert.deepEqual(carveToPandoc('[x]{.kept}\n').diagnostics, [], 'a span has the slot');
 });

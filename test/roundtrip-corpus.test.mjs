@@ -71,16 +71,9 @@ const KNOWN_LOSSY = new Set([
   '638-nested-plus-below-fence-and-description.crv',
   '101-table-header-cell-rowspan.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
-  '128-editorial-markup-takes-a-trailing-attribute.crv',
-  // The 0.1.6 engine parsed a different tree here before the bridge saw it.
-  // Only this one still does at 0.1.7.
-  '152-leading-attribute-brace-before-an-inline-span-stays-literal-3.crv',
   '173-implicit-heading-references-with-no-definition.crv',
-  '21-math-2.crv',
-  '22-footnotes-4.crv',
   '22-footnotes-5.crv',
   '23-inline-footnotes-2.crv',
-  '252-a-tab-separates-two-attributes-and-pads-a-block-as-a-space-does-2.crv',
   // A ROW HEADER OUTSIDE THE LEADING RUN cannot be said in pandoc's model.
   // `RowHeadColumns` is a count of a row's FIRST cells and `Cell` carries no
   // header flag of its own, so `| =h |= i |` - a data cell, then a row header -
@@ -98,18 +91,13 @@ const KNOWN_LOSSY = new Set([
   // (`table-row-head-outside-leading-run`), which is the whole of what can be
   // done short of a slot pandoc does not have.
   '256-table-cell-padding-must-be-a-space-18.crv',
-  '273-the-inline-attribute-interior-is-space-only-the-attribute-line-is-not.crv',
-  '274-a-quoted-attribute-value-stops-at-the-newline-2.crv',
   '284-a-ragged-table-keeps-each-row-s-cell-count-2.crv',
   '284-a-ragged-table-keeps-each-row-s-cell-count-3.crv',
   '284-a-ragged-table-keeps-each-row-s-cell-count.crv',
-  '302-a-math-span-s-base-class-keeps-the-class-slot-in-place-2.crv',
-  '302-a-math-span-s-base-class-keeps-the-class-slot-in-place.crv',
   '311-a-footnote-in-reference-link-text-nests-the-anchors-too-3.crv',
   // PANDOC'S `Note` HAS NO IDENTITY. A note cited twice becomes two notes on
-  // the return leg, and the attribute or id on a reference has no slot.
+  // the return leg.
   '311-a-footnote-in-reference-link-text-nests-the-anchors-too-4.crv',
-  '573-a-footnote-reference-in-link-text-keeps-its-id-on-the-sup-2.crv',
   '573-a-footnote-reference-in-link-text-keeps-its-id-on-the-sup.crv',
   // A LINE-BLOCK CODE SPAN HOLDING A FENCE LINE has no spelling the engine's
   // writer accepts once its layout is gone, so the newlines fold to spaces and
@@ -166,21 +154,6 @@ const KNOWN_LOSSY = new Set([
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
   '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
   '375-a-table-cell-can-inherit-horizontal-alignment.crv',
-  // PANDOC'S `Math` HAS NO ATTRIBUTE SLOT. The constructor is `Math MathType
-  // Text` - two children, no `Attr` (src/pandoc.ts `MathInline`) - so an
-  // attribute block on an inline math span has nowhere to live:
-  //
-  //     An inline $`x = 1` and a named $`y`{aria-label="why"} one.
-  //
-  // comes back without the name, and `-7` loses a `ROLE="img"` the same way
-  // while the `ARIA-LABEL` on the div beside it survives - only the math span's
-  // attributes go. Carrying them would mean inventing a slot pandoc does not
-  // have or leaking them onto a neighbouring node, so this is a model loss
-  // rather than a bridge defect. The forward direction now warns
-  // (`math-attributes-dropped`) rather than dropping an accessible name in
-  // silence.
-  '393-an-engine-written-shape-says-what-it-is-called-5.crv',
-  '393-an-engine-written-shape-says-what-it-is-called-7.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
   // One cause under all of them. A pandoc LineBlock is a list of lines and may hold
@@ -219,17 +192,11 @@ const KNOWN_LOSSY = new Set([
   // The same shape as `256-...-18` above: `|=<< Note |= Plain |` leaves the
   // first cell literal and marks only the second as a row header.
   '53-table-doubled-alignment-marker.crv',
-  '46-symbols-4.crv',
-  // Pandoc's `Strong` and `Note` carry no `Attr`, so an attribute run on a
-  // strong span or a footnote reference is dropped, the same loss as
-  // `80-trailing-attribute-block-edge-cases` and `22-footnotes-4`.
-  '474-glued-attribute-blocks-on-an-inline-element-merge-3.crv',
-  '474-glued-attribute-blocks-on-an-inline-element-merge.crv',
+  // An inline note still has no attribute slot. The standalone Note case is
+  // covered by the attributed footnote reference tests.
   '475-footnote-references-take-an-attribute-run-editorial-substitution-and-comment-take-none-2.crv',
-  '475-footnote-references-take-an-attribute-run-editorial-substitution-and-comment-take-none.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',
-  '80-trailing-attribute-block-edge-cases.crv',
 ]);
 
 test('the round trip is measured against the whole corpus, not a sample', () => {

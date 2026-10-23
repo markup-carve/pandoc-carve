@@ -163,6 +163,10 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `/italic/`, `*bold*`, `/*both*/` | Emph, Strong, Strong+Emph |
 | `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
+| Attributes on emphasis, strong, underline, strike, superscript, subscript, math or a footnote reference | Span around the inline. With `wrapperMarker` or `roundtrip`, its key-values start with `wrapper="1"`, and import puts the attributes back on the inline (`*b*{.c}`). Without the marker the Span could be an authored one, so it imports as a span around the inline (`[*b*]{.c}`). A Span holding only a Note or Math hands its attributes to it either way |
+| Attributes on `=highlight=`, `{+insert+}`, `{-delete-}` or `:symbol:` | The same classed Span carries the authored id, classes and key-values after its marker class |
+| Djot reader Spans `.inserted`, `.deleted` and `.emoji` with `data-emoji` | Insert, delete and symbol. Joined class strings are split before marker lookup; other attributes survive |
+| A bullet list whose every item starts with Djot reader text `[ ]`, `[x]` or `[X]` and a space | Task list with the markers removed. Mixed lists retain their literal markers |
 | Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it. On import, the `section` Div Pandoc's Djot and HTML readers wrap around a heading dissolves and its attributes go back on the heading |
 | A block attribute line on a paragraph, quote, list or thematic break | Div with the attributes around the block, since those Pandoc nodes have no Attr. With `wrapperMarker` the Div leads with `wrapper="1"` (see [Attribute wrappers](#attribute-wrappers)). On import, a single-block Div marked `wrapper="1"` (Pandoc's Djot reader) or `carve-block` puts the attributes back on the block. A Span marked the same way puts them on the one inline it wraps (`*bold*{.c}`), or becomes a plain `[text]{.c}` span |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
@@ -282,6 +286,9 @@ the attributes on the block itself:
 |---|---|---|
 | html | `<div class="lead"><p>text</p></div>` | `<p class="lead">text</p>` |
 | djot | `{.lead}` on a `:::` div | `{.lead}` on the paragraph |
+
+Attributed emphasis, strong, underline, strike, superscript, subscript, math
+and footnote references use the same marker on their surrounding `Span`.
 
 It is off by default because the other writers print the marker or act on it:
 Markdown writes `::: {.lead wrapper="1"}`, CommonMark, GFM, MediaWiki and
