@@ -163,7 +163,7 @@ node -e "import('@markup-carve/pandoc-carve').then(m => process.stdout.write(m.c
 | `/italic/`, `*bold*`, `/*both*/` | Emph, Strong, Strong+Emph |
 | `_underline_`, `~strike~`, `=highlight=` | Underline, Strikeout, Span `.mark` |
 | `{^sup^}`, `{,sub,}` | Superscript, Subscript |
-| Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it |
+| Headings + `{#id .class}` attributes | Header with Attr. A heading without an explicit id carries the id the engine derives for it, so `</#id>` and `[Heading][]` links land on it. On import, the `section` Div Pandoc's Djot and HTML readers wrap around a heading dissolves and its attributes go back on the heading |
 | A block attribute line on a paragraph, quote, list or thematic break | Div with the attributes around the block, since those Pandoc nodes have no Attr. With `wrapperMarker` the Div leads with `wrapper="1"` (see [Attribute wrappers](#attribute-wrappers)). On import, a single-block Div marked `wrapper="1"` (Pandoc's Djot reader) or `carve-block` puts the attributes back on the block |
 | Tables incl. rowspan/colspan and captions | Table (spans inverted to pandoc's origin-cell model) |
 | `table.rowGroups` counts (PART 12 section 15) | TableHead, one TableBody per group with its RowHeadColumns and intermediate header rows, TableFoot |
