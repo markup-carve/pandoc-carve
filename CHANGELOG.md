@@ -1,10 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.1.10 - 2026-10-23
+
+### Fixes
+
+- An empty link destination is a link, as in carve 0.1.13: a reference to a bare `[r]:` definition exports as a `Link` to `""`, and `pandocToCarve` writes a `Link` or `Image` with an empty target as `[text]()` instead of dropping it with `link-empty-destination-dropped` (#263).
+- `pandocToCarve` puts the attributes of a single-block Div marked `wrapper="1"`, as Pandoc's Djot reader writes it, back on the block (#260).
+- `pandocToCarve` keeps `Emph[Strong]` as `{/*x*/}`, which renders `<em><strong>`; only `Strong[Emph]` becomes `/*x*/` (#263).
+- `pandocToCarve` reads a Figure without a caption as a figure group. It used to build a `figure` with no caption, which made the Carve writer throw (#263).
+- `pandocToCarve` writes an empty Table as an empty CSV table instead of dropping it (#263).
+- A line break inside a CSV or TSV cell reaches Pandoc as a `SoftBreak` instead of a newline inside a `Str` (#263).
+- A table whose `body-rows`, `body-header-rows` and `body-header-cols` the engine consumed no longer passes those keys to Pandoc as table attributes (#263).
+- Under `roundtrip: true`, a `::: figure` holding one captioned block comes back as a figure group instead of a plain figure (#263).
 
 ### Improvements
 
-- `wrapperMarker: true` (CLI `--wrapper-marker`) leads the Div around an attributed paragraph, quote, list or thematic break with Pandoc's `wrapper="1"`, so Pandoc's HTML and Djot writers put the attributes on the block itself. `roundtrip: true` turns it on (#261).
+- `wrapperMarker: true` (CLI `--wrapper-marker`) leads the Div around an attributed paragraph, quote, list or thematic break with Pandoc's `wrapper="1"`, so Pandoc's HTML and Djot writers put the attributes on the block itself. `roundtrip: true` turns it on (#261, #262).
+
+### Changed
+
+- Requires `@markup-carve/carve` 0.1.13 or later (#263).
 
 ## 0.1.9 - 2026-10-14
 

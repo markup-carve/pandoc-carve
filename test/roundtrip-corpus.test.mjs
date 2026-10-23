@@ -63,32 +63,13 @@ const KNOWN_LOSSY = new Set([
   // CodeBlock has nowhere to keep the difference. The bridge reports it as
   // `field-unspellable` rather than losing it in silence.
   '524-an-empty-code-payload-renders-no-characters-2.crv',
+  '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-5.crv',
+  '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-6.crv',
+  '619-a-fence-run-that-dedents-out-of-a-child-keeps-the-outer-item-tight-10.crv',
+  '626-an-indented-plus-below-a-nested-fence-stays-content-at-every-depth-5.crv',
+  '626-an-indented-plus-below-a-nested-fence-stays-content-at-every-depth-7.crv',
+  '638-nested-plus-below-fence-and-description.crv',
   '101-table-header-cell-rowspan.crv',
-  // A BLANKED DESTINATION HAS NO CARVE SPELLING. The bridge now applies PART 9
-  // §25 on the way out, so a denied scheme leaves as an empty target and says
-  // so with an `unsafe-url-scheme` diagnostic (#157). Coming back,
-  // `pandocToCarve` writes `[click here]()`, which is not a link at all - Carve
-  // has no way to author an empty destination, the same limit the `[t]: <>`
-  // note in src/convert.ts records - so it renders as literal text.
-  //
-  // The loss is the ruling, not a defect in it: what does not survive is a
-  // `javascript:` target nothing was ever meant to resolve, and the diagnostic
-  // is what makes it visible to `--fail-on-loss`. `108-security-hardening-2`
-  // is absent because an autolink carries its URL in its TEXT, so the reverse
-  // direction rebuilds it and that document still round-trips.
-  //
-  // `536-...` is the same loss reached through both sinks at once - a denied
-  // link and a denied image in one paragraph - which is what the spec document
-  // was added to pin (markup-carve/carve#2681). Measured: the forward leg is
-  // faithful, `pandoc -f json -t html` on it gives the engine's own
-  // `href=""`/`src=""`, and only the return leg has nowhere to put an empty
-  // destination. The image sink is no different from the link sink here.
-  '108-security-hardening.crv',
-  '108-security-hardening-3.crv',
-  '108-security-hardening-4.crv',
-  '108-security-hardening-5.crv',
-  '108-security-hardening-7.crv',
-  '536-a-denied-destination-takes-one-render-loss-row-per-sink.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '128-editorial-markup-takes-a-trailing-attribute.crv',
   // The 0.1.6 engine parsed a different tree here before the bridge saw it.
@@ -140,6 +121,9 @@ const KNOWN_LOSSY = new Set([
   // `{.c}` over a fence comes back as `` ```c ``.
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base-2.crv',
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base.crv',
+  '606-an-unclosed-fence-after-an-attribute-line-in-a-container-ends-at-its-closer-2.crv',
+  '650-a-wrapped-attribute-line-interrupts-like-a-one-line-attribute-line-3.crv',
+  '650-a-wrapped-attribute-line-interrupts-like-a-one-line-attribute-line.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-6.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
@@ -235,12 +219,6 @@ const KNOWN_LOSSY = new Set([
   // The same shape as `256-...-18` above: `|=<< Note |= Plain |` leaves the
   // first cell literal and marks only the second as a row header.
   '53-table-doubled-alignment-marker.crv',
-  // ARRIVED WITH A CORPUS BUMP, the loss in the WRITER rather than in the
-  // reading. `447-...-20` loses the FRAMING of an item's continuation line: the
-  // definition inside the item is consumed and rebuilt as an inline link, and
-  // what follows it comes back attached to the item's lead rather than as its
-  // own framed line. The rendered text is identical; the `li`'s shape is not.
-  '447-the-host-does-not-change-which-column-a-definition-reaches-20.crv',
   '46-symbols-4.crv',
   // Pandoc's `Strong` and `Note` carry no `Attr`, so an attribute run on a
   // strong span or a footnote reference is dropped, the same loss as

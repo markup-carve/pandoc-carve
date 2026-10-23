@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { migrationReportSchema } from './helpers.mjs';
 import Ajv2020 from 'ajv/dist/2020.js';
 import {
   pandocToCarve, pandocToCarveAst, PandocImportLimitError, MAX_PANDOC_DEPTH, MAX_LIST_DEPTH,
@@ -77,7 +77,7 @@ test('cli: an over-deep document exits 1 and writes the diagnostic to the report
   assert.equal(result.stdout, '');
   const report = JSON.parse(result.stderr);
   assert.deepEqual(report.diagnostics.map((d) => d.code), ['pandoc-nesting-too-deep']);
-  const schema = JSON.parse(readFileSync(new URL('./fixtures/migration-report-schema.json', import.meta.url)));
+  const schema = migrationReportSchema();
   const validate = new Ajv2020({ strict: true }).compile(schema);
   assert.equal(validate(report), true, JSON.stringify(validate.errors));
 });

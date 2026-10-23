@@ -118,6 +118,8 @@ interface Ctx {
      * other reference.
      */
     headingIdByText: Map<string, string>;
+    /** Link reference labels defined with an empty destination (`[r]:`), as lookup keys. */
+    emptyDefinitions: Set<string>;
     /** The labels of the note definitions referenced so far. */
     citedNotes: Set<string>;
     /** The labels of the note definitions being expanded, to stop a cycle. */
@@ -471,6 +473,11 @@ function textInlines(raw: string): P.Inline[] {
     return out;
 }
 
+/** A text node's inlines. A CSV cell keeps a quoted line break in its text. */
+function proseInlines(raw: string): P.Inline[] {
+    return raw.split(/\r?\n/).flatMap((line, at) => [...(at > 0 ? [P.SoftBreak] : []), ...textInlines(line)]);
+}
+
 // Like textInlines, but preserves the exact number of spaces by emitting one
 // Space per space character instead of one per run. Prose collapsing is correct
 // for ordinary text, but an inline literal captures its content VERBATIM, so
@@ -724,10 +731,9 @@ function inLink(ctx: Ctx, n: CNode): P.Inline[] {
  * PART 12 section 3a publishes the resolution BESIDE the authored construct
  * rather than in place of it: `[a][t]` is a `link` carrying `ref`/`rawRef`
  * whether or not the document defines `t`, and `href` (`src` for an image) is
- * empty ONLY where nothing resolved it. So the pair "a reference was written"
- * and "the destination is empty" is the wire's statement that the reference
- * did not resolve, and it is the only one - there is no way to author an empty
- * destination on a definition line (`[t]: <>` defines the literal `<>`).
+ * empty where nothing resolved it. So the pair "a reference was written"
+ * and "the destination is empty" says the reference did not resolve, unless a
+ * bare `[t]:` line defines that empty destination (carve-js 0.1.12).
  *
  * Carve renders such a reference as the LITERAL SOURCE, so this returns
  * `rawRef` as text. Emitting a `Link` with an empty target instead would
@@ -761,6 +767,11 @@ function collapsedHeadingRef(ctx: Ctx, n: CNode): string | undefined {
     return text ? ctx.headingIdByText.get(text) : undefined;
 }
 
+/** The engine's case-sensitive lookup key for a link reference label. */
+function refLabelKey(label: string): string {
+    return label.replace(/ +/g, ' ').replace(/^ | $/g, '');
+}
+
 /** The key a collapsed reference and a heading's text meet on (PART 9R R1). */
 function headingTextKey(text: string): string {
     // A tab is key content, not a separator (corpus 565).
@@ -772,6 +783,8 @@ function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inli
     const destination = String((kind === 'link' ? n.href : n.src) ?? '');
     if (destination !== '') return null;
     const ref = String(n.ref ?? '');
+    // `[r]:` defines an empty destination, so the reference resolved to it.
+    if (ctx.emptyDefinitions.has(refLabelKey(ref))) return null;
     warn(ctx, `${kind}: missing definition for [${ref}] - emitting the literal source`);
     const raw = String(n.rawRef ?? '');
     // rawRef is required beside ref, so the fallback is for a tree assembled by
@@ -861,7 +874,7 @@ function inline(ctx: Ctx, n: CNode): P.Inline[] {
     }
     switch (n.type) {
         case 'text':
-            return textInlines(String(n.value ?? ''));
+            return proseInlines(String(n.value ?? ''));
         case 'non_breaking_space':
             return [P.Str('\u00a0')];
         case 'soft_break':
@@ -2099,7 +2112,7 @@ function table(
         // dropped the first of the two.
         toAttrWithout(ctx, n.attrs as CAttrs | undefined,
             groups
-                ? ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows']
+                ? ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows', 'body-rows', 'body-header-rows', 'body-header-cols']
                 : ['aligns', 'valigns', 'widths']),
         caption,
         colAligns,
@@ -2420,7 +2433,9 @@ function figureGroup(ctx: Ctx, n: CNode): P.Block[] {
             }
         }),
     );
-    return [P.Figure(toAttr(ctx, n.attrs), caption, body)];
+    const [id, classes, kvs] = toAttr(ctx, n.attrs);
+    const marked: [string, string][] = ctx.roundtrip ? [...kvs, ['carve-block', 'figure_group']] : kvs;
+    return [P.Figure([id, classes, marked], caption, body)];
 }
 
 // --- Metadata (frontmatter) ---
@@ -2744,6 +2759,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         footnoteDefs,
         crossrefTargets: new Map(),
         headingIdByText: new Map(),
+        emptyDefinitions: new Set(),
         headingIds: resolvedHeadingIds(ast),
         captionTargets: new Set(),
         tight: false,
@@ -2851,6 +2867,8 @@ function collectCrossrefTargets(
             const text = headingTextKey(plainText(children));
             // First heading wins, the same way the id map resolves a duplicate.
             if (id && text && !ctx.headingIdByText.has(text)) ctx.headingIdByText.set(text, id);
+        } else if (n.type === 'link_reference_definition' && String(n.href ?? '') === '') {
+            ctx.emptyDefinitions.add(refLabelKey(String(n.label ?? '')));
         } else if (!inPanel && (n.type === 'figure' || n.type === 'table')) {
             // Every figure counts, whatever it wraps. A quote used to be
             // excluded here, because §4a made a captioned quote an attribution

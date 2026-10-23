@@ -203,25 +203,18 @@ function wrapped(ctx: Ctx, type: string, xs: PandocNode[]): CNode[] {
     return isEmpty(children) ? [] : [{ type, children }];
 }
 
-// Emph[Strong[..]] and Strong[Emph[..]] are the same bold-italic run: pandoc's
-// commonmark and docx readers produce one order, its markdown reader the other.
-// Both reverse to Carve's combined `/*..*/` form, a flagged strong wrapping an
-// emphasis, so the nesting a writer happened to pick does not respell the source.
-function boldItalic(ctx: Ctx, xs: PandocNode[], inner: 'Emph' | 'Strong'): CNode[] | null {
+// Strong[Emph[..]] is Carve's combined `/*..*/` token, a flagged strong
+// wrapping an emphasis. Emph[Strong[..]] stays nested: the writer spells it
+// `{/*..*/}`, which renders `<em><strong>` where `/*..*/` renders
+// `<strong><em>`.
+function boldItalic(ctx: Ctx, xs: PandocNode[]): CNode[] | null {
     const only = xs.length === 1 ? xs[0] : undefined;
-    if (only?.t !== inner) return null;
+    if (only?.t !== 'Emph') return null;
     const kids = inlines(ctx, only.c as never);
     if (isEmpty(kids)) return [];
-    // `/*` needs content that hugs it: empty or space-edged content spelled
-    // `/* x*/` reparses as an emphasis with literal stars. Nest it instead -
-    // and in the order pandoc wrote, because a nested pair renders `<em><strong>`
-    // or `<strong><em>` and swapping them is a visible change the combined
-    // token was the only licence to make.
-    if (!hugsDelimiters(kids)) {
-        return inner === 'Strong'
-            ? [{ type: 'emphasis', children: [{ type: 'strong', children: kids }] }]
-            : [{ type: 'strong', children: [{ type: 'emphasis', children: kids }] }];
-    }
+    // `/*` needs content that hugs it: `/* x*/` reparses as an emphasis with
+    // literal stars, so such content keeps the plain nesting.
+    if (!hugsDelimiters(kids)) return [{ type: 'strong', children: [{ type: 'emphasis', children: kids }] }];
     return [{ type: 'strong', boldItalic: true, children: [{ type: 'emphasis', children: kids }] }];
 }
 
@@ -246,9 +239,9 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
         case 'LineBreak':
             return [{ type: 'hard_break' }];
         case 'Emph':
-            return boldItalic(ctx, c, 'Strong') ?? wrapped(ctx, 'emphasis', c);
+            return wrapped(ctx, 'emphasis', c);
         case 'Strong':
-            return boldItalic(ctx, c, 'Emph') ?? wrapped(ctx, 'strong', c);
+            return boldItalic(ctx, c) ?? wrapped(ctx, 'strong', c);
         case 'Underline':
             return wrapped(ctx, 'underline', c);
         case 'Strikeout':
@@ -383,11 +376,6 @@ function link(ctx: Ctx, c: never): CNode[] {
     }
     if (classes.includes('crossref')) {
         return [{ type: 'heading_ref', target: href.replace(/^#/, '') }];
-    }
-    if (href === '') {
-        // `[text]()` is literal text in Carve, and `[text](<>)` links to `<>`.
-        warn(ctx, 'link: an empty destination has no Carve spelling - the link text is kept without the link');
-        return inlines(ctx, xs);
     }
     const node: CNode = { type: 'link', href, children: inlines(ctx, xs) };
     if (title) node.title = title;
@@ -1227,6 +1215,8 @@ function table(
     }
 
     const node: CNode = { type: 'table', rows };
+    // An empty CSV fence is the one Carve spelling of a table with no rows.
+    if (!rows.length) node.sourceFormat = 'csv';
     if (columns.some((column) => Object.keys(column).length > 0)) node.columns = columns;
     // The counts come from the same arrays `rows` was built from, one row
     // pushed per raw row, so §15's sum holds by construction here. It is
@@ -1676,12 +1666,17 @@ const WRAPPER_MARKED = new Set([
 const FIGURE_HOSTS = new Set(['Plain', 'Para', 'BlockQuote', 'Table', 'CodeBlock']);
 
 function figure(ctx: Ctx, c: never): CNode[] {
-    const [a, capt, body] = c as [Attr, [unknown, PandocNode[]], PandocNode[]];
+    const [marked, capt, body] = c as [Attr, [unknown, PandocNode[]], PandocNode[]];
+    // Roundtrip mode marks a `figure_group`, which a one-image group needs: it
+    // has the same Pandoc shape as a captioned image.
+    const group = marked[2].some(([k, v]) => k === 'carve-block' && v === 'figure_group');
+    const a: Attr = group ? [marked[0], marked[1], marked[2].filter(([k]) => k !== 'carve-block')] : marked;
     const caption = captionFromBlocks(ctx, capt[1]);
     const shortCaption = captionFromInlines(ctx, capt[0] as PandocNode[] | null);
-    const single = body.length === 1 ? body[0]! : undefined;
+    const single = !group && body.length === 1 ? body[0]! : undefined;
 
-    if (single?.t === 'Plain' || single?.t === 'Para') {
+    // `figure.caption` is required, so an uncaptioned Figure is a `figure_group`.
+    if (caption && (single?.t === 'Plain' || single?.t === 'Para')) {
         const xs = single.c as PandocNode[];
         if (xs.length === 1 && xs[0]!.t === 'Image') {
             const [img] = inline(ctx, xs[0]!);
@@ -1726,7 +1721,7 @@ function figure(ctx: Ctx, c: never): CNode[] {
         }
         return [node];
     }
-    if (host && FIGURE_HOSTS.has(host.t)) {
+    if (caption && host && FIGURE_HOSTS.has(host.t)) {
         // A single-host `Figure` is an ordinary `figure` around that host -
         // the generic captioned wrapper of PART 9 §4b, which is what the
         // forward direction emits for a captioned quote, code listing or

@@ -69,7 +69,6 @@ const RULES: Rule[] = [
     { test: /^extension:/, code: 'inline-extension-degraded', class: 'degraded' },
     { test: /^footnote: a cyclic reference/, code: 'nested-note-cycle-dropped', class: 'lossy' },
     { test: /^footnote: a note referenced inside a note is lifted/, code: 'nested-note-lifted', class: 'degraded' },
-    { test: /^link: an empty destination/, code: 'link-empty-destination-dropped', class: 'lossy' },
     { test: /^(?:link|image): an empty title is dropped/, code: 'empty-title-dropped', class: 'lossy' },
     { test: /^attribute: the attributes on a /, code: 'inline-attributes-dropped', class: 'lossy' },
     { test: /^footnote: \[\^[^\]]*\] is referenced more than once/, code: 'note-reference-duplicated', class: 'degraded' },

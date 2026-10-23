@@ -41,7 +41,7 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const corpusDir = join(repo, 'spec', 'tests', 'corpus');
 
 /** The engine version ENGINE_LAG was measured against. */
-const LAG_PIN = '0.1.11';
+const LAG_PIN = '0.1.13';
 
 /**
  * Documents whose split the pinned engine cannot produce yet.
@@ -51,28 +51,7 @@ const LAG_PIN = '0.1.11';
  * clears when the pin moves, because the expiry test below refuses to honor
  * this list on any other engine version.
  */
-const ENGINE_LAG = new Map([
-  [
-    '538-multiple-table-bodies-have-positional-source-metadata.crv',
-    'pin: the engine leaves body-rows/body-header-rows/body-header-cols unconsumed (carve-js#2495)',
-  ],
-  [
-    '539-empty-table-bodies-keep-their-source-boundaries.crv',
-    'pin: the engine leaves the body metadata unconsumed (carve-js#2495)',
-  ],
-  [
-    '540-a-table-with-no-bodies-keeps-its-head-and-foot.crv',
-    'pin: body-rows="" states no bodies, the engine emits one empty body (carve-js#2495)',
-  ],
-  [
-    '542-a-span-across-bodies-keeps-their-header-semantics.crv',
-    'pin: the engine leaves the body metadata unconsumed (carve-js#2495)',
-  ],
-  [
-    '544-explicit-body-counts-include-native-header-cells.crv',
-    'pin: the engine reads the native header row as a head instead of counting it into the body (carve-js#2495)',
-  ],
-]);
+const ENGINE_LAG = new Map([]);
 
 const BODY_KEYS = ['body-rows', 'body-header-rows', 'body-header-cols'];
 

@@ -102,3 +102,13 @@ test('include root and source path must be absolute and contained', () => fixtur
     /inside/,
   );
 }));
+
+test('a region include brings only the named region', () => fixture(root => {
+  writeFileSync(join(root, 'parts', 'regions.crv'), 'Outside.\n\n%% #region keep\nInside.\n%% #endregion keep\n');
+  const source = '{{ parts/regions.crv@region:keep }}\n';
+  const result = carveToPandocWithIncludes(source, { includeRoot: root, sourcePath: join(root, 'main.crv') });
+  const json = JSON.stringify(result.doc);
+  assert.match(json, /Inside/);
+  assert.doesNotMatch(json, /Outside|#region/);
+  assert.deepEqual(result.includeWarnings, []);
+}));

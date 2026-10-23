@@ -154,3 +154,20 @@ export function declaredCorpusSize(repo) {
   }
   return declared;
 }
+
+/*
+ * The importer contract lives in the pinned spec, read in place so a spec bump
+ * cannot leave a stale copy behind (#245).
+ */
+const specFile = (path) => JSON.parse(readFileSync(new URL(`../spec/${path}`, import.meta.url), 'utf8'));
+
+export const migrationReportSchema = () => specFile('resources/migration-report-schema.json');
+
+/** The importer-fidelity cases the pinned spec assigns to this repository. */
+export function ownedImporterFixtures() {
+  const manifest = specFile('tests/importer-fidelity/manifest.json');
+  if (manifest.schemaVersion !== 2) throw new Error(`importer-fidelity manifest schemaVersion ${manifest.schemaVersion}, expected 2`);
+  const owned = manifest.cases.filter((item) => item.repository === 'markup-carve/pandoc-carve');
+  if (!owned.length) throw new Error('the pinned spec has no Pandoc-owned importer fixtures');
+  return owned;
+}
