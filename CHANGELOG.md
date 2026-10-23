@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## 0.1.11 - 2026-10-23
+
+### Fixes
+
+- `pandocToCarve` dissolves the section Divs Pandoc's Djot and HTML readers put around each section back into headings, restoring the heading's id and attributes (#264).
+- `pandocToCarve` drops the `wrapper="1"` marker Pandoc's Djot reader puts on a Span around an attributed inline, and puts the attributes on that inline (#266).
+- An attributed sole image is no longer wrapped in a Div that repeats its attributes (#265).
+
 ### Improvements
 
 - Djot reader insertions, deletions, emoji and task markers now import as their Carve counterparts. Joined classes and other attributes survive (#267).
