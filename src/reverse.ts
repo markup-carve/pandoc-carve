@@ -1481,7 +1481,7 @@ function statePartition(attrs: CAttrs | undefined, groups: RowGroups, promotedHe
     }
     if ((groups.footRows > 0 || promotedHead) && !carriesInvalidBodyMetadata(keyValues, groups)) {
         if (groups.headRows > 0) keyValues['header-rows'] = String(groups.headRows);
-        keyValues['footer-rows'] = String(groups.footRows);
+        if (groups.footRows > 0) keyValues['footer-rows'] = String(groups.footRows);
     }
     const order = [...(attrs?.order ?? [])];
     const hasKeys = Object.keys(keyValues).length > 0;
