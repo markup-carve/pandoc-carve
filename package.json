@@ -54,7 +54,7 @@
     "source": "https://github.com/markup-carve/pandoc-carve"
   },
   "dependencies": {
-    "@markup-carve/carve": "^0.1.13"
+    "@markup-carve/carve": "github:markup-carve/carve-js#c0533ab15fd5e9d4c42746d42dbe2fc9e87b9237"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
