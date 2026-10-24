@@ -357,6 +357,7 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
                 if (payload?.kind === 'unknown-inline' && typeof payload.node.type === 'string') return [payload.node as CNode];
                 if (payload?.kind === 'citation' && payload.node.type === 'citation_group') return [payload.node as CNode];
                 if (payload?.kind === 'literal-inline' && payload.node.type === 'literal_inline') return [payload.node as CNode];
+                if (payload?.kind === 'escaped-text' && payload.node.type === 'escaped_text') return [payload.node as CNode];
                 return span(ctx, c);
             }
         default:
@@ -1213,28 +1214,37 @@ function table(
     // as blocks without walking the occupancy grid a second time.
     const cellBlocksAt: (PandocNode[] | undefined)[][] = allRaw.map(() => []);
 
+    const headCellKindsKey = 'data-pandoc-carve-head-kinds';
+    let promotedHead = false;
     for (let r = 0; r < allRaw.length; r++) {
         // A row is header cells throughout when it is a header ROW, and for its
         // leading run when the body declared row-head columns.
         const headTo = isHeaderRow[r] === true ? nCols : (rowHeadCols[r] ?? 0);
+        const rowAttr = allRaw[r]![0];
+        const encodedKinds = rowAttr[2][0]?.[0] === headCellKindsKey ? rowAttr[2][0][1] : undefined;
+        const headKinds = encodedKinds?.length === nCols && /^[01]+$/.test(encodedKinds)
+            ? encodedKinds
+            : undefined;
+        if (r < headRaw.length && headKinds) promotedHead = true;
+        const headerAt = (col: number): boolean => headKinds ? headKinds[col] === '1' : col < headTo;
         const cells: CNode[] = [];
         const rawCells = allRaw[r]![1];
         let rawIdx = 0;
         for (let col = 0; col < nCols; col++) {
             if (pending[r]![col]) {
-                cells.push({ type: 'table_cell', header: col < headTo, children: [], span: 'rowspan' });
+                cells.push({ type: 'table_cell', header: headerAt(col), children: [], span: 'rowspan' });
                 continue;
             }
             const raw = rawCells[rawIdx++] as [Attr, PandocNode, number, number, PandocNode[]] | undefined;
             if (!raw) {
-                cells.push({ type: 'table_cell', header: col < headTo, children: [] });
+                cells.push({ type: 'table_cell', header: headerAt(col), children: [] });
                 continue;
             }
             const [cellAttr, cellAlign, rowSpan, colSpan, cellBlocks] = raw;
             cellBlocksAt[r]![col] = cellBlocks;
             const cell: CNode = {
                 type: 'table_cell',
-                header: col < headTo,
+                header: headerAt(col),
                 ...(ctx.target === 'ast' && !isInlineShaped(cellBlocks)
                     ? { blocks: blocks(ctx, cellBlocks) }
                     : { children: useListTable ? [] : cellInlines(ctx, cellBlocks) }),
@@ -1249,7 +1259,7 @@ function table(
             if (cellAttrs) cell.attrs = cellAttrs;
             cells.push(cell);
             for (let j = 1; j < colSpan && col + j < nCols; j++) {
-                cells.push({ type: 'table_cell', header: col + j < headTo, children: [], span: 'colspan' });
+                cells.push({ type: 'table_cell', header: headerAt(col + j), children: [], span: 'colspan' });
             }
             // A 2D block gets a rowspan continuation at EVERY covered column
             // of the lower rows - that is how Carve's grid expresses it.
@@ -1263,7 +1273,10 @@ function table(
         const rowNode: CNode = { type: 'table_row', cells };
         // Pandoc gives a Row its own Attr and Carve spells it after the closing
         // pipe (`| a | b |{.cls}`), so it is the same slot, not a degradation.
-        const rowAttrs = fromAttr(allRaw[r]![0]);
+        const visibleRowAttr: Attr = headKinds
+            ? [rowAttr[0], rowAttr[1], rowAttr[2].slice(1)]
+            : rowAttr;
+        const rowAttrs = fromAttr(visibleRowAttr);
         if (rowAttrs) rowNode.attrs = rowAttrs;
         rows.push(rowNode);
     }
@@ -1381,7 +1394,7 @@ function table(
     const groups: RowGroups = { headRows: headRaw.length, bodies: publishedBodies, footRows: footRaw.length };
     if (headAttrs) groups.headAttrs = headAttrs;
     if (footAttrs) groups.footAttrs = footAttrs;
-    if (carriesMoreThanFlatRows(groups)) {
+    if (carriesMoreThanFlatRows(groups) || promotedHead) {
         node.rowGroups = groups;
         if (ctx.target === 'source') reportUnspellableGroups(ctx, groups);
     }
@@ -1389,7 +1402,7 @@ function table(
     // target it stays in `rowGroups`, where it is exact: there is no attribute
     // line to state it on, so stating it would invent attributes the pandoc
     // table never carried.
-    const attrs = ctx.target === 'source' ? statePartition(fromAttr(a), groups) : fromAttr(a);
+    const attrs = ctx.target === 'source' ? statePartition(fromAttr(a), groups, promotedHead) : fromAttr(a);
     if (attrs) node.attrs = attrs;
     const captionInlines = captionInlinesFor();
     if (captionInlines?.length) node.caption = captionInlines;
@@ -1433,10 +1446,10 @@ function carriesInvalidBodyMetadata(keyValues: Record<string, string>, groups: R
  * markers imply, so `header-rows` has to be stated alongside `footer-rows` or
  * the head is lost to the very block that saved the foot.
  *
- * Nothing is stated when there is no foot: a leading run of header rows is
- * spelled by the `|=` markers on those rows and needs no count. Measured, two
- * such rows with no attribute line render a two-row `<thead>`. The reserved keys
- * are still dropped in that case - see below.
+ * A leading run of native header rows is spelled by its `|=` markers and
+ * needs no count. A promoted plain row has no such markers, so its recorded
+ * head count is stated even without a foot. The reserved keys are dropped
+ * when the partition is derivable from native markers.
  *
  * BOTH KEYS ARE DROPPED FIRST, WHATEVER THE PARTITION IS. A pandoc document
  * that arrived from outside can carry them on the table's `Attr` - the forward
@@ -1448,7 +1461,7 @@ function carriesInvalidBodyMetadata(keyValues: Record<string, string>, groups: R
  * a key only because the partition has nothing to say about it is how a stale
  * number outranks the rows.
  */
-function statePartition(attrs: CAttrs | undefined, groups: RowGroups): CAttrs | undefined {
+function statePartition(attrs: CAttrs | undefined, groups: RowGroups, promotedHead = false): CAttrs | undefined {
     const keyValues: Record<string, string> = { ...(attrs?.keyValues ?? {}) };
     // INVALID BODY METADATA MAKES THE WHOLE VOCABULARY ORDINARY ATTRIBUTES, and
     // an ordinary attribute is retained, not restated. PART 12 section 15:
@@ -1466,9 +1479,9 @@ function statePartition(attrs: CAttrs | undefined, groups: RowGroups): CAttrs | 
         delete keyValues['header-rows'];
         delete keyValues['footer-rows'];
     }
-    if (groups.footRows > 0 && !carriesInvalidBodyMetadata(keyValues, groups)) {
+    if ((groups.footRows > 0 || promotedHead) && !carriesInvalidBodyMetadata(keyValues, groups)) {
         if (groups.headRows > 0) keyValues['header-rows'] = String(groups.headRows);
-        keyValues['footer-rows'] = String(groups.footRows);
+        if (groups.footRows > 0) keyValues['footer-rows'] = String(groups.footRows);
     }
     const order = [...(attrs?.order ?? [])];
     const hasKeys = Object.keys(keyValues).length > 0;
