@@ -1714,11 +1714,44 @@ function flattenCellBreaks(ctx: Ctx, nodes: CNode[]): CNode[] {
 
 function captionFromBlocks(ctx: Ctx, capBlocks: PandocNode[] | undefined): CNode[] | null {
     if (!capBlocks?.length) return null;
-    const first = capBlocks[0]!;
-    if (first.t === 'Plain' || first.t === 'Para') {
-        return inlines(ctx, first.c as PandocNode[]);
+    const parts: CNode[][] = [];
+    for (const block of capBlocks) {
+        if (block.t === 'Plain' || block.t === 'Para') {
+            const part = inlines(ctx, block.c as PandocNode[]);
+            if (part.length) parts.push(part);
+            continue;
+        }
+        // A caption has no block slot in Carve. Preserve readable content for
+        // other Pandoc block kinds, and name the structural loss explicitly.
+        const content = captionBlockText(block).replace(/\s*\r?\n\s*/g, ' ');
+        warn(ctx, `caption: ${block.t} block flattened to text`);
+        if (content) parts.push([text(content)]);
     }
-    return null;
+    if (parts.length > 1) warn(ctx, 'caption: multiple contributing blocks flattened into one inline caption');
+    return parts.length ? mergeText(parts.flatMap((part, index) => index ? [text(' '), ...part] : part)) : null;
+}
+
+function captionBlockText(block: PandocNode): string {
+    const c = block.c as never;
+    switch (block.t) {
+        case 'CodeBlock':
+        case 'RawBlock':
+            return String((c as [unknown, string])[1]);
+        case 'Header':
+            return stringify((c as [unknown, unknown, PandocNode[]])[2]);
+        case 'LineBlock':
+            return (c as PandocNode[][]).map(stringify).filter(Boolean).join(' ');
+        case 'BlockQuote':
+            return (c as PandocNode[]).map(captionBlockText).filter(Boolean).join(' ');
+        case 'Div':
+            return (c as [Attr, PandocNode[]])[1].map(captionBlockText).filter(Boolean).join(' ');
+        case 'BulletList':
+            return (c as PandocNode[][]).flatMap((item) => item.map(captionBlockText)).filter(Boolean).join(' ');
+        case 'OrderedList':
+            return (c as [unknown, PandocNode[][]])[1].flatMap((item) => item.map(captionBlockText)).filter(Boolean).join(' ');
+        default:
+            return stringify([block]);
+    }
 }
 
 function captionFromInlines(ctx: Ctx, caption: PandocNode[] | null | undefined): CNode[] | null {
