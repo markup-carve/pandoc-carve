@@ -153,6 +153,12 @@ const KNOWN_LOSSY = new Set([
   '370-table-columns-carry-alignment-vertical-alignment-and-widths.crv',
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
   '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
+  // A header cell after an unmarked cell has no Pandoc RowHeadColumns slot.
+  // Vertical alignment likewise has no Pandoc table slot. All three losses
+  // are reported by the forward conversion.
+  '659-table-spans-keep-alignment-defaults-in-physical-columns-2.crv',
+  '659-table-spans-keep-alignment-defaults-in-physical-columns-7.crv',
+  '659-table-spans-keep-alignment-defaults-in-physical-columns-10.crv',
   '375-a-table-cell-can-inherit-horizontal-alignment.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //

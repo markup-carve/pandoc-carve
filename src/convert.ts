@@ -1214,7 +1214,9 @@ function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
             // syntax and does not survive into pandoc's AST; the character does,
             // and stays literal because pandoc will not re-smarten AST input -
             // which is exactly what the escape asked for.
-            return [P.Str(String(n.value ?? ''))];
+            return ctx.roundtrip
+                ? [P.Span(provenanceAttr('escaped-text', n), [P.Str(String(n.value ?? ''))])]
+                : [P.Str(String(n.value ?? ''))];
         default:
             if (ctx.roundtrip) return [P.Span(provenanceAttr('unknown-inline', n), textInlines(plainText([n])))];
             warn(ctx, `inline: unknown node type "${n.type}" degraded to its text content`, { nodeType: n.type }, n.pos);
@@ -1748,6 +1750,8 @@ const ALIGN: Record<string, P.Alignment> = {
     center: 'AlignCenter',
 };
 
+const HEAD_CELL_KINDS = 'data-pandoc-carve-head-kinds';
+
 /**
  * Convert a Carve table.
  *
@@ -1864,7 +1868,8 @@ function table(
         if (!firstRowIsHead) return 'AlignDefault';
         // The last header row that marks the column sets its default, as in the engine.
         for (let r = headCount - 1; r >= 0; r--) {
-            const marked = rows[r]![c]?.align;
+            const cell = rows[r]![c];
+            const marked = cell?.header ? cell.align : undefined;
             if (marked) return ALIGN[marked] ?? 'AlignDefault';
         }
         return 'AlignDefault';
@@ -1968,7 +1973,14 @@ function table(
         for (let r = from; r < to; r++) {
             const cells = emitted[r]!.filter((x): x is P.PCell => x !== null);
             const rowAttrs = (n.rows as CNode[])[r]?.attrs as CAttrs | undefined;
-            out.push(P.row(cells, hasAttrs(rowAttrs) ? toAttr(ctx, rowAttrs) : undefined));
+            const rowAttr = hasAttrs(rowAttrs) ? toAttr(ctx, rowAttrs) : P.attr();
+            if (ctx.roundtrip && r < headCount && rows[r]!.some((cell) => cell.span === undefined && !cell.header)) {
+                rowAttr[2].unshift([
+                    HEAD_CELL_KINDS,
+                    rows[r]!.map((cell) => cell.header ? '1' : '0').join(''),
+                ]);
+            }
+            out.push(P.row(cells, rowAttr));
         }
         return out;
     };
