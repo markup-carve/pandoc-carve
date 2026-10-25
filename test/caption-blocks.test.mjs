@@ -17,7 +17,7 @@ test('a quote figure retains both caption paragraphs and reports the lost bounda
   const source = pandocToCarve(input);
   const ast = pandocToCarveAst(input);
   assert.equal(source.carve, '> Quote\n^ First Second\n');
-  assert.equal(ast.ast.children[0].caption[0].value, 'First Second');
+  assert.equal(ast.ast.children[0].caption.children[0].children[0].value, 'First Second');
   for (const result of [source, ast]) {
     assert.deepEqual(result.diagnostics.map((item) => item.code), ['caption-block-boundaries-flattened']);
   }
@@ -29,8 +29,8 @@ test('formatted inline runs on both sides of a caption boundary stay separate', 
     para({ t: 'Emph', c: [str('second')] }),
   ]));
   const ast = pandocToCarveAst(input).ast.children[0];
-  assert.deepEqual(ast.caption.map((node) => node.type), ['strong', 'text', 'emphasis']);
-  assert.equal(ast.caption[1].value, ' ');
+  assert.deepEqual(ast.caption.children[0].children.map((node) => node.type), ['strong', 'text', 'emphasis']);
+  assert.equal(ast.caption.children[0].children[1].value, ' ');
   assert.equal(pandocToCarve(input).carve, '> Quote\n^ *first* /second/\n');
 });
 
@@ -42,7 +42,7 @@ test('a table caption keeps a nonparagraph first block and later text', () => {
   const source = pandocToCarve(input);
   const ast = pandocToCarveAst(input);
   assert.match(source.carve, /\^ Code more Tail\n$/);
-  assert.equal(ast.ast.children[0].caption[0].value, 'Code more Tail');
+  assert.equal(ast.ast.children[0].caption.children[0].children[0].value, 'Code more Tail');
   assert.deepEqual(source.diagnostics.map((item) => item.code), [
     'caption-block-flattened', 'caption-block-boundaries-flattened',
   ]);

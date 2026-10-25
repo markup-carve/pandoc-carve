@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { carveAstToPandoc, pandocToCarveAst, pandocToCarve, carveToPandoc, carveToCarveAst } from '../dist/index.js';
 const text = value => ({ type: 'text', value });
 const para = value => ({ type: 'paragraph', children: [text(value)] });
-const document = children => ({ type: 'document', srcByteLength: 0, children });
+const document = children => ({ type: 'document', astVersion: '2.0', srcByteLength: 0, children });
 const empty = ['', [], []];
 
 test('sections retain nested blocks, inline formatting, attributes and explicit levels', () => {
@@ -40,9 +40,9 @@ test('block cells use the table AST and preserve blocks without ListTable', () =
   const actual = reverse.ast.children[0];
   assert.equal(actual.type, 'table');
   assert.equal(actual.columns[0].width, 0.5);
-  assert.equal(actual.rows[0].cells[0].children, undefined);
-  assert.equal(actual.rows[0].cells[0].blocks[0].children[0].value, 'one');
-  assert.equal(actual.rows[0].cells[0].blocks[1].type, 'list');
+  const cell = actual.children[0].children[0].children[0];
+  assert.equal(cell.children[0].children[0].value, 'one');
+  assert.equal(cell.children[1].type, 'list');
   const forward = carveAstToPandoc(reverse.ast, { listTable: false });
   assert.deepEqual(forward.diagnostics, []);
   assert.deepEqual(forward.doc.blocks[0].c[4][0][3][0][1][0][4], cellBlocks);
@@ -50,8 +50,10 @@ test('block cells use the table AST and preserve blocks without ListTable', () =
 });
 
 test('a nested section in a block cell keeps its block structure', () => {
-  const ast = document([{ type: 'table', rows: [{ type: 'table_row', cells: [{ type: 'table_cell', header: false,
-    blocks: [{ type: 'section', children: [para('content')] }] }] }] }]);
+  const ast = document([{ type: 'table', columns: [{ type: 'table_column' }], children: [
+    { type: 'table_body', children: [{ type: 'table_row', children: [{ type: 'table_cell', header: false,
+      children: [{ type: 'section', children: [para('content')] }] }] }] },
+  ] }]);
   const result = carveAstToPandoc(ast, { listTable: false });
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.doc.blocks[0].c[4][0][3][0][1][0][4][0].t, 'Div');

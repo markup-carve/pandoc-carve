@@ -37,7 +37,16 @@ const TASK_STATE_KEY = 'carve-task-state';
 /** A one-item task list in the PART 12 exchange shape. */
 const listAst = (item) => ({
   type: 'document',
-  children: [{ type: 'list', ordered: false, tight: true, items: [{ ...item, children: [
+  astVersion: '2.0',
+  children: [{ type: 'list', marker: { kind: 'bullet', char: '-' }, spacing: 'tight', children: [{
+    type: 'list_item',
+    ...(item.attrs ? { attrs: item.attrs } : {}),
+    ...(item.checked !== undefined ? { task: {
+      mark: item.taskState ?? (item.checked ? 'x' : ' '),
+      status: item.taskState === '-' ? 'cancelled' : ['_', '>'].includes(item.taskState) ? 'partial'
+        : item.taskState === '?' ? 'other' : item.checked ? 'done' : 'todo',
+    } } : {}),
+    children: [
     { type: 'paragraph', children: [{ type: 'text', value: 'body' }] },
   ] }] }],
 });
@@ -132,9 +141,9 @@ for (const state of EXTENDED) {
   test(`pandoc -> carve: the envelope restores "${state}" onto the item`, () => {
     const doc = carveAstToPandoc(listAst({ type: 'list_item', checked: false, taskState: state }), { roundtrip: true }).doc;
     const { ast } = pandocToCarveAst(doc);
-    const item = ast.children[0].items[0];
-    assert.equal(item.taskState, state);
-    assert.equal(item.checked, false, 'PART 12 requires checked: false beside an extended state');
+    const item = ast.children[0].children[0];
+    assert.equal(item.task.mark, state);
+    assert.equal(item.task.status, state === '-' ? 'cancelled' : ['_', '>'].includes(state) ? 'partial' : 'other');
     assert.equal(item.attrs, undefined, 'the private key must not survive as an authored attribute');
     assert.ok(validate(ast), 'the restored AST does not match ast-schema.json: ' + JSON.stringify(validate.errors));
   });
@@ -147,9 +156,8 @@ test('pandoc -> carve: a checked item never takes an extended state', () => {
   const list = doc.blocks[0];
   list.c[0] = [{ t: 'Div', c: [['', [], [['carve-list-item', 'true'], [TASK_STATE_KEY, '-']]], list.c[0]] }];
   const { ast } = pandocToCarveAst(doc);
-  const item = ast.children[0].items[0];
-  assert.equal(item.checked, true);
-  assert.equal(item.taskState, undefined);
+  const item = ast.children[0].children[0];
+  assert.deepEqual(item.task, { mark: 'x', status: 'done' });
   assert.ok(validate(ast), 'the restored AST does not match ast-schema.json: ' + JSON.stringify(validate.errors));
 });
 
@@ -164,7 +172,7 @@ test('pandoc -> carve: a checked item never takes an extended state', () => {
  * below and reading as a pass.
  */
 function rendersTaskState() {
-  const render = (item) => carve.renderCarve(listAst(item));
+  const render = (item) => carve.renderCarve(carve.fromAstJson(listAst(item)));
   assert.match(render({ type: 'list_item', checked: true }), /\[x\]/,
     'the capability probe cannot see a task marker it should - it is broken, not the engine');
   return /\[-\]/.test(render({ type: 'list_item', checked: false, taskState: '-' }));

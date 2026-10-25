@@ -1,15 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { convert } from '../dist/convert.js';
-import { pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
-const document = (children) => ({ type: 'document', children });
+const document = (children) => ({ type: 'document', astVersion: '2.0', children });
 const paragraph = (children) => ({ type: 'paragraph', children });
 
 test('substitution halves retain inline structure in Pandoc', () => {
-  const result = convert(document([
+  const result = carveAstToPandoc(document([
     paragraph([{
-      type: 'substitution',
+      type: 'critic_substitution',
       old: [{ type: 'emphasis', children: [{ type: 'text', value: 'old' }] }],
       new: [{ type: 'strong', children: [{ type: 'text', value: 'new' }] }],
     }]),
@@ -51,7 +50,7 @@ test('Pandoc substitution spans become old and new inline arrays', () => {
 
   const substitution = pandocToCarveAst(pandoc).ast.children[0].children[0];
   assert.deepEqual(substitution, {
-    type: 'substitution',
+    type: 'critic_substitution',
     old: [{ type: 'emphasis', children: [{ type: 'text', value: 'old' }] }],
     new: [{ type: 'strong', children: [{ type: 'text', value: 'new' }] }],
   });

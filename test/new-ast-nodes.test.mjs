@@ -264,13 +264,14 @@ test('a quote figure keeps the attrs of the figure, not of the quote it wraps', 
 test('a ruby node flattens to base text with the annotation in parentheses', () => {
   const doc = {
     type: 'document',
+    astVersion: '2.0',
     children: [{
       type: 'paragraph',
       children: [{
         type: 'ruby',
         pairs: [
-          { base: [{ type: 'text', value: '漢' }], annotation: [{ type: 'text', value: 'かん' }] },
-          { base: [{ type: 'text', value: '字' }], annotation: [] },
+          { type: 'ruby_pair', base: [{ type: 'text', value: '漢' }], annotation: [{ type: 'text', value: 'かん' }] },
+          { type: 'ruby_pair', base: [{ type: 'text', value: '字' }], annotation: [] },
         ],
       }],
     }],
@@ -287,11 +288,12 @@ test('a ruby node flattens to base text with the annotation in parentheses', () 
 test("a ruby node's attributes wrap the whole flattened run", () => {
   const doc = {
     type: 'document',
+    astVersion: '2.0',
     children: [{
       type: 'paragraph',
       children: [{
         type: 'ruby',
-        pairs: [{ base: [{ type: 'text', value: 'a' }], annotation: [{ type: 'text', value: 'b' }] }],
+        pairs: [{ type: 'ruby_pair', base: [{ type: 'text', value: 'a' }], annotation: [{ type: 'text', value: 'b' }] }],
         attrs: { id: 'r', classes: ['k'], order: ['#id', '.class'] },
       }],
     }],
@@ -307,10 +309,11 @@ test('an unknown block extension renders its declared fallback', () => {
   // FALLBACK and reports the loss. It is required on the node for this.
   const doc = {
     type: 'document',
+    astVersion: '2.0',
     children: [{
       type: 'block_extension',
       name: 'org.example.diagram',
-      fallback: { type: 'code_block', content: 'graph TD;', lang: 'mermaid' },
+      fallback: { type: 'code_block', value: 'graph TD;', syntax: 'mermaid' },
       payload: { format: 'application/vnd.example.diagram+json', value: {} },
     }],
   };
