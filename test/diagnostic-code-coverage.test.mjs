@@ -4,7 +4,7 @@ import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from
 import { diagnostic } from '../dist/diagnostics.js';
 import { carveToHtml } from '@markup-carve/carve';
 
-const carveDoc = (children) => ({ type: 'document', children });
+const carveDoc = (children) => ({ type: 'document', astVersion: '2.0', children });
 const pandocDoc = (blocks = [], meta = {}) => ({ 'pandoc-api-version': [1, 23, 1], meta, blocks });
 const text = (value) => ({ type: 'text', value });
 
@@ -28,10 +28,10 @@ test('an unknown Carve inline produces unknown-carve-inline', () => {
 });
 
 test('a blank-only code payload produces field-unspellable', () => {
-  const result = carveAstToPandoc(carveDoc([{ type: 'code_block', content: '\n' }]));
+  const result = carveAstToPandoc(carveDoc([{ type: 'code_block', value: '\n' }]));
   expectCode(result, 'field-unspellable', 'carve-to-pandoc', 'lossy', 'dropped');
   assert.equal(result.doc.blocks[0].c[1], '', 'the payload reaches pandoc empty');
-  const kept = carveAstToPandoc(carveDoc([{ type: 'code_block', content: 'a\n\n' }]));
+  const kept = carveAstToPandoc(carveDoc([{ type: 'code_block', value: 'a\n\n' }]));
   assert.equal(kept.diagnostics.length, 0, 'a payload with content keeps its blank line');
   assert.equal(kept.doc.blocks[0].c[1], 'a\n');
 });
@@ -66,7 +66,8 @@ test('an unsupported metadata value produces metadata-value-skipped', () => {
 test('an unknown definition entry produces definition-entry-skipped', () => {
   const result = carveAstToPandoc(carveDoc([{
     type: 'definition_list',
-    items: [
+    spacing: 'tight',
+    children: [
       { type: 'definition_term', children: [text('term')] },
       { type: 'future_entry' },
     ],
@@ -98,9 +99,9 @@ test('a list-table rowspan across the head produces list-table-rowspan-clipped',
 
 test('an orphan table rowspan produces table-rowspan-origin-missing', () => {
   const result = carveAstToPandoc(carveDoc([{
-    type: 'table', rows: [{
-      type: 'table_row', cells: [{ type: 'table_cell', span: 'rowspan', children: [] }],
-    }],
+    type: 'table', columns: [{ type: 'table_column' }], children: [{ type: 'table_body', children: [{
+      type: 'table_row', children: [{ type: 'table_cell', span: 'rowspan', children: [] }],
+    }] }],
   }]));
   expectCode(result, 'table-rowspan-origin-missing', 'carve-to-pandoc', 'degraded', 'degraded');
 });

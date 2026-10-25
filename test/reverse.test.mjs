@@ -178,8 +178,8 @@ test('reverse: Pandoc short captions survive structurally', () => {
     }],
   };
   const result = pandocToCarveAst(pandoc);
-  assert.equal(result.ast.children[0].shortCaption[0].value, 'Navigation');
-  assert.equal(result.ast.children[0].caption[0].value, 'Full');
+  assert.equal(result.ast.children[0].caption.short[0].value, 'Navigation');
+  assert.equal(result.ast.children[0].caption.children[0].children[0].value, 'Full');
   assert.ok(result.warnings.some((warning) => warning.includes('Carve 0.1 source has no spelling')));
 });
 
@@ -322,8 +322,8 @@ test('the exchange AST carries a captioned quote as a figure', () => {
   assert.deepEqual(warnings, []);
   const [figure] = ast.children;
   assert.equal(figure.type, 'figure');
-  assert.equal(figure.target.type, 'block_quote');
-  assert.deepEqual(figure.caption, [{ type: 'text', value: 'Hamlet' }]);
+  assert.equal(figure.children[0].type, 'block_quote');
+  assert.deepEqual(figure.caption.children[0].children, [{ type: 'text', value: 'Hamlet' }]);
   assert.ok(!JSON.stringify(ast).includes('attribution'), 'no attribution field');
 });
 
@@ -385,8 +385,8 @@ test('a figure host that carries its own attributes survives its Div wrapper', (
   const { ast } = pandocToCarveAst(doc);
   const [figure] = ast.children;
   assert.equal(figure.type, 'figure');
-  assert.equal(figure.target.type, 'block_quote');
-  assert.equal(figure.target.attrs.id, 'inner');
+  assert.equal(figure.children[0].type, 'block_quote');
+  assert.equal(figure.children[0].attrs.id, 'inner');
 
   // The control: a Div holding TWO blocks is not a wrapper for one host, so it
   // is not read as one - it becomes the `figure_group` the forward direction
@@ -397,7 +397,7 @@ test('a figure host that carries its own attributes survives its Div wrapper', (
   assert.deepEqual(spread.warnings, []);
   const [group] = pandocToCarveAst(two).ast.children;
   assert.equal(group.type, 'figure_group');
-  assert.equal(group.caption[0].value, 'Author');
+  assert.equal(group.caption.children[0].children[0].value, 'Author');
   assert.equal(group.children[0].attrs.id, 'inner');
 });
 
@@ -448,7 +448,7 @@ test('a Figure-wrapped quote keeps its short caption in the AST and says so', ()
   // no slot for one at all.
   assert.equal(carve, '> wise\n^ Author\n');
   const { ast } = pandocToCarveAst(doc);
-  assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'nav' }]);
+  assert.deepEqual(ast.children[0].caption.short, [{ type: 'text', value: 'nav' }]);
 });
 
 test('a comment whose content opens with a percent survives the round trip (#168)', () => {

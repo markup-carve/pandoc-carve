@@ -28,7 +28,7 @@ const pandoc = findPandoc();
  * fixture below: `See  and .`
  */
 
-const cite = (src) => carve.parse(src, { extensions: [carve.citations()] });
+const cite = (src) => carve.toAstJson(carve.parse(src, { extensions: [carve.citations()] }));
 
 /** A real document: integral group, prefix, typed locator, suppressed author. */
 const FIXTURE = `# Sources
@@ -156,10 +156,10 @@ test('citations: a Cite becomes a citation group, not literal citation text', ()
     ['smith2020', 'jones1999', 'doe2021', 'roe1999'],
     'and each bibliography entry reads back as the definition line it came from',
   );
-  assert.deepEqual(groups[0].items.map((i) => i.key), ['smith2020', 'jones1999']);
-  assert.equal(groups[0].items[1].suppressAuthor, true);
-  assert.deepEqual(groups[0].items[0].prefix, [{ type: 'text', value: 'see also' }]);
-  assert.deepEqual(groups[0].items[0].locator, [{ type: 'text', value: 'p. 33 and following' }]);
+  assert.deepEqual(groups[0].children.map((i) => i.key), ['smith2020', 'jones1999']);
+  assert.equal(groups[0].children[1].suppressAuthor, true);
+  assert.deepEqual(groups[0].children[0].prefix, [{ type: 'text', value: 'see also' }]);
+  assert.deepEqual(groups[0].children[0].locator, [{ type: 'text', value: 'p. 33 and following' }]);
   assert.equal(groups[1].mode, 'integral', 'the integral marker is recovered from the modes');
   assert.equal(groups[2].mode, undefined, 'a parenthetical group carries no mode');
   assert.ok(!warnings.some((w) => w.includes('degraded to literal citation text')), warnings.join(' | '));
@@ -184,8 +184,8 @@ test('citations: round trip preserves ids, modes and locators', () => {
   const after = groupsOf(strip(cite(source)));
   assert.equal(after.length, before.length);
   assert.deepEqual(after, before, `round-tripped source:\n${source}`);
-  assert.equal(after[0].items[0].locatorLabel, 'page');
-  assert.equal(after[0].items[0].locatorValue, '33');
+  assert.equal(after[0].children[0].locatorLabel, 'page');
+  assert.equal(after[0].children[0].locatorValue, '33');
   assert.equal(after[1].mode, 'integral');
 });
 
@@ -221,7 +221,7 @@ test('citations: a foreign Cite whose content is prose gets a rebuilt source', (
   const [group] = groupsOf(ast);
   assert.equal(group.raw, '[+@smith2020, p. 12]', 'rebuilt in Carve syntax, not kept as prose');
   assert.equal(group.mode, 'integral');
-  assert.deepEqual(group.items[0].locator, [{ type: 'text', value: 'p. 12' }]);
+  assert.deepEqual(group.children[0].locator, [{ type: 'text', value: 'p. 12' }]);
 });
 
 test('citations: a foreign Cite mixing AuthorInText with NormalCitation keeps both modes', () => {
@@ -247,7 +247,7 @@ test('citations: a foreign Cite mixing AuthorInText with NormalCitation keeps bo
   const { ast, warnings } = pandocToCarveAst(doc);
   const group = groupsOf(ast)[0];
   assert.equal(group.mode, undefined);
-  assert.deepEqual(group.items.map((i) => i.mode), ['integral', undefined]);
+  assert.deepEqual(group.children.map((i) => i.mode), ['integral', undefined]);
   assert.ok(!warnings.some((w) => w.includes('mixes AuthorInText with NormalCitation')), warnings.join(' | '));
 
   // Carve 0.1 SOURCE spells the marker per cluster, so the source target still
@@ -332,7 +332,7 @@ test('citations: pandoc reading Carve\'s integral form keeps the `+` out of the 
 
   const { ast } = pandocToCarveAst(doc);
   const [group] = groupsOf(ast);
-  assert.equal(group.items[0].prefix, undefined, 'the `+` is not prose');
+  assert.equal(group.children[0].prefix, undefined, 'the `+` is not prose');
   assert.equal(group.raw, '[+@smith2020, p. 12]', 'recovered from the Cite content');
   // `mode` must not contradict the `raw` sitting next to it: the recovered
   // source is the only place pandoc's reader left the integral marker, so it is
@@ -372,7 +372,7 @@ test('citations: Cite content that no longer describes its records is rebuilt', 
     ],
   };
   const [group] = groupsOf(pandocToCarveAst(doc).ast);
-  assert.equal(group.items[0].key, 'renamed');
+  assert.equal(group.children[0].key, 'renamed');
   assert.equal(group.raw, '[@renamed]', 'the records are authoritative, not the display text');
 });
 
@@ -380,7 +380,7 @@ test('citations: an escaped `\\@` in a prefix is not read as a key', () => {
   const src = 'A [see \\@nobody @smith2020] B.\n\n[@smith2020]: S.\n';
   const { doc } = carveAstToPandoc(cite(src));
   const [group] = groupsOf(pandocToCarveAst(doc).ast);
-  assert.deepEqual(group.items.map((i) => i.key), ['smith2020']);
+  assert.deepEqual(group.children.map((i) => i.key), ['smith2020']);
   assert.equal(group.raw, '[see \\@nobody @smith2020]', 'the source still round-trips verbatim');
 });
 
@@ -448,7 +448,7 @@ const definition = (key, text, attrs) => ({
   children: text ? [{ type: 'text', value: text }] : [],
 });
 
-const doc = (...children) => ({ type: 'document', children });
+const doc = (...children) => ({ type: 'document', astVersion: '2.0', children });
 
 test('citations: a definition becomes citeproc\'s own bibliography entry', () => {
   const { doc: out, warnings } = carveAstToPandoc(doc(definition('doe1990', 'Doe, J. 1990.')));

@@ -70,7 +70,7 @@ test('a blank row keeps its row attributes', () => {
   const result = pandocToCarve(doc);
   assert.match(result.carve, /^\| \| \|\{#blank-row\}$/m);
   assert.deepEqual(result.diagnostics, []);
-  assert.equal(pandocToCarveAst(doc).ast.children[0].rows[1].attrs.id, 'blank-row');
+  assert.equal(pandocToCarveAst(doc).ast.children[0].children.flatMap((group) => group.children)[1].attrs.id, 'blank-row');
 });
 
 const pandoc = findPandoc();

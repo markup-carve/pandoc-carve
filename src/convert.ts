@@ -1,13 +1,9 @@
 /**
  * Carve AST -> Pandoc JSON AST.
  *
- * Walks the SERIALIZED AST that PART 12 of the Carve spec defines - the shape
- * `spec/resources/ast-schema.json` pins, as written by any engine's
- * `--to-json` - and emits a Pandoc document (api-version 1.23.1). It is not the
- * runtime tree of any particular implementation: `src/ast-json.ts` maps that on
- * the way in, so every node type and field name switched on below is spec
- * surface. Anything that cannot be mapped faithfully degrades to a classed
- * Span/Div and reports a warning - nothing degrades silently.
+ * Walks the bridge's private conversion view of the PART 12 wire tree and
+ * emits Pandoc JSON (api-version 1.23.1). `ast2-input.ts` supplies the view;
+ * fields here must not be treated as fields in contract 2.0.
  */
 
 import type { CarveAstDocument } from './ast-json.js';
@@ -18,6 +14,7 @@ import { provenanceAttr } from './provenance.js';
 import { blankDeniedDestination, probeScheme } from './url-scheme.js';
 import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
 import { SMART_PUNCTUATION_GLYPHS, fromAstJson, resolve } from '@markup-carve/carve';
+import { wireOrigin } from './ast2-input.js';
 
 // The Carve AST is plain data; we type the parts we read.
 interface CNode {
@@ -1628,7 +1625,7 @@ function list(ctx: Ctx, n: CNode): P.Block {
     });
     if (n.ordered) {
         const style = OL_TYPE[String(n.olType ?? '')] ?? 'Decimal';
-        // AST contract 1.1 omits the default `.` delimiter, so absence means Period.
+        // An omitted ordered marker delimiter means Period in the conversion view.
         const delim = n.delim === ')' ? 'OneParen' : 'Period';
         return P.OrderedList(Number(n.start ?? 1), style, converted, delim);
     }
@@ -2760,6 +2757,22 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         }
     }
 
+    const original = wireOrigin.get(ast) as CarveAstDocument | undefined;
+    const originalIds = resolvedHeadingIds(original ?? ast);
+    const headingIds = new Map<CNode, string>();
+    const stack: unknown[] = [ast];
+    while (stack.length) {
+        const value = stack.pop();
+        if (Array.isArray(value)) stack.push(...value);
+        else if (value && typeof value === 'object') {
+            const node = value as CNode;
+            if (node.type === 'heading') {
+                const id = originalIds.get((wireOrigin.get(node) ?? node) as CNode);
+                if (id) headingIds.set(node, id);
+            }
+            stack.push(...Object.values(node));
+        }
+    }
     const ctx: Ctx = {
         warnings: [],
         diagnostics: [],
@@ -2767,7 +2780,7 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         crossrefTargets: new Map(),
         headingIdByText: new Map(),
         emptyDefinitions: new Set(),
-        headingIds: resolvedHeadingIds(ast),
+        headingIds,
         captionTargets: new Set(),
         tight: false,
         inCrossref: false,

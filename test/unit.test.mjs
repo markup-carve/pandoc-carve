@@ -320,12 +320,13 @@ test('table: a head cell marker becomes the column, and only the column', () => 
 test('structural short captions map to Pandoc without changing the full caption', () => {
   const doc = {
     type: 'document',
+    astVersion: '2.0',
     srcByteLength: 0,
     children: [{
       type: 'figure',
-      target: { type: 'image', src: '/i.png', alt: 'alt' },
-      caption: [{ type: 'text', value: 'Full caption' }],
-      shortCaption: [{ type: 'text', value: 'Navigation label' }],
+      children: [{ type: 'image', src: '/i.png', alt: 'alt' }],
+      caption: { type: 'caption', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Full caption' }] }],
+        short: [{ type: 'text', value: 'Navigation label' }] },
     }],
   };
   const [figure] = carveAstToPandoc(doc).doc.blocks;
@@ -335,13 +336,14 @@ test('structural short captions map to Pandoc without changing the full caption'
 
   const tableDoc = {
     type: 'document',
+    astVersion: '2.0',
     srcByteLength: 0,
     children: [{
       type: 'table',
-      align: ['default'],
-      rows: [],
-      caption: [{ type: 'text', value: 'Full table caption' }],
-      shortCaption: [{ type: 'text', value: 'Table list label' }],
+      columns: [],
+      children: [{ type: 'table_body', children: [] }],
+      caption: { type: 'caption', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Full table caption' }] }],
+        short: [{ type: 'text', value: 'Table list label' }] },
     }],
   };
   const [table] = carveAstToPandoc(tableDoc).doc.blocks;
@@ -786,7 +788,7 @@ test('a sole image keeps its attributes on the Image, without a wrapper Div', as
 });
 
 test('a sole image whose reference is unresolved keeps its attributes on the wrapper', () => {
-  const ast = { type: 'document', children: [{ type: 'image', src: '', alt: 'a', ref: 'missing', rawRef: '![a][missing]', attrs: { classes: ['c'] } }] };
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'image', alt: 'a', key: 'missing', namespace: 'link', rawRef: '![a][missing]', attrs: { classes: ['c'] } }] };
   const { doc } = carveAstToPandoc(ast);
   assert.equal(doc.blocks[0].t, 'Div', JSON.stringify(doc.blocks));
   assert.deepEqual(doc.blocks[0].c[0][1], ['c']);

@@ -94,7 +94,7 @@ test('the AST path leaves the empty item empty', () => {
   // `pandocToCarveAst` hands the exchange tree on whole and an empty item is
   // expressible there, so the source path's spelling must not leak into it.
   const { ast, diagnostics } = pandocToCarveAst(ordered([[]]));
-  const item = ast.children[0].items[0];
+  const item = ast.children[0].children[0];
   assert.deepEqual(item.children, []);
   assert.deepEqual(diagnostics.map((d) => d.code), []);
   assert.ok(validate(ast), 'the AST does not match ast-schema.json: ' + JSON.stringify(validate.errors));

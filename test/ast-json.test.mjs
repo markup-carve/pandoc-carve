@@ -60,7 +60,8 @@ Text[^a] and {# a note #} and ^[on the spot].
 
 test('the root carries the three fields PART 12 allows, and no runtime ones', () => {
   const ast = carveToCarveAst(SOURCE);
-  assert.deepEqual(Object.keys(ast).sort(), ['children', 'srcByteLength', 'type']);
+  assert.deepEqual(Object.keys(ast).sort(), ['astVersion', 'children', 'srcByteLength', 'stages', 'type']);
+  assert.equal(ast.astVersion, '2.0');
   // The two the runtime keeps on the root instead, named so a regression says
   // which one came back.
   assert.equal(ast.frontmatter, undefined, 'frontmatter is a child, not a root field');
@@ -71,14 +72,15 @@ test('frontmatter is the FIRST child, verbatim', () => {
   const ast = carveToCarveAst(SOURCE);
   assert.equal(ast.children[0].type, 'frontmatter');
   assert.equal(ast.children[0].format, 'yaml');
-  assert.equal(ast.children[0].content.trim(), 'title: Wire');
+  assert.equal(ast.children[0].value.trim(), 'title: Wire');
 });
 
-test('a footnote definition is a `footnote` child carrying its label', () => {
+test('a footnote definition is a `footnote` child carrying its key', () => {
   const ast = carveToCarveAst(SOURCE);
   const defs = ast.children.filter((n) => n.type === 'footnote');
   assert.equal(defs.length, 1);
-  assert.equal(defs[0].label, 'a');
+  assert.equal(defs[0].key, 'a');
+  assert.equal(defs[0].namespace, 'footnote');
   assert.equal(defs[0].children[0].type, 'paragraph');
 });
 
@@ -89,7 +91,8 @@ test('the reference to it is a `footnote_ref`, and `^[...]` an `inline_footnote`
   assert.equal(nodesOfType(ast.children, 'footnote_ref').length, 1);
   assert.equal(nodesOfType(ast.children, 'inline_footnote').length, 1);
   const refs = nodesOfType(ast.children, 'footnote_ref');
-  assert.equal(refs[0].label, 'a');
+  assert.equal(refs[0].key, 'a');
+  assert.equal(refs[0].namespace, 'footnote');
   assert.equal(refs[0].id, undefined, 'the pre-rename property does not reach the wire');
   assert.equal(refs[0].inline, undefined, 'a reference carries no body');
 });
@@ -97,7 +100,7 @@ test('the reference to it is a `footnote_ref`, and `^[...]` an `inline_footnote`
 test('a definition list is a flat run of definition_term / definition_description', () => {
   const [list] = nodesOfType(carveToCarveAst(SOURCE).children, 'definition_list');
   assert.deepEqual(
-    list.items.map((n) => n.type),
+    list.children.map((n) => n.type),
     ['definition_term', 'definition_description'],
   );
 });
@@ -110,6 +113,15 @@ test('the critic comment carries the schema spelling, not the hyphenated one', (
 
 test('the serialized document validates against the spec AST schema', () => {
   assertConforms(carveToCarveAst(SOURCE), 'serialized source');
+});
+
+test('source positions count UTF-8 bytes in contract 2.0', () => {
+  const source = 'é /x/';
+  const ast = carveToCarveAst(source);
+  assert.equal(ast.srcByteLength, Buffer.byteLength(source));
+  const [first, second] = ast.children[0].children;
+  assert.deepEqual([first.pos.startOffset, first.pos.endOffset], [0, 3]);
+  assert.deepEqual([second.pos.startOffset, second.pos.endOffset], [3, 6]);
 });
 
 test('the pinned engine hands a captioned quote over as a figure, not an attribution', () => {
@@ -130,12 +142,12 @@ test('the pinned engine hands a captioned quote over as a figure, not an attribu
 
   const [figure] = ast.children;
   assert.equal(figure.type, 'figure');
-  assert.equal(figure.target.type, 'block_quote');
+  assert.equal(figure.children[0].type, 'block_quote');
   // The caption is the half a `figure` has and an `attribution` had elsewhere,
   // so it is asserted rather than assumed to have come along. Compared by type
   // and text because a serialized node also carries its `pos`.
   assert.deepEqual(
-    figure.caption.map((n) => [n.type, n.value]),
+    figure.caption.children[0].children.map((n) => [n.type, n.value]),
     [['text', 'Hamlet']],
   );
   assert.ok(!JSON.stringify(ast).includes('attribution'), 'no attribution field anywhere');
@@ -150,21 +162,23 @@ test('the pinned engine hands a captioned quote over as a figure, not an attribu
 
 const WIRE = {
   type: 'document',
+  astVersion: '2.0',
   srcByteLength: 0,
   children: [
-    { type: 'frontmatter', format: 'yaml', content: 'title: From another engine\n' },
+    { type: 'frontmatter', format: 'yaml', value: 'title: From another engine\n' },
     {
       type: 'paragraph',
       children: [
         { type: 'text', value: 'See ' },
-        { type: 'footnote_ref', label: 'note' },
+        { type: 'footnote_ref', key: 'note', namespace: 'footnote' },
         { type: 'text', value: ' and ' },
-        { type: 'critic_comment', text: 'an annotation' },
+        { type: 'critic_comment', value: 'an annotation' },
       ],
     },
     {
       type: 'definition_list',
-      items: [
+      spacing: 'tight',
+      children: [
         { type: 'definition_term', children: [{ type: 'text', value: 'term' }] },
         {
           type: 'definition_description',
@@ -174,7 +188,8 @@ const WIRE = {
     },
     {
       type: 'footnote',
-      label: 'note',
+      key: 'note',
+      namespace: 'footnote',
       children: [{ type: 'paragraph', children: [{ type: 'text', value: 'defined' }] }],
     },
   ],
@@ -225,11 +240,11 @@ test('a wire `footnote` definition is never mistaken for a reference', () => {
   // an older engine's tree. Told apart by label + children, so normalization
   // must leave a definition alone - renaming it would drop every footnote body.
   const normalized = normalizeCarveAst(WIRE);
-  const def = normalized.children.find((n) => n.label === 'note');
+  const def = normalized.children.find((n) => n.key === 'note');
   assert.equal(def.type, 'footnote');
 });
 
-test('an older serialized tree still converts: the pre-split spellings fold in', () => {
+test('a 1.2 tree is refused at the 2.0 boundary', () => {
   const legacy = {
     type: 'document',
     children: [
@@ -248,12 +263,7 @@ test('an older serialized tree still converts: the pre-split spellings fold in',
       },
     ],
   };
-  const { doc, warnings } = carveAstToPandoc(legacy);
-  const json = JSON.stringify(doc.blocks);
-  assert.deepEqual(warnings, []);
-  assert.ok(json.includes('resolved'), 'the reference resolved through the definition');
-  assert.ok(json.includes('onthespot'), 'the inline footnote kept its body');
-  assert.ok(json.includes('comment-annotation'), 'the critic comment kept its class');
+  assert.throws(() => carveAstToPandoc(legacy), /expected a 2\.0 root node/);
 });
 
 test("the engine's own serializer is used when the engine exports one", () => {
@@ -287,36 +297,33 @@ test('the source path and the serialized path agree', () => {
   assert.deepEqual(viaWire, direct);
 });
 
-test('a definition list holding both shapes keeps every entry', () => {
-  // The decision to flatten is made per LIST, so one runtime entry sends the
-  // whole `items` array through the mapping - and an entry that was already a
-  // wire node must survive that trip. Dropping it would delete authored
-  // content with nothing to show for it.
+test('a 2.0 definition list keeps every term and description', () => {
   const mixed = {
     type: 'document',
+    astVersion: '2.0',
     children: [
       {
         type: 'definition_list',
-        items: [
+        spacing: 'tight',
+        children: [
           { type: 'definition_term', children: [{ type: 'text', value: 'wire' }] },
           {
             type: 'definition_description',
             children: [{ type: 'paragraph', children: [{ type: 'text', value: 'already' }] }],
           },
-          {
-            terms: [[{ type: 'text', value: 'runtime' }]],
-            definitions: [[{ type: 'paragraph', children: [{ type: 'text', value: 'mapped' }] }]],
-          },
+          { type: 'definition_term', children: [{ type: 'text', value: 'runtime' }] },
+          { type: 'definition_description', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'mapped' }] }] },
         ],
       },
     ],
   };
-  const [list] = nodesOfType(toCarveAst(mixed).children, 'definition_list');
+  const [list] = nodesOfType(mixed.children, 'definition_list');
   assert.deepEqual(
-    list.items.map((n) => n.type),
+    list.children.map((n) => n.type),
     ['definition_term', 'definition_description', 'definition_term', 'definition_description'],
   );
-  const json = JSON.stringify(carveAstToPandoc(toCarveAst(mixed)).doc);
+  assertConforms(mixed, '2.0 definition list');
+  const json = JSON.stringify(carveAstToPandoc(mixed).doc);
   for (const word of ['wire', 'already', 'runtime', 'mapped']) {
     assert.ok(json.includes(word), `"${word}" survived the mapping`);
   }

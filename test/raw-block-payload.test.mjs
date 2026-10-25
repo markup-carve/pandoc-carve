@@ -13,25 +13,25 @@ test('a raw block reaches pandoc without the final line feed Carve publishes', (
 });
 
 test('only one line feed is dropped', () => {
-  const { doc } = carveAstToPandoc({ type: 'document', children: [{ type: 'raw_block', format: 'html', content: 'a\n\n' }] });
+  const { doc } = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'raw_block', format: 'html', value: 'a\n\n' }] });
   assert.deepEqual(doc.blocks, [raw('html', 'a\n')]);
-  const bare = carveAstToPandoc({ type: 'document', children: [{ type: 'raw_block', format: 'html', content: 'a' }] });
+  const bare = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'raw_block', format: 'html', value: 'a' }] });
   assert.deepEqual(bare.doc.blocks, [raw('html', 'a')]);
 });
 
 test('a blank-only raw payload is reported as unspellable', () => {
-  const result = carveAstToPandoc({ type: 'document', children: [{ type: 'raw_block', format: 'html', content: '\n' }] });
+  const result = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'raw_block', format: 'html', value: '\n' }] });
   assert.deepEqual(result.doc.blocks, [raw('html', '')]);
   assert.deepEqual(result.diagnostics.map((d) => d.code), ['field-unspellable']);
 });
 
 test('an imported RawBlock gets the final line feed a parsed fence carries', () => {
   const { ast } = pandocToCarveAst(pandocDoc([raw('html', '<hr class=x>')]));
-  assert.deepEqual(ast.children, [{ type: 'raw_block', format: 'html', content: '<hr class=x>\n' }]);
+  assert.deepEqual(ast.children, [{ type: 'raw_block', format: 'html', value: '<hr class=x>\n' }]);
   const commonmark = pandocToCarveAst(pandocDoc([raw('html', '<hr class=x>\n')]));
-  assert.equal(commonmark.ast.children[0].content, '<hr class=x>\n', 'a reader that keeps the break gets no second one');
+  assert.equal(commonmark.ast.children[0].value, '<hr class=x>\n', 'a reader that keeps the break gets no second one');
   const empty = pandocToCarveAst(pandocDoc([raw('html', '')]));
-  assert.equal(empty.ast.children[0].content, '');
+  assert.equal(empty.ast.children[0].value, '');
 });
 
 for (const [format, text] of [['html', '<hr class=x>'], ['latex', '\\clearpage'], ['html', 'a\n\nb']]) {

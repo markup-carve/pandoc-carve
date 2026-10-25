@@ -36,10 +36,10 @@ for (const [marker, key] of [['symbol', 'data-symbol'], ['emoji', 'data-emoji']]
 test('Djot task markers are stripped only when every bullet item has one', () => {
   const item = (mark) => [{ t: 'Plain', c: [{ t: 'Str', c: mark }, { t: 'Space' }, { t: 'Str', c: 'task' }] }];
   const list = (items) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'BulletList', c: items }] });
-  const tasks = pandocToCarveAst(list([item('[x]'), item('[X]'), item('[ ]')] )).ast.children[0].items;
-  assert.deepEqual(tasks.map((n) => n.checked), [true, true, false]);
-  const plain = pandocToCarveAst(list([item('[x]'), item('no')])).ast.children[0].items;
-  assert.equal(plain[0].checked, undefined);
+  const tasks = pandocToCarveAst(list([item('[x]'), item('[X]'), item('[ ]')] )).ast.children[0].children;
+  assert.deepEqual(tasks.map((n) => n.task?.mark), ['x', 'x', ' ']);
+  const plain = pandocToCarveAst(list([item('[x]'), item('no')])).ast.children[0].children;
+  assert.equal(plain[0].task, undefined);
   assert.equal(plain[0].children[0].children[0].value, '[x] task');
 });
 
@@ -52,7 +52,7 @@ test('joined classes identify directive and code language', () => {
   assert.equal(admonition.type, 'admonition');
   assert.equal(admonition.kind, 'warning');
   assert.deepEqual(admonition.attrs.classes, ['extra']);
-  assert.equal(code.lang, 'python');
+  assert.equal(code.syntax, 'python');
   assert.deepEqual(code.attrs.classes, ['extra']);
 });
 

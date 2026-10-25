@@ -1,22 +1,22 @@
 /*
  * A table's head, body groups and foot, in both directions (PART 12 §15).
  *
- * The field holds COUNTS, never rows, so a grouping partitions the table's
- * flat `rows` rather than restating them. Pandoc's model is the one it is cut
- * to: `TableHead`, a LIST of `TableBody` (each with its own intermediate
- * header rows and a `RowHeadColumns`), and a `TableFoot`.
+ * Contract 2.0 groups own their rows in `table.children`. The bridge's private
+ * conversion view still uses counts, which `readRowGroups` checks before
+ * mapping to Pandoc's TableHead, TableBody, and TableFoot.
  *
- * §15 requires as a MUST that the counts account for every row exactly once,
- * and JSON Schema cannot express a cross-field sum - the upstream schema
- * deliberately does not check it, and an upstream test pins that a non-summing
- * partition still validates. A green validator is therefore no evidence at
- * all here, which is why the bridge checks the sum itself and why the check
- * has a test that watches it fail.
+ * The old count validator remains covered because the private view uses it.
+ * On the 2.0 wire each row belongs to one group by construction.
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { toAstJson } from '@markup-carve/carve';
 import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { readRowGroups } from '../dist/row-groups.js';
+
+const rowsOf = (table) => table.children.flatMap((group) => group.children);
+const bodyGroupsOf = (table) => table.children.filter((group) => group.type === 'table_body');
 
 // --- Carve AST fixtures -----------------------------------------------------
 
@@ -49,7 +49,7 @@ function tableAst(rowGroups) {
     ],
   };
   if (rowGroups) table.rowGroups = rowGroups;
-  return { type: 'document', children: [table] };
+  return toAstJson({ type: 'document', children: [table] });
 }
 
 const partition = {
@@ -168,10 +168,9 @@ test('a partition whose counts do not sum is refused, with the numbers said out 
     bodies: [{ headRows: 0, bodyRows: 2 }],
     footRows: 1,
   };
-  const { doc, warnings } = carveAstToPandoc(tableAst(short));
-  assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
-  assert.match(warnings[0], /partitions 4 row\(s\) but the table has 5/);
-  assert.match(warnings[0], /implicit head\/body split/);
+  const { error } = readRowGroups(short, 5);
+  assert.match(error, /partitions 4 row\(s\) but the table has 5/);
+  const { doc } = carveAstToPandoc(tableAst(null));
   // and the table is the implicit one rather than a table whose sections
   // disagree with its rows
   const t = tableParts(doc);
@@ -191,21 +190,19 @@ test('a partition whose counts do not sum is refused, with the numbers said out 
 
 test('a partition that over-counts is refused the same way', () => {
   const long = { headRows: 1, bodies: [{ headRows: 0, bodyRows: 5 }], footRows: 1 };
-  const { warnings } = carveAstToPandoc(tableAst(long));
-  assert.match(warnings[0], /partitions 7 row\(s\) but the table has 5/);
+  assert.match(readRowGroups(long, 5).error, /partitions 7 row\(s\) but the table has 5/);
 });
 
 test('a count that is not a count is refused before the sum is reached', () => {
   const bad = { headRows: 1, bodies: [{ headRows: 0, bodyRows: '3' }], footRows: 1 };
-  const { warnings } = carveAstToPandoc(tableAst(bad));
-  assert.match(warnings[0], /body 1 needs integer headRows and bodyRows/);
+  assert.match(readRowGroups(bad, 5).error, /body 1 needs integer headRows and bodyRows/);
 });
 
 test('a rowspan may not cross a body-group boundary', () => {
   const ast = tableAst(partition);
   // The second body's header row covers the row above it - across the group
   // boundary, which pandoc's row lists cannot express.
-  ast.children[0].rows[2].cells[0] = { type: 'table_cell', header: true, children: [], span: 'rowspan' };
+  rowsOf(ast.children[0])[2].children[0] = { type: 'table_cell', header: true, children: [], span: 'rowspan' };
   const { warnings } = carveAstToPandoc(ast);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /rowspan crossing the header\/body boundary at row 3, col 1/);
@@ -272,19 +269,10 @@ const twoBodiesAndAFootFlatHeads = pandocTable({
 test('pandoc bodies, foot and row-head columns come back as counts', () => {
   const { ast } = pandocToCarveAst(twoBodiesAndAFoot);
   const table = ast.children[0];
-  assert.equal(table.rows.length, 5, 'every row stays in the flat list');
-  assert.deepEqual(table.rowGroups, {
-    headRows: 1,
-    bodies: [
-      { headRows: 0, bodyRows: 1, rowHeadColumns: 1 },
-      {
-        headRows: 1,
-        bodyRows: 1,
-        attrs: { id: 'north-2', classes: ['totals'], order: ['#id', '.class'] },
-      },
-    ],
-    footRows: 1,
-  });
+  assert.equal(rowsOf(table).length, 5, 'every row stays in a group');
+  assert.deepEqual(table.children.map((group) => group.type), ['table_head', 'table_body', 'table_body', 'table_foot']);
+  assert.deepEqual(bodyGroupsOf(table).map((body) => [body.headRows, body.children.length, body.rowHeadColumns]), [[0, 1, 1], [1, 2, undefined]]);
+  assert.deepEqual(bodyGroupsOf(table)[1].attrs, { id: 'north-2', classes: ['totals'], order: ['#id', '.class'] });
 });
 
 /*
@@ -303,14 +291,14 @@ test('the ast target adds no partition attributes and no source diagnostic', () 
 test("a body's intermediate header row is imported as header cells", () => {
   const { ast } = pandocToCarveAst(twoBodiesAndAFoot);
   assert.deepEqual(
-    ast.children[0].rows.map((r) => r.cells.every((c) => c.header === true)),
+    rowsOf(ast.children[0]).map((r) => r.children.every((c) => c.header === true)),
     [true, false, true, false, false],
   );
 });
 
 test('the short caption survives alongside the counts', () => {
   const { ast } = pandocToCarveAst(twoBodiesAndAFoot);
-  assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'Totals' }]);
+  assert.deepEqual(ast.children[0].caption.short, [{ type: 'text', value: 'Totals' }]);
 });
 
 test('control: an implicit pandoc table gets no rowGroups field at all', () => {
@@ -321,9 +309,9 @@ test('control: an implicit pandoc table gets no rowGroups field at all', () => {
   });
   const table = pandocToCarveAst(plain).ast.children[0];
   assert.equal(
-    table.rowGroups,
+    bodyGroupsOf(table)[0].headRows,
     undefined,
-    'absent means the structure every renderer derives; emitting it would add a field carrying nothing',
+    'implicit grouping has no authored headRows field',
   );
 });
 
@@ -331,9 +319,10 @@ test('the counts survive a full Carve AST -> pandoc -> Carve AST round trip', ()
   const { doc } = carveAstToPandoc(tableAst(partition));
   const { ast } = pandocToCarveAst({ ...doc, meta: {} });
   const table = ast.children[0];
-  assert.deepEqual(table.rowGroups, partition);
+  assert.deepEqual(table.children.map((group) => group.type), ['table_head', 'table_body', 'table_body', 'table_foot']);
+  assert.deepEqual(bodyGroupsOf(table).map((body) => [body.headRows, body.children.length, body.rowHeadColumns]), [[0, 1, 1], [1, 2, undefined]]);
   assert.deepEqual(
-    table.rows.map((r) => r.cells[0].children[0].value),
+    rowsOf(table).map((r) => r.children[0].children[0].children[0].value),
     ['Region', 'North', 'South region', 'South', 'All'],
   );
 });
@@ -746,11 +735,7 @@ test('and the AST target keeps the boundary the source writer normalizes away', 
   // split from an authored one. `rowGroups` can, so the exchange AST keeps what
   // the pandoc table carried and nothing is normalized there.
   const table = pandocToCarveAst(bodiesWithRowHeadCounts([1, 0], 2)).ast.children[0];
-  assert.deepEqual(table.rowGroups, {
-    headRows: 0,
-    bodies: [{ headRows: 0, bodyRows: 1, rowHeadColumns: 1 }, { headRows: 0, bodyRows: 1 }],
-    footRows: 0,
-  });
+  assert.deepEqual(bodyGroupsOf(table).map((body) => [body.headRows, body.children.length, body.rowHeadColumns]), [[0, 1, 1], [0, 1, undefined]]);
 });
 
 test('a row-head cell does not carry the column alignment', () => {
@@ -771,7 +756,7 @@ test('a row-head cell does not carry the column alignment', () => {
 test('the AST path keeps the table node, because rowGroups loses nothing there', () => {
   const table = pandocToCarveAst(twoBodiesAndAFoot).ast.children[0];
   assert.equal(table.type, 'table');
-  assert.equal(table.rowGroups.bodies[0].rowHeadColumns, 1);
+  assert.equal(bodyGroupsOf(table)[0].rowHeadColumns, 1);
 });
 
 /*
@@ -837,7 +822,7 @@ test('the AST path says the same thing, because the warning names where it survi
   // Both entry points run the same conversion, so the wording has to be true
   // on the path that loses NOTHING - hence "preserved in the Carve AST".
   const { ast, warnings } = pandocToCarveAst(twoBodiesAndAFoot);
-  assert.ok(ast.children[0].rowGroups, 'nothing was lost here');
+  assert.equal(bodyGroupsOf(ast.children[0])[0].rowHeadColumns, 1, 'nothing was lost here');
   assert.ok(warnings.some((w) => w.includes('preserved in the Carve AST')), warnings.join(' | '));
 });
 

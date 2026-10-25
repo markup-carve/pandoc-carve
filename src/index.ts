@@ -1,5 +1,6 @@
 import * as carve from '@markup-carve/carve';
 import { normalizeCarveAst, parseCarveAst, toCarveAst, type CarveAstDocument } from './ast-json.js';
+import { conversionView } from './ast2-input.js';
 import { convert, type ConvertOptions, type ConvertResult } from './convert.js';
 import { parseExtensions, type ParseOptions } from './parse-options.js';
 import { pandocToCarve as reverse } from './reverse.js';
@@ -39,7 +40,7 @@ function engineRenderTree(ast: unknown): unknown {
         const children = Array.isArray(probe['children']) ? probe['children'] : [];
         const paragraph = children[0] as Record<string, unknown> | undefined;
         const substitution = Array.isArray(paragraph?.['children'])
-            ? paragraph['children'].find((node) => node?.type === 'substitution')
+            ? paragraph['children'].find((node) => node?.type === 'substitution' || node?.type === 'critic_substitution')
             : undefined;
         return Array.isArray(substitution?.['old']) && Array.isArray(substitution?.['new']);
     })();
@@ -186,7 +187,7 @@ export function carveToPandoc(
     source: string,
     options?: ConvertOptions & ParseOptions,
 ): ConvertResult {
-    return convert(carveToCarveAst(source, options), withParser(options));
+    return convert(conversionView(carveToCarveAst(source, options)), withParser(options));
 }
 
 /**
@@ -220,7 +221,7 @@ export function carveAstToPandoc(
 ): ConvertResult {
     const parsed = normalizeCarveAst(parseCarveAst(ast));
     const normalized = options?.legacySpaceSentinels ? upgradeParserSpaces(parsed, undefined) as CarveAstDocument : parsed;
-    return convert(normalized, withParser(options));
+    return convert(conversionView(normalized), withParser(options));
 }
 
 /**
@@ -253,7 +254,11 @@ export function pandocToCarve(doc: PandocDoc | string): { carve: string; warning
 }
 
 function writeCarve(ast: unknown, warnings: string[], diagnostics: ConversionDiagnostic[]): string {
-    const write = (tree: unknown): string => carve.renderCarve(engineRenderTree(tree as typeof ast) as Parameters<typeof carve.renderCarve>[0]);
+    const write = (tree: unknown): string => {
+        const wire = toCarveAst(tree, engineSerializer);
+        const runtime = carve.fromAstJson(wire as Parameters<typeof carve.fromAstJson>[0]);
+        return carve.renderCarve(engineRenderTree(runtime) as Parameters<typeof carve.renderCarve>[0]);
+    };
     try {
         return write(ast);
     } catch (error) {

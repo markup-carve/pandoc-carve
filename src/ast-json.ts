@@ -1,13 +1,8 @@
 /**
  * The Carve AST exchange shape (PART 12), and the way in from a runtime tree.
  *
- * PART 12 section 1 is the reason this file exists: the wire form is what a
- * consumer reads, and "an implementation whose internals differ MAPS on the way
- * out; it does not export its internals". This package is such a consumer, so
- * everything downstream of here - `convert()` and its node-type switches - keys
- * on spec surface only. A tree produced by carve-rs, carve-php or carve-go
- * converts exactly like one produced by carve-js, because none of them is what
- * the converter reads: `spec/resources/ast-schema.json` is.
+ * The public API exchanges contract 2.0 trees. `ast2-input.ts` maps those
+ * trees to the bridge's private conversion view before Pandoc conversion.
  *
  * Two shapes differ from the runtime tree carve-js hands out of `parse()`, and
  * both differences are structural rather than cosmetic (PART 12 section 7):
@@ -20,14 +15,10 @@
  *    on the wire, for the same reason plus a vocabulary one: under the object
  *    form those two names denote nothing.
  *
- * A published engine that exports its own serializer is authoritative and is
- * used when present ({@link toCarveAst}'s `serialize` parameter, wired to the
- * engine in `index.ts`), and the current git pin exports one. The mapping
- * below is what runs when the installed engine predates `toAstJson` (any
- * published release up to `0.1.3` does) - and it is
- * measured, not assumed: every one of the 610 spec-corpus documents validates
- * against the schema after passing through here (test/spec-corpus.test.mjs).
+ * The installed engine's `toAstJson` is authoritative when available. The
+ * fallback mapper below is retained for older engines.
  */
+import * as carve from '@markup-carve/carve';
 
 /** Any node in the exchange tree. Fields are read by name, per the schema. */
 export interface CarveAstNode {
@@ -35,9 +26,10 @@ export interface CarveAstNode {
     [key: string]: unknown;
 }
 
-/** The document root: `type`, `children`, `srcByteLength`, nothing else. */
+/** The document root required by contract 2.0. */
 export interface CarveAstDocument {
     type: 'document';
+    astVersion: '2.0';
     children: CarveAstNode[];
     srcByteLength?: number;
 }
@@ -165,7 +157,8 @@ function normalize<T>(node: T): T {
             // `label` and `children`. A definition is left alone; anything else
             // named `footnote` is one of the two inline forms, told apart by
             // `inline` exactly as the split encodes it.
-            if (typeof current['label'] === 'string' && Array.isArray(current['children'])) break;
+            if ((typeof current['label'] === 'string' || typeof current['key'] === 'string')
+                && Array.isArray(current['children'])) break;
             if (Array.isArray(current['inline'])) {
                 const { id: _id, ...rest } = out ?? { ...node };
                 out = { ...rest, type: 'inline_footnote' };
@@ -251,7 +244,7 @@ export function toCarveAst(
     runtime: unknown,
     serialize?: (doc: unknown) => unknown,
 ): CarveAstDocument {
-    if (serialize) return normalize(serialize(runtime)) as CarveAstDocument;
+    if (serialize) return normalize(serialize(prepareRuntime(runtime))) as CarveAstDocument;
 
     const doc = (runtime ?? {}) as RuntimeDocument;
     const children: CarveAstNode[] = [];
@@ -282,9 +275,31 @@ export function toCarveAst(
         children.push(node);
     }
 
-    const out: CarveAstDocument = { type: 'document', children };
+    const out: CarveAstDocument = { type: 'document', astVersion: '2.0', children };
     if (doc.srcByteLength !== undefined) out.srcByteLength = doc.srcByteLength;
     return out;
+}
+
+function prepareRuntime(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        const mapped = value.map(prepareRuntime);
+        return mapped.some((child, i) => child !== value[i]) ? mapped : value;
+    }
+    if (!isObject(value)) return value;
+    let node: Record<string, unknown> = value;
+    for (const [key, child] of Object.entries(value)) {
+        const mapped = prepareRuntime(child);
+        if (mapped !== child) node = { ...node, [key]: mapped };
+    }
+    if (node['type'] === 'comment' && typeof node['form'] === 'string') {
+        node = { ...node };
+        node['block'] = node['form'] === 'block';
+        node['delimited'] = node['form'] === 'braced';
+        node['content'] = node['value'] ?? node['content'];
+        delete node['form'];
+        delete node['value'];
+    }
+    return node;
 }
 
 /**
@@ -317,11 +332,16 @@ export function normalizeCarveAst(doc: CarveAstDocument): CarveAstDocument {
  * `resources/ast-schema.json` themselves; the test suite does exactly that.
  */
 export function parseCarveAst(input: CarveAstDocument | string): CarveAstDocument {
-    const value: unknown = typeof input === 'string' ? JSON.parse(input) : input;
-    if (!isObject(value) || value['type'] !== 'document' || !Array.isArray(value['children'])) {
+    let value: unknown = typeof input === 'string' ? JSON.parse(input) : input;
+    // An engine still on contract 1.2 writes no 2.0 root; migrate it. Pandoc reads no positions, so the
+    // migration runs without the source and its dropped-position losses do not matter here.
+    if (isObject(value) && value['type'] === 'document' && value['astVersion'] !== '2.0') {
+        try { value = carve.migrateAstJson(value as Parameters<typeof carve.migrateAstJson>[0]).tree; } catch { /* reported below */ }
+    }
+    if (!isObject(value) || value['type'] !== 'document' || value['astVersion'] !== '2.0' || !Array.isArray(value['children'])) {
         const found = isObject(value) ? `type ${JSON.stringify(value['type'])}` : typeof value;
         throw new Error(
-            `not a Carve AST document: expected a root node of type "document" with a children array, found ${found}. ` +
+            `not a Carve AST document: expected a 2.0 root node of type "document" with a children array, found ${found}. ` +
                 'The expected shape is PART 12 of the Carve spec (resources/ast-schema.json), as written by "carve --to-json".',
         );
     }

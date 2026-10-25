@@ -67,6 +67,7 @@ test('the AST target keeps SmallCaps as the interchange node, with nothing repor
 test('the small_caps node exports to SmallCaps, and its attributes ride a Span', () => {
   const wire = (attrs) => ({
     type: 'document',
+    astVersion: '2.0',
     children: [{ type: 'paragraph', children: [{ type: 'small_caps', children: [{ type: 'text', value: 'caps' }], ...(attrs ? { attrs } : {}) }] }],
   });
   const bare = carveAstToPandoc(wire()).doc.blocks[0].c;

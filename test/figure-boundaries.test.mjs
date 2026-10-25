@@ -38,10 +38,10 @@ test('Pandoc keeps Figure and Image attributes on their respective Carve nodes',
     assert.equal(result.carve, expected);
     assert.deepEqual(result.diagnostics, []);
     const node = pandocToCarveAst(input).ast.children[0];
-    assert.equal(node.caption[0].value, 'Caption');
-    assert.equal(node.target.alt, 'Alternative');
+    assert.equal(node.caption.children[0].children[0].value, 'Caption');
+    assert.equal(node.children[0].alt, 'Alternative');
     assert.equal(node.attrs?.id, outer[0] || undefined);
-    assert.equal(node.target.attrs?.id, inner[0] || undefined);
+    assert.equal(node.children[0].attrs?.id, inner[0] || undefined);
     assert.deepEqual(carveToPandoc(result.carve).doc.blocks[0], input.blocks[0]);
   }
 });

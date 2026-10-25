@@ -211,7 +211,7 @@ test('a subfigure-shaped pandoc Figure imports as figure_group', () => {
   assert.equal(group.attrs.id, 'fig-x');
   assert.deepEqual(group.children.map((c) => c.type), ['figure', 'figure']);
   assert.deepEqual(group.children.map((c) => c.attrs.id), ['fig-a', 'fig-b']);
-  assert.equal(group.caption[0].value, 'Group');
+  assert.equal(group.caption.children[0].children[0].value, 'Group');
   assert.ok(!('target' in group), 'PART 12 §16: the group carries no target');
 
   const { carve } = pandocToCarve(doc);
@@ -290,7 +290,7 @@ test('a Figure-wrapped table panel keeps the wrapper id it is referenced by', ()
   assert.equal(panel.type, 'table', '§4c: the panel wrapper adds nothing to a table');
   assert.equal(panel.attrs.id, 'panel-t', 'the wrapper id, not dropped with the wrapper');
   assert.deepEqual(panel.attrs.classes, ['inner', 'wide'], 'classes union, inner first');
-  assert.equal(panel.caption.map((c) => c.value).join(''), 'A table panel');
+  assert.equal(panel.caption.children[0].children.map((c) => c.value).join(''), 'A table panel');
 });
 
 test('a group with a pandoc short caption warns rather than inventing a field', () => {
@@ -357,14 +357,14 @@ test("a panel's # comes back as the character it printed, not as a number", () =
   const [group] = carveToCarveAst(carve).children;
   assert.equal(group.type, 'figure_group', 'still a group after the lap');
   assert.deepEqual(
-    group.children[0].caption.map((c) => c.type),
+    group.children[0].caption.children[0].children.map((c) => c.type),
     ['text', 'escaped_text', 'text'],
     'the panel caption still reads "Figure #: A panel" and still draws nothing',
   );
   // The visible text is unchanged, which is the guarantee that matters: a
   // panel that had started drawing numbers would print "Figure 1: A panel".
   assert.equal(
-    group.children[0].caption.map((c) => c.value).join(''),
+    group.children[0].caption.children[0].children.map((c) => c.value).join(''),
     'Figure #: A panel',
   );
 });
