@@ -903,7 +903,7 @@ const TASK_STATE_KEY = 'carve-task-state';
 /** The extended states of PART 12's `taskState` enum, or null for anything else. */
 function readTaskState(kvs: [string, string][]): string | null {
     const value = kvs.find(([key]) => key === TASK_STATE_KEY)?.[1];
-    return value && ['-', '_', '>', '?'].includes(value) ? value : null;
+    return value && ['_', '-', '/', '!', '>', '?'].includes(value) ? value : null;
 }
 
 /** Detect the ballot-box prefix convert.ts (and pandoc's gfm reader) emit. */
