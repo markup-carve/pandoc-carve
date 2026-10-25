@@ -1649,13 +1649,13 @@ const TASK_STATE_KEY = 'carve-task-state';
 /**
  * A task state that `checked` alone cannot say, or null.
  *
- * PART 12 pins `taskState` to `" " x - _ > ?` and defines the first two as the
+ * PART 12 pins `taskState` to `" " x X _ - / ! > ?` and defines open and checked as the
  * defaults for `checked` - those two are already carried by the ballot box, and
- * only the other four are Carve-only information.
+ * only the other six are Carve-only information.
  */
 function extendedTaskState(item: CNode): string | null {
     const state = item.taskState;
-    return typeof state === 'string' && ['-', '_', '>', '?'].includes(state) ? state : null;
+    return typeof state === 'string' && ['_', '-', '/', '!', '>', '?'].includes(state) ? state : null;
 }
 
 /** GFM-style task markers: pandoc renders `- [x]` as a leading ballot-box Str. */

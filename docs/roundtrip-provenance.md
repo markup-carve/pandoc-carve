@@ -102,7 +102,7 @@ item whose Carve-only information must survive in a `Div` marked
 | key | carries |
 | --- | --- |
 | `carve-list-item` | that this `Div` is the wrapper, not authored content |
-| `carve-task-state` | `taskState` when it is `-`, `_`, `>` or `?` |
+| `carve-task-state` | `taskState` when it is `_`, `-`, `/`, `!`, `>` or `?` |
 
 The item's authored attributes sit in the same `Attr`; both private keys are
 removed on the way back. `taskState` is only carried where it says something
