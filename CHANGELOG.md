@@ -2,15 +2,6 @@
 
 ## [Unreleased]
 
-Tables with explicit head rows keep their authored alignment, and escaped punctuation survives Pandoc round trips.
-
-### Fixes
-
-- Plain rows promoted to table heads keep cell-local alignment without changing body column defaults (#272).
-- Escaped punctuation inside quoted text survives a Pandoc round trip (#272).
-
-**Full Changelog**: https://github.com/markup-carve/pandoc-carve/compare/0.1.11...HEAD
-
 ## 0.1.11 - 2026-10-23
 
 ### Fixes
