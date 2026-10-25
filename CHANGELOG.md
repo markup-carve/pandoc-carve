@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## 0.1.12 - 2026-10-25
+
+Pandoc round trips now preserve more Carve source detail, including mixed table headers and the new task states. Captions imported from Pandoc retain readable content from every contributing block.
+
+### Fixes
+
+- Escaped text and mixed header and data cells in table heads survive round trips when source preservation is enabled (#272).
+- Caption content from every Pandoc block is retained on import, with a diagnostic when block structure is flattened (#275).
+
+### Improvements
+
+- Progress `[/]`, blocked `[!]`, and open-alias `[_]` task states survive source-preserving Pandoc round trips (#279).
+
+**Full Changelog**: https://github.com/markup-carve/pandoc-carve/compare/0.1.11...0.1.12
+
 ## 0.1.11 - 2026-10-23
 
 ### Fixes
