@@ -20,9 +20,9 @@ function expectCode(result, code, direction, cls, fidelity, count = 1) {
   }
 }
 
-test('an unknown Carve inline produces unknown-carve-inline', () => {
+test('a block node in an inline slot produces unknown-carve-inline', () => {
   const result = carveAstToPandoc(carveDoc([{
-    type: 'paragraph', children: [{ type: 'future_inline', value: 'x' }],
+    type: 'paragraph', children: [{ type: 'thematic_break' }],
   }]));
   expectCode(result, 'unknown-carve-inline', 'carve-to-pandoc', 'degraded', 'degraded');
 });
@@ -63,13 +63,13 @@ test('an unsupported metadata value produces metadata-value-skipped', () => {
   assert.ok(item.diagnostics.some((entry) => entry.message.startsWith('meta: an item of')));
 });
 
-test('an unknown definition entry produces definition-entry-skipped', () => {
+test('a misplaced definition entry produces definition-entry-skipped', () => {
   const result = carveAstToPandoc(carveDoc([{
     type: 'definition_list',
     spacing: 'tight',
     children: [
       { type: 'definition_term', children: [text('term')] },
-      { type: 'future_entry' },
+      { type: 'paragraph', children: [] },
     ],
   }]));
   expectCode(result, 'definition-entry-skipped', 'carve-to-pandoc', 'lossy', 'dropped');

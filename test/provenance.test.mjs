@@ -27,14 +27,23 @@ test('normal mode still drops comments and reports a stable diagnostic', () => {
   assert.deepEqual(result.warnings, result.diagnostics.map(({ message }) => message));
 });
 
-test('unknown inline and block nodes survive as versioned opaque data', () => {
+test('an unknown core node type is refused, in round trip mode too', () => {
+  for (const options of [{}, { roundtrip: true }]) {
+    assert.throws(
+      () => carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'future_block', value: 'x' }] }, options),
+      /unknown node type "future_block"/,
+    );
+  }
+});
+
+test('misplaced inline and block nodes survive as versioned opaque data', () => {
   const ast = {
     type: 'document',
     astVersion: '2.0',
     stages: ['blockImagePromotion', 'referenceResolution', 'tableAlignment'],
     children: [
-      { type: 'future_block', feature: { version: 2 }, children: [{ type: 'paragraph', children: [{ type: 'text', value: 'block fallback' }] }] },
-      { type: 'paragraph', children: [{ type: 'future_inline', token: '雪', children: [{ type: 'text', value: 'inline fallback' }] }] },
+      { type: 'text', value: 'block fallback' },
+      { type: 'paragraph', children: [{ type: 'thematic_break' }] },
     ],
   };
   const result = carveAstToPandoc(ast, { roundtrip: true });
@@ -42,8 +51,8 @@ test('unknown inline and block nodes survive as versioned opaque data', () => {
   assert.deepEqual(stripDocumentEphemera(pandocToCarveAst(result.doc).ast), ast);
 });
 
-test('normal unknown nodes remain readable and diagnosed', () => {
-  const result = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'future_block', value: 'read me' }] });
+test('a misplaced node stays readable and diagnosed', () => {
+  const result = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'text', value: 'read me' }] });
   assert.equal(result.doc.blocks[0].t, 'Para');
   assert.equal(result.diagnostics[0].code, 'unknown-carve-block');
 });
@@ -72,7 +81,7 @@ test('roundtrip citation provenance retains typed fields and item order', () => 
 });
 
 test('every emitted warning has a structured counterpart', () => {
-  const forward = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'future_block', value: 'x' }] });
+  const forward = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'text', value: 'x' }] });
   assert.deepEqual(forward.warnings, forward.diagnostics.map(({ message }) => message));
   assert.ok(forward.diagnostics.every(({ code, direction, severity }) => code && direction && severity));
 });

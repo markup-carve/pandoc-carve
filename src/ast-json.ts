@@ -19,6 +19,7 @@
  * fallback mapper below is retained for older engines.
  */
 import * as carve from '@markup-carve/carve';
+import { CORE_NODE_TYPES } from './core-node-types.js';
 
 /** Any node in the exchange tree. Fields are read by name, per the schema. */
 export interface CarveAstNode {
@@ -322,14 +323,12 @@ export function normalizeCarveAst(doc: CarveAstDocument): CarveAstDocument {
  * is refused here with a message naming what was found, rather than converting
  * to an empty pandoc document that looks like a successful run.
  *
- * The ROOT is all that is checked. Validating the whole tree against the schema
- * would make a JSON Schema validator a runtime dependency of a converter that
- * does not need one, and would refuse documents this package converts perfectly
- * well - a node type newer than the schema this release shipped against, say.
- * Below the root the existing contract applies instead: an unrecognized node
- * degrades to its text and says so in `warnings`, and nothing is dropped
- * silently. Callers that want conformance checked can validate against
- * `resources/ast-schema.json` themselves; the test suite does exactly that.
+ * Below the root only node types are checked: a type the 2.0 schema does not
+ * define is refused, as carve#3598 rules for every reader. Fields are not
+ * validated, so a JSON Schema validator stays out of the runtime; callers that
+ * want full conformance validate against `resources/ast-schema.json`, as the
+ * test suite does. A known node in the wrong slot still degrades to its text
+ * and says so in `warnings`.
  */
 export function parseCarveAst(input: CarveAstDocument | string): CarveAstDocument {
     let value: unknown = typeof input === 'string' ? JSON.parse(input) : input;
@@ -345,5 +344,25 @@ export function parseCarveAst(input: CarveAstDocument | string): CarveAstDocumen
                 'The expected shape is PART 12 of the Carve spec (resources/ast-schema.json), as written by "carve --to-json".',
         );
     }
+    refuseUnknownNodeTypes(value['children'], '/children');
     return value as unknown as CarveAstDocument;
+}
+
+// Opaque or record-valued slots: a `type` key below them is data, not a node.
+const NON_NODE_KEYS = new Set(['attrs', 'data', 'metadata', 'pos', 'segments', 'extensions', 'resources']);
+
+/** Ruling on carve#3598: every reader, bridges included, refuses a core node type it does not know. */
+function refuseUnknownNodeTypes(value: unknown, path: string): void {
+    if (Array.isArray(value)) {
+        value.forEach((child, i) => refuseUnknownNodeTypes(child, `${path}/${i}`));
+        return;
+    }
+    if (!isObject(value)) return;
+    const type = value['type'];
+    if (typeof type === 'string' && !CORE_NODE_TYPES.has(type)) {
+        throw new Error(`not a Carve AST 2.0 document: unknown node type ${JSON.stringify(type)} at ${path}`);
+    }
+    for (const [key, child] of Object.entries(value)) {
+        if (!NON_NODE_KEYS.has(key)) refuseUnknownNodeTypes(child, `${path}/${key}`);
+    }
 }
