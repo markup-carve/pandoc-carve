@@ -54,8 +54,9 @@ test('every smart-punctuation kind the engine knows resolves to a glyph, none to
 		greater_than_or_equal: '>=',
 		not_equal: '!=',
 		plus_minus: '+-',
-		copyright: '(c)',
-		registered: '(r)',
+		// No source run produces these since markup-carve/carve#4824.
+		copyright: null,
+		registered: null,
 		trademark: '(tm)',
 	};
 
@@ -72,7 +73,7 @@ test('every smart-punctuation kind the engine knows resolves to a glyph, none to
 	const unresolved = [];
 	for (const [kind, run] of Object.entries(spellings)) {
 		const glyph = SMART_PUNCTUATION_GLYPHS[kind];
-		if (glyph === undefined) continue;
+		if (glyph === undefined || run === null) continue;
 		// Confirm the run really produces this kind on this engine before
 		// asserting anything about the conversion of it.
 		const node = parse(`x ${run} y\n`).children[0].children.find((c) => c.type === 'smart_punctuation');

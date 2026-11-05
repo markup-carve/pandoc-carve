@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /*
@@ -86,7 +86,7 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
  * down.
  *
  * spec/tests/corpus is generated from the `::: compare` blocks in
- * spec/resources/examples/{core,extensions,edge-cases}.md, one document per
+ * spec/resources/examples/{core,extensions}.md and edge-cases/*.md, one document per
  * `carve` fence (a block may hold several), so those pages are
  * the corpus's own declaration of its size. Counting them leaves no literal in
  * a test file to go stale: adding an example upstream moves the expectation on
@@ -101,7 +101,9 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
  * that are not there is the "smaller question answered" this module exists to
  * make loud.
  */
-const EXAMPLE_PAGES = ['core.md', 'extensions.md', 'edge-cases.md'];
+const EXAMPLE_PAGES = ['core.md', 'extensions.md'];
+// The spec stores each edge-case section in its own file (carve#4132).
+const EDGE_CASE_DIR = 'edge-cases';
 
 const leadingRun = (s, ch) => {
   let n = 0;
@@ -140,16 +142,22 @@ export function declaredPairsIn(text) {
 /** @returns {number} the number of corpus pairs the spec pages declare */
 export function declaredCorpusSize(repo) {
   const examplesDir = join(repo, 'spec', 'resources', 'examples');
+  const edgeCaseDir = join(examplesDir, EDGE_CASE_DIR);
+  const missing = (path) =>
+    new Error(
+      path + ' is missing - the submodule is incomplete, or the spec moved the ' +
+        'corpus source pages again. Without them there is nothing to check the ' +
+        'corpus size against.',
+    );
+  if (!existsSync(edgeCaseDir)) throw missing(edgeCaseDir);
+  const edgeCasePages = readdirSync(edgeCaseDir)
+    .filter((file) => file.endsWith('.md') && file !== 'README.md')
+    .map((file) => join(EDGE_CASE_DIR, file));
+  if (!edgeCasePages.length) throw missing(join(edgeCaseDir, '*.md'));
   let declared = 0;
-  for (const page of EXAMPLE_PAGES) {
+  for (const page of [...EXAMPLE_PAGES, ...edgeCasePages]) {
     const path = join(examplesDir, page);
-    if (!existsSync(path)) {
-      throw new Error(
-        path + ' is missing - the submodule is incomplete, or the spec moved the ' +
-          'corpus source pages again. Without them there is nothing to check the ' +
-          'corpus size against.',
-      );
-    }
+    if (!existsSync(path)) throw missing(path);
     declared += declaredPairsIn(readFileSync(path, 'utf8'));
   }
   return declared;

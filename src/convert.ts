@@ -92,6 +92,8 @@ export interface ConvertOptions {
 }
 
 interface Ctx {
+    /** The source the tree was parsed from, as code points, when known. */
+    sourcePoints: string[] | undefined;
     warnings: string[];
     diagnostics: ConversionDiagnostic[];
     footnoteDefs: Record<string, CNode[]>;
@@ -597,8 +599,14 @@ function inlineText(n: CNode | undefined): string {
 
 function inlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] {
     if (!nodes) return [];
+    // A continuation join at either edge of a cell joins nothing and renders
+    // no space (corpus 856-4: `+ c | ^ |`).
+    let from = 0;
+    let to = nodes.length;
+    while (from < to && nodes[from]?.type === 'cell_wrap') from++;
+    while (to > from && nodes[to - 1]?.type === 'cell_wrap') to--;
     const out: P.Inline[] = [];
-    for (const n of pairQuotes(nodes)) out.push(...inline(ctx, n));
+    for (const n of pairQuotes(from === 0 && to === nodes.length ? nodes : nodes.slice(from, to))) out.push(...inline(ctx, n));
     return joinAdjacentStr(out);
 }
 
@@ -1146,11 +1154,12 @@ function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
                 // node instead.
                 //
                 // A footnote reference carries no `rawRef`, so the source is
-                // rebuilt from the id. That is faithful even where the author
-                // wrote a trailing attribute: the engine drops the attribute
-                // along with the reference, so `[^a]{.ref}` renders `[^a]` too.
+                // rebuilt from the id, or sliced from the source when the
+                // author wrote a trailing attribute.
                 warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
-                return textInlines(`[^${id}]`);
+                // An attribute stays part of the literal (corpus 163, 822).
+                const authored = n.attrs ? authoredText(ctx, n) : null;
+                return textInlines(authored?.startsWith(`[^${id}]`) ? authored : `[^${id}]`);
             }
             if (ctx.openNotes.has(id)) {
                 warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
@@ -1428,7 +1437,30 @@ const WRAPPER_MARKED = new Set([
     'HorizontalRule',
 ]);
 
-function block(ctx: Ctx, n: CNode): P.Block[] {
+// A sole image on its own line is a `blockImage` paragraph whose block
+// attributes render on the image (carve-js 0.1.16 and later); an older engine
+// emits the bare image with the attributes already merged.
+function soleBlockImage(n: CNode): CNode {
+    const children = n.children as CNode[] | undefined;
+    if (n.type !== 'paragraph' || n.blockImage !== true || children?.length !== 1 || children[0]?.type !== 'image') return n;
+    const image = children[0];
+    const outer = n.attrs as (CAttrs & { order?: string[] }) | undefined;
+    const inner = image.attrs as (CAttrs & { order?: string[] }) | undefined;
+    if (!hasAttrs(outer)) return image;
+    const keyValues = { ...(outer?.keyValues ?? {}), ...(inner?.keyValues ?? {}) };
+    const classes = [...(outer?.classes ?? []), ...(inner?.classes ?? [])];
+    const id = inner?.id ?? outer?.id;
+    const attrs: CAttrs & { order?: string[] } = {
+        ...(id !== undefined ? { id } : {}),
+        ...(classes.length ? { classes } : {}),
+        ...(Object.keys(keyValues).length ? { keyValues } : {}),
+        order: [...(outer?.order ?? []), ...(inner?.order ?? [])],
+    };
+    return { ...image, attrs, ...(n.pos ? { pos: n.pos } : {}) };
+}
+
+function block(ctx: Ctx, node: CNode): P.Block[] {
+    const n = soleBlockImage(node);
     const result = blockInner(ctx, n);
     // A block-attribute line can attach attrs to ANY block. Pandoc's Para,
     // BlockQuote, lists etc. have no Attr slot - preserve via a Div wrapper.
@@ -1871,6 +1903,9 @@ function table(
         headCount++;
     }
     if (groups) headCount = groups.headRows;
+    // A count the engine left unconsumed is invalid: no partition, and no
+    // implicit head either (CARVE-P12-034, carve#4137).
+    else if (['header-rows', 'footer-rows'].some((key) => (n.attrs as CAttrs | undefined)?.keyValues?.[key] !== undefined)) headCount = 0;
 
     // Which pandoc row list each row belongs to. A cell may not span across
     // two of them: head, a body group's intermediate header, that group's
@@ -1897,7 +1932,7 @@ function table(
 
     // Column alignment comes from the first row's cells, but ONLY when that row
     // is the head. Carve spells column alignment on the header marker
-    // (`|=> Name |`), and a marker on a body cell aligns that cell alone -
+    // (`|={>} Name |`), and a marker on a body cell aligns that cell alone -
     // measured on the engine: `|>a| b |` styles `a` and leaves the cell below
     // it untouched. Reading a body row's markers as the column's therefore
     // aligned cells the author had not aligned, in every pandoc writer, because
@@ -1937,7 +1972,8 @@ function table(
         // The last header row that marks the column sets its default, as in the engine.
         for (let r = headCount - 1; r >= 0; r--) {
             const cell = rows[r]![c];
-            const marked = cell?.header ? cell.align : undefined;
+            // A span placeholder's own braces align its column too.
+            const marked = cell?.header || cell?.span !== undefined ? cell?.align : undefined;
             if (marked) return ALIGN[marked] ?? 'AlignDefault';
         }
         return 'AlignDefault';
@@ -2811,6 +2847,21 @@ function stripBidi(value: unknown): number {
 
 // --- Entry point ---
 
+// The source a tree was parsed from, for the spans the engine renders verbatim.
+const sourceOfTree = new WeakMap<object, string>();
+
+export function rememberSource(ast: CarveAstDocument, source: string): CarveAstDocument {
+    sourceOfTree.set(ast, source);
+    return ast;
+}
+
+/** The authored text of a node, when the tree's source is known. */
+function authoredText(ctx: Ctx, n: CNode): string | null {
+    const pos = n.pos as { startOffset?: number; endOffset?: number } | undefined;
+    if (!ctx.sourcePoints || pos?.startOffset === undefined || pos.endOffset === undefined) return null;
+    return ctx.sourcePoints.slice(pos.startOffset, pos.endOffset).join('');
+}
+
 export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): ConvertResult {
     // PART 12 section 7: frontmatter and footnote DEFINITIONS are block nodes
     // in `children`, not fields on the root. They are lifted out here rather
@@ -2831,7 +2882,9 @@ export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): Co
         }
     }
 
+    const source = sourceOfTree.get(ast);
     const ctx: Ctx = {
+        sourcePoints: source === undefined ? undefined : Array.from(source),
         warnings: [],
         diagnostics: [],
         footnoteDefs,
