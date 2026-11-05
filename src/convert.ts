@@ -2679,9 +2679,9 @@ function unquoteYaml(s: string): string {
 }
 
 /**
- * The boolean and null spellings YAML resolves as such, matching what pandoc's
- * own frontmatter reader does - it reads the 1.1 set, so `on`, `yes` and a bare
- * `y` are booleans there too, not strings.
+ * The boolean and null spellings YAML 1.2 resolves as such, matching pandoc
+ * 3.13's frontmatter reader. The former YAML 1.1 aliases (`on`, `yes`, `y`,
+ * and their false counterparts) are strings.
  *
  * Matching that set exactly is the point. A `draft: true` arriving as
  * `MetaInlines "true"` is not a near miss: every pandoc template and filter
@@ -2693,8 +2693,8 @@ function unquoteYaml(s: string): string {
  * A QUOTED scalar is never a boolean, which is why the test runs on the raw
  * text before {@link unquoteYaml} sees it.
  */
-const YAML_TRUE = /^(y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON)$/;
-const YAML_FALSE = /^(n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$/;
+const YAML_TRUE = /^(true|True|TRUE)$/;
+const YAML_FALSE = /^(false|False|FALSE)$/;
 const YAML_NULL = /^(~|null|Null|NULL)$/;
 
 function scalarValue(ctx: Ctx, key: string, raw: string): P.MetaValue {
