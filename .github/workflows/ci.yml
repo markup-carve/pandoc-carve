@@ -34,7 +34,7 @@ jobs:
           - track: current
             pandoc: '3.13'
           - track: minimum
-            pandoc: '3.11'
+            pandoc: '3.12.1'
     steps:
       - uses: actions/checkout@v7
         with:
