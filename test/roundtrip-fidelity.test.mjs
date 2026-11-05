@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { carveToHtml } from '@markup-carve/carve';
-import { carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { normalizeHtml } from './html-equivalence.mjs';
 
 const roundtrip = (src) => {
@@ -45,4 +45,9 @@ test('a crossref target heading exports its link once', () => {
   };
   walk(carveToPandoc('# [l](/u) t\n\n</#l-t>\n').doc.blocks);
   assert.deepEqual(links, ['/u', '#l-t']);
+});
+
+test('an authored pos attribute survives provenance', () => {
+  const { ast } = pandocToCarveAst(carveToPandoc('![x][r]{pos=foo}\n', { roundtrip: true }).doc);
+  assert.deepEqual(ast.children[0].children[0].attrs.keyValues, { pos: 'foo' });
 });
