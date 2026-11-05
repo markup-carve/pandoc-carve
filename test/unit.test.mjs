@@ -205,7 +205,8 @@ test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
   const [alpha] = blocks('a) x\nb) y');
   assert.equal(alpha.c[0][1].t, 'LowerAlpha');
 
-  const [roman] = blocks('i. x\nii. y');
+  // A roman marker with a dot needs two spaces (markup-carve/carve#4828).
+  const [roman] = blocks('i.  x\nii.  y');
   assert.equal(roman.c[0][1].t, 'LowerRoman');
 
   const [tasks] = blocks('- [x] done\n- [_] todo');
@@ -571,11 +572,12 @@ test('hard break and soft break', () => {
 });
 
 test('smart typography flows through as text', () => {
-  const text = JSON.stringify(firstInlines('an em --- dash ... and -> arrow (c)'));
+  // `->` and `(c)` stay text (markup-carve/carve#4831, #4824).
+  const text = JSON.stringify(firstInlines('an em --- dash ... and --> arrow (tm)'));
   assert.ok(text.includes('—'));
   assert.ok(text.includes('…'));
   assert.ok(text.includes('→'));
-  assert.ok(text.includes('©'));
+  assert.ok(text.includes('™'));
 });
 
 test('tab panel [label] degrades to a div-label caption (graceful degradation)', () => {

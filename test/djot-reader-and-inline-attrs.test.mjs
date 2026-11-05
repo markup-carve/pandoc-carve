@@ -114,7 +114,8 @@ test('unresolved footnote reference stays literal', () => {
   const source = 'Text[^a]{.ref}.\n';
   const result = carveToPandoc(source);
   assert.ok(!result.doc.blocks[0].c.some((node) => node.t === 'Span'));
-  assert.match(pandocToCarve(result.doc).carve, /Text\\\[\^a\]\./);
+  // The attribute stays literal with the reference (markup-carve/carve#4816).
+  assert.match(pandocToCarve(result.doc).carve, /Text\\\[\^a\]\{\.ref\}\./);
 });
 
 test('authored inline wrapper key gets a separate leading marker', () => {

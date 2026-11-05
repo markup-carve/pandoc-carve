@@ -1127,7 +1127,7 @@ function table(
     const headRaw = thead[1] as [Attr, unknown[][]][];
     const footRaw = tfoot[1] as [Attr, unknown[][]][];
 
-    // Carve spells COLUMN alignment on the header cell marker (`|=>Name|`), so
+    // Carve spells COLUMN alignment on the header cell marker (`|={>} Name |`), so
     // a table with no LEADING header row has nowhere to put it - and pandoc's
     // grid tables are allowed to be headerless while still carrying alignment.
     // The alignment is written onto every cell of the column instead, which
@@ -1355,7 +1355,10 @@ function table(
     // the head. Only the FIRST body matters, because only a LEADING run is read
     // as a head: corpus 354 collapses safely with counts `[0, 1]` over one
     // column, since nothing marks its first row.
-    const leadingRunFillsTheRow = (groupBodies[0]?.rowHeadColumns ?? 0) >= nCols;
+    // Unless an invalid count stays on the table: it keeps that row out of the head.
+    const keepsInvalidCount = ctx.target === 'source' && footRaw.length === 0 && headRaw.length === 0
+        && invalidRowCounts(fromAttr(a)?.keyValues ?? {}, rows.length);
+    const leadingRunFillsTheRow = !keepsInvalidCount && (groupBodies[0]?.rowHeadColumns ?? 0) >= nCols;
     //
     // EVERY ADJACENT PAIR MUST DISAGREE, because the forward direction splits at
     // every CHANGE in the run - so the bodies it synthesizes never put two equal
@@ -1409,7 +1412,7 @@ function table(
     // target it stays in `rowGroups`, where it is exact: there is no attribute
     // line to state it on, so stating it would invent attributes the pandoc
     // table never carried.
-    const attrs = ctx.target === 'source' ? statePartition(fromAttr(a), groups, promotedHead) : fromAttr(a);
+    const attrs = ctx.target === 'source' ? statePartition(fromAttr(a), groups, promotedHead, rows.length) : fromAttr(a);
     if (attrs) node.attrs = attrs;
     const captionInlines = captionInlinesFor();
     if (captionInlines?.length) node.caption = captionInlines;
@@ -1429,11 +1432,25 @@ function table(
  */
 const POSITIONAL_BODY_KEYS = ['body-rows', 'body-header-rows', 'body-header-cols'];
 
-function carriesInvalidBodyMetadata(keyValues: Record<string, string>, groups: RowGroups): boolean {
-    if (!POSITIONAL_BODY_KEYS.some((key) => keyValues[key] !== undefined)) return false;
+function carriesInvalidBodyMetadata(keyValues: Record<string, string>, groups: RowGroups, rowCount?: number): boolean {
+    if (!POSITIONAL_BODY_KEYS.some((key) => keyValues[key] !== undefined) && !invalidRowCounts(keyValues, rowCount)) return false;
     const flat = groups.headRows === 0 && groups.footRows === 0 && groups.bodies.length === 1
         && groups.bodies[0]!.headRows === 0 && groups.bodies[0]!.attrs === undefined;
     return flat;
+}
+
+// A head or foot count the engine cannot apply synthesizes no partition and
+// keeps a leading `|=` row in the body (CARVE-P12-034, carve#4137), so it is
+// kept rather than dropped as stale.
+function invalidRowCounts(keyValues: Record<string, string>, rowCount: number | undefined): boolean {
+    if (rowCount === undefined) return false;
+    const head = keyValues['header-rows'];
+    const foot = keyValues['footer-rows'];
+    if (head === undefined && foot === undefined) return false;
+    const count = (value: string | undefined): number | null => value === undefined ? 0 : /^\d+$/.test(value) ? Number(value) : null;
+    const h = count(head);
+    const f = count(foot);
+    return h === null || f === null || h + f > rowCount;
 }
 
 /**
@@ -1468,7 +1485,7 @@ function carriesInvalidBodyMetadata(keyValues: Record<string, string>, groups: R
  * a key only because the partition has nothing to say about it is how a stale
  * number outranks the rows.
  */
-function statePartition(attrs: CAttrs | undefined, groups: RowGroups, promotedHead = false): CAttrs | undefined {
+function statePartition(attrs: CAttrs | undefined, groups: RowGroups, promotedHead = false, rowCount?: number): CAttrs | undefined {
     const keyValues: Record<string, string> = { ...(attrs?.keyValues ?? {}) };
     // INVALID BODY METADATA MAKES THE WHOLE VOCABULARY ORDINARY ATTRIBUTES, and
     // an ordinary attribute is retained, not restated. PART 12 section 15:
@@ -1482,11 +1499,11 @@ function statePartition(attrs: CAttrs | undefined, groups: RowGroups, promotedHe
     // The stale-key guard below still applies whenever no such key is present,
     // which is every table whose partition the engine actually consumed - a
     // consumed key never reaches `keyValues` at all.
-    if (!carriesInvalidBodyMetadata(keyValues, groups)) {
+    if (!carriesInvalidBodyMetadata(keyValues, groups, rowCount)) {
         delete keyValues['header-rows'];
         delete keyValues['footer-rows'];
     }
-    if ((groups.footRows > 0 || promotedHead) && !carriesInvalidBodyMetadata(keyValues, groups)) {
+    if ((groups.footRows > 0 || promotedHead) && !carriesInvalidBodyMetadata(keyValues, groups, rowCount)) {
         if (groups.headRows > 0) keyValues['header-rows'] = String(groups.headRows);
         if (groups.footRows > 0) keyValues['footer-rows'] = String(groups.footRows);
     }
