@@ -20,7 +20,7 @@ npm install @markup-carve/pandoc-carve
 ```
 
 The CLI requires Pandoc 3.x on `PATH` for formats other than JSON. CI currently
-tests Pandoc 3.11 and 3.10.2. Pandoc is not bundled.
+tests Pandoc 3.13 and 3.12.1. Pandoc is not bundled.
 
 ## CLI
 

@@ -228,13 +228,16 @@ flow: [true, no, draft]
 Body.
 `;
 
-test('metadata: a YAML boolean is a MetaBool, not the string "true"', () => {
+test('metadata: YAML 1.2 boolean values are MetaBool; YAML 1.1 aliases are text', () => {
   const { doc } = carveToPandoc(BOOLS);
-  for (const key of ['t1', 't2', 't3', 't4', 't5']) {
+  for (const key of ['t1', 't2']) {
     assert.deepEqual(doc.meta[key], { t: 'MetaBool', c: true }, key);
   }
-  for (const key of ['f1', 'f2', 'f3', 'f4']) {
+  for (const key of ['f1', 'f2']) {
     assert.deepEqual(doc.meta[key], { t: 'MetaBool', c: false }, key);
+  }
+  for (const [key, value] of Object.entries({ t3: 'yes', t4: 'on', t5: 'y', f3: 'no', f4: 'off' })) {
+    assert.deepEqual(doc.meta[key], { t: 'MetaInlines', c: [{ t: 'Str', c: value }] }, key);
   }
 });
 
@@ -252,15 +255,27 @@ test('metadata: a null scalar keeps the key, empty', () => {
 
 test('metadata: flow-list items are typed one by one', () => {
   const { doc } = carveToPandoc(BOOLS);
-  assert.deepEqual(doc.meta.flow.c.map((x) => x.t), ['MetaBool', 'MetaBool', 'MetaInlines']);
-  assert.deepEqual(doc.meta.flow.c.slice(0, 2).map((x) => x.c), [true, false]);
+  assert.deepEqual(doc.meta.flow.c.map((x) => x.t), ['MetaBool', 'MetaInlines', 'MetaInlines']);
+  assert.deepEqual(doc.meta.flow.c.slice(0, 2), [
+    { t: 'MetaBool', c: true },
+    { t: 'MetaInlines', c: [{ t: 'Str', c: 'no' }] },
+  ]);
 });
 
-test('metadata: the boolean reading matches pandoc\'s own', { skip: !pandoc && 'pandoc not found' }, () => {
-  // The set of spellings YAML resolves as booleans is not obvious - `y` and
-  // `on` are in it - so the reference reader decides, not this repo.
+test('metadata: the boolean reading matches Pandoc 3.13 and records the 3.12.1 aliases', { skip: !pandoc && 'pandoc not found' }, () => {
   const { doc } = carveToPandoc(BOOLS);
-  assert.deepEqual(doc.meta, readMeta(BOOLS));
+  const reference = readMeta(BOOLS);
+  const version = execFileSync(pandoc, ['--version'], { encoding: 'utf8' }).match(/^pandoc (\d+)\.(\d+)/);
+  const yaml12 = Number(version[1]) > 3 || (Number(version[1]) === 3 && Number(version[2]) >= 13);
+  if (!yaml12) {
+    for (const key of ['t3', 't4', 't5', 'f3', 'f4']) {
+      assert.equal(reference[key].t, 'MetaBool', `${key} is a YAML 1.1 alias in Pandoc 3.12.1`);
+      reference[key] = doc.meta[key];
+    }
+    assert.equal(reference.flow.c[1].t, 'MetaBool', 'flow no is a YAML 1.1 alias');
+    reference.flow.c[1] = doc.meta.flow.c[1];
+  }
+  assert.deepEqual(doc.meta, reference);
 });
 
 test('metadata: a MetaBool survives the whole round trip', { skip: !pandoc && 'pandoc not found' }, () => {
