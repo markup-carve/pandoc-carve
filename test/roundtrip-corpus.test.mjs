@@ -146,11 +146,10 @@ const KNOWN_LOSSY = new Set([
   '494-an-explicit-table-head-span-keeps-one-row-group.crv',
   '495-a-table-foot-span-keeps-one-row-group.crv',
   // Pandoc ColSpec carries horizontal alignment and width, but has no vertical
-  // alignment slot. The bridge deliberately does not leak Carve's `valigns`
-  // source metadata into the Pandoc table Attr, so these two vertical-axis
-  // examples lose that axis on the source round trip. The AST path remains
-  // lossless because it keeps the Carve column records directly.
-  '370-table-columns-carry-alignment-vertical-alignment-and-widths.crv',
+  // alignment slot. Roundtrip mode keeps an authored `valigns` list on the
+  // table Attr; a vertical marker on a cell has nowhere to go, so these lose
+  // that axis on the source round trip. The AST path remains lossless because
+  // it keeps the Carve column records directly.
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
   '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
   // A header cell after an unmarked cell has no Pandoc RowHeadColumns slot.

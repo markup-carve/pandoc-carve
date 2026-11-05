@@ -809,7 +809,17 @@ function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inli
  * and a diagnostic says the reference moved. A roundtrip conversion keeps the
  * nesting: the reverse direction reads it back, and pandoc's JSON carries it.
  */
-function liftedNote(ctx: Ctx, body: () => P.Block[]): P.Inline[] {
+function liftedNote(ctx: Ctx, convertBody: () => P.Block[]): P.Inline[] {
+    // A note's body is outside the link its reference sits in.
+    const body = (): P.Block[] => {
+        const was = ctx.inLink;
+        ctx.inLink = false;
+        try {
+            return convertBody();
+        } finally {
+            ctx.inLink = was;
+        }
+    };
     if (ctx.roundtrip) {
         const note = P.Note(body());
         ctx.noteCount++;
@@ -943,7 +953,8 @@ function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
             // more - see `inLink`. Nothing is reported: the engine's own HTML
             // render of `[[t](/v)](/u)` returns zero losses for the same unwrap,
             // so it is the defined reading rather than something going missing.
-            if (ctx.inLink) return kids(ctx, n);
+            // An unresolved reference is its literal source there too (corpus 737-4).
+            if (ctx.inLink) return unresolvedReference(ctx, n, 'link') ?? kids(ctx, n);
             // A collapsed reference to a heading is RESOLVED, not missing, so
             // it is tried before the missing-definition path reports one.
             const heading = String(n.href ?? '') === '' ? collapsedHeadingRef(ctx, n) : undefined;
@@ -988,7 +999,8 @@ function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
         }
         case 'image': {
             const unresolved = unresolvedReference(ctx, n, 'image');
-            if (unresolved) return unresolved;
+            // Roundtrip keeps the node: its alt still names a task box (corpus 803).
+            if (unresolved) return ctx.roundtrip ? [P.Span(provenanceAttr('unknown-inline', n), unresolved)] : unresolved;
             emptyTitle(ctx, n, 'image');
             return [
                 P.Image(toAttr(ctx, n.attrs), textInlines(String(n.alt ?? '')), [
@@ -1010,6 +1022,9 @@ function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
             const kind = ctx.captionKind ?? 'caption';
             const next = (ctx.captionCounts.get(kind) ?? 0) + 1;
             ctx.captionCounts.set(kind, next);
+            // Roundtrip keeps the placeholder: a literal number would come
+            // back as text and stop counting.
+            if (ctx.roundtrip) return [P.Span(provenanceAttr('unknown-inline', n), [P.Str(String(next))])];
             return [P.Str(String(next))];
         }
         case 'heading_ref': {
@@ -1029,15 +1044,18 @@ function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
                     ? []
                     : ['crossref'];
                 ctx.inCrossref = true;
+                // The crossref is a link, so links in the target's text unwrap.
+                const wasInLink = ctx.inLink;
+                ctx.inLink = true;
                 try {
-                    return [
-                        P.Link(P.attr(undefined, classes), inlines(ctx, found), [
-                            `#${key}`,
-                            '',
-                        ]),
-                    ];
+                    const link = P.Link(P.attr(undefined, classes), inlines(ctx, found), [`#${key}`, '']);
+                    // A plain link would come back as a link; roundtrip keeps
+                    // the crossref to a caption label.
+                    if (ctx.roundtrip && !classes.length) return [P.Span(provenanceAttr('unknown-inline', n), [link])];
+                    return [link];
                 } finally {
                     ctx.inCrossref = false;
+                    ctx.inLink = wasInLink;
                 }
             }
             // The engine renders an unresolved crossref as its literal source.
@@ -2117,10 +2135,13 @@ function table(
         // what this reads. Corpus 541: `{header-rows=1 body-rows=x}` renders
         // `<table header-rows="1" body-rows="x">` and filtering unconditionally
         // dropped the first of the two.
+        // Roundtrip keeps the authored `valigns` and `widths` lists: ColSpec
+        // has no vertical slot, and a list may be shorter than the table or
+        // hold entries the engine ignores.
         toAttrWithout(ctx, n.attrs as CAttrs | undefined,
-            groups
+            (groups
                 ? ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows', 'body-rows', 'body-header-rows', 'body-header-cols']
-                : ['aligns', 'valigns', 'widths']),
+                : ['aligns', 'valigns', 'widths']).filter((key) => !ctx.roundtrip || (key !== 'valigns' && key !== 'widths'))),
         caption,
         colAligns,
         toRows(0, headCount),

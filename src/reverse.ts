@@ -9,7 +9,7 @@
  * carve -> pandoc -> carve round-trips clean.
  */
 
-import { parse as parseCarve, renderCarve, resolve } from '@markup-carve/carve';
+import { fromAstJson, parse as parseCarve, renderCarve, resolve } from '@markup-carve/carve';
 import type { PandocDoc, PandocNode, Attr } from './pandoc.js';
 import type { RowGroupBody, RowGroups } from './row-groups.js';
 import { diagnostic, type ConversionDiagnostic } from './diagnostics.js';
@@ -117,7 +117,9 @@ function fromAttr(a: Attr | undefined): CAttrs | undefined {
 }
 
 function splitClasses(classes: string[]): string[] {
-    return classes.flatMap((entry) => entry.split(/\s+/).filter(Boolean));
+    const tokens = classes.flatMap((entry) => entry.split(/\s+/).filter(Boolean));
+    // `{class=""}` is an empty class token, which still renders `class=""`.
+    return tokens.length === 0 && classes.length > 0 && classes.every((entry) => entry === '') ? [''] : tokens;
 }
 
 /**
@@ -342,7 +344,10 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             // one as literal text), so a note with a note inside is written as
             // a definition, where a nested note does resolve.
             if (noteBlocks.length === 1 && (noteBlocks[0]!.t === 'Para' || noteBlocks[0]!.t === 'Plain')
-                && !containsNote(noteBlocks[0]!.c)) {
+                && !containsNote(noteBlocks[0]!.c)
+                // A line inside `^[...]` is read again as a line, so a note that
+                // breaks is written as a definition (corpus 864).
+                && !(noteBlocks[0]!.c as PandocNode[]).some((x) => x.t === 'SoftBreak' || x.t === 'LineBreak')) {
                 return [{ type: 'inline_footnote', inline: inlines(ctx, noteBlocks[0]!.c as PandocNode[]) }];
             }
             const id = `fn${++ctx.noteCounter}`;
@@ -353,11 +358,11 @@ function inline(ctx: Ctx, n: PandocNode): CNode[] {
             {
                 const [a, xs] = c as [Attr, PandocNode[]];
                 const payload = readProvenance(a);
-                if (payload?.kind === 'comment' && payload.node.type === 'comment') return [payload.node as CNode];
-                if (payload?.kind === 'unknown-inline' && typeof payload.node.type === 'string') return [payload.node as CNode];
-                if (payload?.kind === 'citation' && payload.node.type === 'citation_group') return [payload.node as CNode];
-                if (payload?.kind === 'literal-inline' && payload.node.type === 'literal_inline') return [payload.node as CNode];
-                if (payload?.kind === 'escaped-text' && payload.node.type === 'escaped_text') return [payload.node as CNode];
+                if (payload?.kind === 'comment' && payload.node.type === 'comment') return [restored(payload.node, 'inline')];
+                if (payload?.kind === 'unknown-inline' && typeof payload.node.type === 'string') return [restored(payload.node, 'inline')];
+                if (payload?.kind === 'citation' && payload.node.type === 'citation_group') return [restored(payload.node, 'inline')];
+                if (payload?.kind === 'literal-inline' && payload.node.type === 'literal_inline') return [restored(payload.node, 'inline')];
+                if (payload?.kind === 'escaped-text' && payload.node.type === 'escaped_text') return [restored(payload.node, 'inline')];
                 return span(ctx, c);
             }
         default:
@@ -807,8 +812,8 @@ function block(ctx: Ctx, n: PandocNode): CNode[] {
             {
                 const [a] = c as [Attr, PandocNode[]];
                 const payload = readProvenance(a);
-                if (payload?.kind === 'comment' && payload.node.type === 'comment') return [payload.node as CNode];
-                if (payload?.kind === 'unknown-block' && typeof payload.node.type === 'string') return [payload.node as CNode];
+                if (payload?.kind === 'comment' && payload.node.type === 'comment') return [restored(payload.node, 'block')];
+                if (payload?.kind === 'unknown-block' && typeof payload.node.type === 'string') return [restored(payload.node, 'block')];
                 return div(ctx, c);
             }
         default:
@@ -922,6 +927,8 @@ function stripTaskMarker(item: CNode, djotTasks = false): void {
     const rest = value.slice(djot ? 3 : 1).replace(/^ /, '');
     if (rest) lead.value = rest;
     else children.shift();
+    // The engine opens such an item with its next block, not an empty paragraph.
+    if (!children.length && (item.children as CNode[]).length > 1) (item.children as CNode[]).shift();
 }
 
 function bulletList(ctx: Ctx, c: never): CNode {
@@ -2361,3 +2368,18 @@ function hasRejoinedFraming(nodes: unknown, indented: boolean): boolean {
     });
 }
 
+
+// Provenance carries the AST JSON form; the engine's writer reads the runtime
+// form, which differs for some nodes (a JSON `comment` writes a different
+// delimiter). A node the engine cannot read back stays as carried.
+function restored(node: Record<string, unknown>, at: 'inline' | 'block'): CNode {
+    try {
+        const child = at === 'inline' ? { type: 'paragraph', children: [node] } : node;
+        const doc = fromAstJson({ type: 'document', srcByteLength: 0, children: [child] } as unknown as Parameters<typeof fromAstJson>[0]) as unknown as { children: CNode[] };
+        const top = doc.children[0] as CNode & { children?: CNode[] };
+        const out = at === 'inline' ? top?.children?.[0] : top;
+        return (out ?? node) as CNode;
+    } catch {
+        return node as CNode;
+    }
+}

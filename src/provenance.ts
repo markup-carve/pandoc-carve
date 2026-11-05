@@ -27,8 +27,21 @@ export function readProvenance(attr: Attr | undefined): ProvenancePayload | null
         if (!value || typeof value !== 'object') return null;
         const payload = value as Partial<ProvenancePayload>;
         if (payload.v !== 1 || !['comment', 'unknown-inline', 'unknown-block', 'citation', 'literal-inline', 'escaped-text'].includes(String(payload.kind)) || !payload.node || typeof payload.node !== 'object' || Array.isArray(payload.node)) return null;
-        return payload as ProvenancePayload;
+        return { ...(payload as ProvenancePayload), node: withoutPositions(payload.node) as Record<string, unknown> };
     } catch {
         return null;
     }
+}
+
+// A restored node has no source behind it; a stale `pos` steers the engine's
+// layout-preserving writer (it reads comment and item columns from `pos`).
+// An authored attribute may be named `pos` too, so `keyValues` is left alone.
+function withoutPositions(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(withoutPositions);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+            .filter(([key]) => key !== 'pos')
+            .map(([key, child]) => [key, key === 'keyValues' ? child : withoutPositions(child)]),
+    );
 }
