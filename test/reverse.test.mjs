@@ -473,12 +473,12 @@ test('a comment whose content opens with a percent survives the round trip (#168
 });
 
 test('a percent-leading comment says the same thing in either spelling (#168)', () => {
-  // The reader takes the marker as exactly `%%` and strips at most one
-  // following space, so the separator never moves the CONTENT - only, under the
-  // old fold rule, which container the comment closed.
+  // A glued `%%%` opens a comment fence (markup-carve/carve#4955), so the two
+  // spellings are different nodes now; each still renders the same and keeps
+  // that through the round trip.
   for (const [a, b] of [['%% %', '%%%'], ['%% %foo', '%%%foo'], ['%% % x', '%%% x']]) {
     assert.equal(carveToHtml(a + '\n'), carveToHtml(b + '\n'));
-    assert.equal(roundtrip(a + '\n'), roundtrip(b + '\n'));
+    for (const src of [a + '\n', b + '\n']) assert.equal(carveToHtml(roundtrip(src)), carveToHtml(src), src);
   }
 });
 

@@ -14,7 +14,8 @@ const MARKED = {
   bullet: '{.c}\n- a\n- b\n',
   ordered: '{.c}\n1. a\n2. b\n',
   description: '{.c}\n:: term\n: definition\n',
-  rule: '{.c}\n---\n',
+  // The writer spells every break `***` (markup-carve/carve#4982).
+  rule: '{.c}\n***\n',
 };
 
 test('wrapper marker: off by default', () => {
@@ -53,7 +54,7 @@ test('wrapper marker: import restores the attributes, an authored wrapper key in
     for (const [name, src] of Object.entries(MARKED)) {
       assert.equal(pandocToCarve(carveToPandoc(src, options).doc).carve, src, `${name} ${JSON.stringify(options)}`);
     }
-    for (const src of ['{wrapper=1}\nhello\n', '{wrapper=1}\n---\n']) {
+    for (const src of ['{wrapper=1}\nhello\n', '{wrapper=1}\n***\n']) {
       assert.equal(pandocToCarve(carveToPandoc(src, options).doc).carve, src, `${src} ${JSON.stringify(options)}`);
     }
   }

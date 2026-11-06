@@ -66,8 +66,7 @@ const KNOWN_LOSSY = new Set([
   '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-5.crv',
   '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-6.crv',
   '619-a-fence-run-that-dedents-out-of-a-child-keeps-the-outer-item-tight-10.crv',
-  '626-an-indented-plus-below-a-nested-fence-stays-content-at-every-depth-5.crv',
-  '626-an-indented-plus-below-a-nested-fence-stays-content-at-every-depth-7.crv',
+  '367-an-unterminated-fence-at-a-content-column-opens-no-block-so-the-paragraph-stays-open-4.crv',
   '638-nested-plus-below-fence-and-description.crv',
   '101-table-header-cell-rowspan.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
@@ -99,6 +98,11 @@ const KNOWN_LOSSY = new Set([
   // the return leg.
   '311-a-footnote-in-reference-link-text-nests-the-anchors-too-4.crv',
   '573-a-footnote-reference-in-link-text-keeps-its-id-on-the-sup.crv',
+  '730-multiple-footnote-backlinks-follow-inline-content.crv',
+  // A heading inside a note is a reference target in Carve; the note's
+  // content travels inside pandoc's `Note`, where nothing outside it can
+  // resolve to it, so `[H][]` comes back literal (`reference-unresolved`).
+  '741-visible-footnote-headings.crv',
   // A LINE-BLOCK CODE SPAN HOLDING A FENCE LINE has no spelling the engine's
   // writer accepts once its layout is gone, so the newlines fold to spaces and
   // the bridge reports `field-unspellable`.
@@ -110,8 +114,12 @@ const KNOWN_LOSSY = new Set([
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base-2.crv',
   '584-a-fence-past-the-column-after-an-attribute-line-opens-on-its-authored-base.crv',
   '606-an-unclosed-fence-after-an-attribute-line-in-a-container-ends-at-its-closer-2.crv',
-  '650-a-wrapped-attribute-line-interrupts-like-a-one-line-attribute-line-3.crv',
-  '650-a-wrapped-attribute-line-interrupts-like-a-one-line-attribute-line.crv',
+  '325-an-attribute-line-after-a-continuation-marker-attributes-the-attached-block-5.crv',
+  '325-an-attribute-line-after-a-continuation-marker-attributes-the-attached-block-6.crv',
+  '325-an-attribute-line-after-a-continuation-marker-attributes-the-attached-block-7.crv',
+  '782-a-first-block-plus-hands-its-block-to-the-host-as-the-host-reads-it-11.crv',
+  '782-a-first-block-plus-hands-its-block-to-the-host-as-the-host-reads-it-12.crv',
+  '782-a-first-block-plus-hands-its-block-to-the-host-as-the-host-reads-it-13.crv',
   '315-an-inline-note-s-content-resolves-after-the-note-6.crv',
   '323-a-block-attached-after-an-invisible-line-leaves-the-item-tight-5.crv',
   '328-an-unclosed-verbatim-run-in-a-row-stops-at-the-closing-pipe-2.crv',
@@ -152,6 +160,8 @@ const KNOWN_LOSSY = new Set([
   // it keeps the Carve column records directly.
   '371-a-table-alignment-run-carries-two-independent-axes.crv',
   '373-a-vertical-table-marker-needs-a-horizontal-partner.crv',
+  '953-a-deprecated-cell-alignment-prefix-reads-as-its-braced-run-2.crv',
+  '953-a-deprecated-cell-alignment-prefix-reads-as-its-braced-run.crv',
   // A header cell after an unmarked cell has no Pandoc RowHeadColumns slot.
   // Vertical alignment likewise has no Pandoc table slot. All three losses
   // are reported by the forward conversion.
@@ -159,6 +169,21 @@ const KNOWN_LOSSY = new Set([
   '659-table-spans-keep-alignment-defaults-in-physical-columns-7.crv',
   '659-table-spans-keep-alignment-defaults-in-physical-columns-10.crv',
   '375-a-table-cell-can-inherit-horizontal-alignment.crv',
+  // A span placeholder in a header row, a continuation row past a caption host,
+  // and a head that overlaps the foot have no cell of their own in pandoc's
+  // rectangular sections; the forward direction reports each
+  // (`table-rowspan-origin-missing`, `table-colspan-origin-missing`,
+  // `table-groups-normalized`).
+  '870-a-caption-host-and-a-continuation-cell-read-what-the-block-holds-2.crv',
+  '873-a-delimited-body-s-overlapping-header-and-footer-make-no-header-cells-2.crv',
+  '952-native-head-rows-with-span-placeholders-6.crv',
+  // A hard break inside a pipe-table cell: pandoc cells hold it, but the
+  // Carve pipe-table writer cannot, so it is flattened and reported
+  // (`table-cell-break-flattened`).
+  '712-a-hard-break-in-a-pipe-table-cell-survives-markdown-export.crv',
+  // A `+` that empties an item leaves an empty pandoc item; the writer spells
+  // it with a placeholder and says so (`empty-list-item-spelled`).
+  '633-a-first-block-marker-on-an-indented-opener-reads-only-its-marker-column-33.crv',
   // AN EMPTY LINE INSIDE A LINE BLOCK HAS NO SPELLING ON THE WAY BACK.
   //
   // One cause under all of them. A pandoc LineBlock is a list of lines and may hold
@@ -200,6 +225,7 @@ const KNOWN_LOSSY = new Set([
   // An inline note still has no attribute slot. The standalone Note case is
   // covered by the attributed footnote reference tests.
   '475-footnote-references-take-an-attribute-run-editorial-substitution-and-comment-take-none-2.crv',
+  '675-authored-inline-footnote-reference-ids.crv',
   '71-attribute-edge-cases-10.crv',
   '71-attribute-edge-cases-8.crv',
 ]);

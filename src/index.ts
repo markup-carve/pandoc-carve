@@ -1,6 +1,6 @@
 import * as carve from '@markup-carve/carve';
 import { normalizeCarveAst, parseCarveAst, toCarveAst, type CarveAstDocument } from './ast-json.js';
-import { convert, type ConvertOptions, type ConvertResult } from './convert.js';
+import { convert, rememberSource, type ConvertOptions, type ConvertResult } from './convert.js';
 import { parseExtensions, type ParseOptions } from './parse-options.js';
 import { pandocToCarve as reverse } from './reverse.js';
 import type { PandocDoc } from './pandoc.js';
@@ -186,7 +186,7 @@ export function carveToPandoc(
     source: string,
     options?: ConvertOptions & ParseOptions,
 ): ConvertResult {
-    return convert(carveToCarveAst(source, options), withParser(options));
+    return convert(rememberSource(carveToCarveAst(source, options), source), withParser(options));
 }
 
 /**
