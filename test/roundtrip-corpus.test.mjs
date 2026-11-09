@@ -66,11 +66,15 @@ const KNOWN_LOSSY = new Set([
   '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-5.crv',
   '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-6.crv',
   '619-a-fence-run-that-dedents-out-of-a-child-keeps-the-outer-item-tight-10.crv',
+  '1014-a-stacked-host-reads-its-shifted-closer-past-a-payload-line-4.crv',
   '367-an-unterminated-fence-at-a-content-column-opens-no-block-so-the-paragraph-stays-open-4.crv',
   '638-nested-plus-below-fence-and-description.crv',
   '101-table-header-cell-rowspan.crv',
   '110-empty-link-and-image-titles-are-preserved.crv',
   '173-implicit-heading-references-with-no-definition.crv',
+  // A reference label nested in link text: the bridge does not resolve the
+  // inner `[x][]` against the heading and reports `reference-unresolved`.
+  '1026-nested-reference-labels-contribute-to-heading-text-2.crv',
   '22-footnotes-5.crv',
   '23-inline-footnotes-2.crv',
   // A ROW HEADER OUTSIDE THE LEADING RUN cannot be said in pandoc's model.

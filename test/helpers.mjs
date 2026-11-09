@@ -113,30 +113,60 @@ const leadingRun = (s, ch) => {
 
 /** @returns {number} the corpus pairs one example page declares */
 export function declaredPairsIn(text) {
-  let pairs = 0;
+  return declaredInputsIn(text).length;
+}
+
+/**
+ * The fixture bytes each declared pair writes, after the generator's
+ * applyModifiers.
+ * @returns {string[]}
+ */
+export function declaredInputsIn(text) {
+  const inputs = [];
   let marker = null;
+  let modifiers = [];
   let fence = null;
+  let body = null;
   for (const line of text.split('\n')) {
     if (fence !== null) {
-      if (line.startsWith(fence) && line.slice(fence.length).trim() === '') fence = null;
+      if (line.startsWith(fence) && line.slice(fence.length).trim() === '') {
+        fence = null;
+        if (body !== null) inputs.push(fixtureInput(body.join('\n'), modifiers));
+        body = null;
+      } else if (body !== null) {
+        body.push(line);
+      }
       continue;
     }
     const ticks = leadingRun(line, '`');
     if (ticks >= 3) {
       fence = line.slice(0, ticks);
-      if (marker !== null && line.slice(ticks).trim() === 'carve') pairs += 1;
+      if (marker !== null && line.slice(ticks).trim() === 'carve') body = [];
       continue;
     }
     const trimmed = line.trim();
     const colons = leadingRun(trimmed, ':');
     if (colons < 3) continue;
     if (marker === null) {
-      if (/^[ \t]+compare(?:[ \t]|$)/.test(trimmed.slice(colons))) marker = trimmed.slice(0, colons);
+      if (/^[ \t]+compare(?:[ \t]|$)/.test(trimmed.slice(colons))) {
+        marker = trimmed.slice(0, colons);
+        modifiers = trimmed.split(/\s+/).slice(2);
+      }
     } else if (trimmed === marker) {
       marker = null;
     }
   }
-  return pairs;
+  return inputs;
+}
+
+function fixtureInput(carve, modifiers) {
+  let out = carve + '\n';
+  if (modifiers.includes('no-final-newline')) out = out.replace(/\n$/, '');
+  if (modifiers.includes('crlf')) out = out.replace(/\n/g, '\r\n');
+  if (modifiers.includes('cr')) out = out.replace(/\n/g, '\r');
+  if (modifiers.includes('bom')) out = '\ufeff' + out;
+  if (modifiers.includes('nul')) out = out.replace(/\u2400/g, '\u0000');
+  return out;
 }
 
 /** @returns {number} the number of corpus pairs the spec pages declare */
@@ -154,13 +184,14 @@ export function declaredCorpusSize(repo) {
     .filter((file) => file.endsWith('.md') && file !== 'README.md')
     .map((file) => join(EDGE_CASE_DIR, file));
   if (!edgeCasePages.length) throw missing(join(edgeCaseDir, '*.md'));
-  let declared = 0;
+  // The generator writes one fixture per distinct input (carve#5244).
+  const inputs = new Set();
   for (const page of [...EXAMPLE_PAGES, ...edgeCasePages]) {
     const path = join(examplesDir, page);
     if (!existsSync(path)) throw missing(path);
-    declared += declaredPairsIn(readFileSync(path, 'utf8'));
+    for (const input of declaredInputsIn(readFileSync(path, 'utf8'))) inputs.add(input);
   }
-  return declared;
+  return inputs.size;
 }
 
 /*

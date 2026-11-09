@@ -43,10 +43,16 @@ const manifestPath = resolve(root, 'package.json');
 const committed = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
 /*
- * The rows below mutate a clone of the committed registry-only manifest. That
- * keeps one row from changing the baseline observed by the next.
+ * The rows below mutate a clone of the committed manifest. That keeps one row
+ * from changing the baseline observed by the next. Between releases the engine
+ * may be pinned to a carve-js main commit; the baseline swaps that pin for a
+ * registry range so every row tests only its own spec.
  */
+const ENGINE = '@markup-carve/carve';
+const ENGINE_GIT_PIN = /^github:markup-carve\/carve-js#[0-9a-f]{40}$/;
+const engineIsGitPinned = ENGINE_GIT_PIN.test(committed.dependencies?.[ENGINE] ?? '');
 const baseline = structuredClone(committed);
+if (engineIsGitPinned) baseline.dependencies[ENGINE] = '^0.1.15';
 
 const scratch = mkdtempSync(join(tmpdir(), 'pandoc-carve-guard-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -240,6 +246,12 @@ test('devDependencies are left alone', () => {
 
 test('accepts the committed registry-only manifest', () => {
   const { status, out } = runGuard(committed);
+  if (engineIsGitPinned) {
+    // The release gate must still refuse to publish the interim engine pin.
+    assert.equal(status, 1, `the guard accepts the git-pinned engine:\n${out}`);
+    assert.ok(out.includes(committed.dependencies[ENGINE]), out);
+    return;
+  }
   assert.equal(status, 0, `the guard refuses the committed manifest:\n${out}`);
   assert.match(out, /all \d+ runtime, optional and peer dependencies resolve from the registry/);
 });
