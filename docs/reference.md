@@ -227,6 +227,12 @@ attribute or in any entry of `srcset`, `imagesrcset`, `ping` or
 `unsafe-attribute-value` diagnostic. Both are `lossy`. An ordinary `style`
 value passes through unchanged.
 
+A name written in several cases is one attribute, as Carve renders it: `{K=1
+k=2}` reaches pandoc as `K="2"`, a `CLASS=` key adds its classes, and an `ID=`
+key becomes the identifier. Next to an `#id` the AST does not record which of
+the two came last, so the `#id` value is kept and an `id-write-order-unknown`
+diagnostic (`degraded`) reports it.
+
 ## Bidi override controls are stripped
 
 The Trojan Source controls U+202A-202E and U+2066-2069 are removed from text,
