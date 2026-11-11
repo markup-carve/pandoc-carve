@@ -9,6 +9,7 @@ Requires the Carve engine 0.1.16. Round trips through Pandoc keep more of a docu
 ### Breaking
 
 - Requires `@markup-carve/carve` 0.1.16 (#283). Braced cell alignment (`|={>} Price |`) reaches Pandoc as column alignment.
+- Frontmatter scalars follow Pandoc 3.13's YAML 1.2 reading: `on`, `yes`, `y` and their false counterparts are strings, not booleans. The tested Pandoc versions are 3.13 and 3.12.1 (#288).
 
 ### Fixes
 
@@ -16,6 +17,7 @@ Requires the Carve engine 0.1.16. Round trips through Pandoc keep more of a docu
 - Roundtrip mode keeps authored table `valigns` and `widths` lists, caption numbers and crossrefs to caption labels (#282).
 - A `header-rows` or `footer-rows` count the engine does not consume survives the trip instead of being dropped (#283).
 - An unresolved footnote reference keeps its attribute as part of the literal text (#283).
+- An attribute written in several cases (`ID=`, `CLASS=`, `Key=` beside `key=`) reaches Pandoc as one attribute; beside `#id`, the `#id` value is the identifier and the export reports `id-write-order-unknown` (#291).
 
 **Full Changelog**: https://github.com/markup-carve/pandoc-carve/compare/0.1.12...0.1.13
 
