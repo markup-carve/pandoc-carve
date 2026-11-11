@@ -29,6 +29,7 @@ interface CAttrs {
     id?: string;
     classes?: string[];
     keyValues?: Record<string, string>;
+    order?: string[];
 }
 
 export interface ConvertResult {
@@ -255,10 +256,56 @@ function truncateForWarning(content: string): string {
     return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
 }
 
-function toAttr(ctx: Ctx, attrs: unknown): P.Attr {
-    const a = (attrs ?? {}) as CAttrs;
+/**
+ * PART 10 section 1: a name written in several cases is one HTML attribute.
+ * The engine keeps each spelling as its own key and moves the spelling written
+ * last to the end, and `order` lists each spelling at its first write.
+ */
+function foldedAttrs(ctx: Ctx, a: CAttrs, generatedId?: string): { id: string | undefined; classes: string[]; keyValues: [string, string][] } {
+    const own = a.keyValues ?? {};
+    const groups = new Map<string, { name: string; value: string; values: string[] }>();
+    for (const name of [...(a.order ?? []), ...Object.keys(own)]) {
+        if (!Object.hasOwn(own, name) || groups.has(name.toLowerCase())) continue;
+        groups.set(name.toLowerCase(), { name, value: '', values: [] });
+    }
+    for (const [name, value] of Object.entries(own)) {
+        const group = groups.get(name.toLowerCase())!;
+        group.value = value;
+        group.values.push(value);
+    }
+    let id = a.id;
+    const idKey = groups.get('id');
+    if (idKey && a.id === undefined) id = idKey.value;
+    else if (idKey && idKey.value !== a.id) {
+        // The JSON AST cannot order `ID=` against `#id`: `{#a ID=b}` and
+        // `{#a ID=b #c}` are the same shape, so the shorthand is kept.
+        warn(ctx, `attribute: "${idKey.name}" and #id both set the id - the AST does not say which came last, "${a.id}" is kept`, {
+            attribute: idKey.name,
+            value: idKey.value,
+            kept: a.id,
+        });
+    }
+    id ??= generatedId;
+    let classes = [...(a.classes ?? [])];
+    const classKey = groups.get('class');
+    if (classKey) {
+        const tokens = classKey.values.flatMap((v) => v.split(/[\t\n\f\r ]+/).filter((t) => t !== ''));
+        const order = a.order ?? [];
+        const keyAt = order.findIndex((t) => t.toLowerCase() === 'class');
+        const keyFirst = keyAt !== -1 && order.indexOf('.class') > keyAt;
+        classes = keyFirst ? [...tokens, ...classes] : [...classes, ...tokens];
+    }
+    groups.delete('id');
+    groups.delete('class');
+    // Classes are deduplicated, first occurrence kept (CARVE-P4-002).
+    return { id, classes: [...new Set(classes)], keyValues: [...groups.values()].map((g) => [g.name, g.value]) };
+}
+
+/** `generatedId` is a slug the author did not write; an id-spelled key beats it. */
+function toAttr(ctx: Ctx, attrs: unknown, generatedId?: string): P.Attr {
+    const a = foldedAttrs(ctx, (attrs ?? {}) as CAttrs, generatedId);
     const kvs: [string, string][] = [];
-    for (const [name, value] of Object.entries(a.keyValues ?? {})) {
+    for (const [name, value] of a.keyValues) {
         if (isDangerousAttrName(name)) {
             warn(ctx, `attribute: unsafe name "${name}" is dropped`, { attribute: name });
             continue;
@@ -1455,8 +1502,11 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             const xs = kids(ctx, n);
             return [ctx.tight ? P.Plain(xs) : P.Para(xs)];
         }
-        case 'heading':
-            return [P.Header(Number(n.level ?? 1), toAttr(ctx, { ...(n.attrs ?? {}), id: ctx.headingIds.get(n) ?? (n.attrs as CAttrs | undefined)?.id }), kids(ctx, n))];
+        case 'heading': {
+            const authored = n.attrs as CAttrs | undefined;
+            const attrs = authored?.id === undefined ? authored : { ...authored, id: ctx.headingIds.get(n) ?? authored.id };
+            return [P.Header(Number(n.level ?? 1), toAttr(ctx, attrs, ctx.headingIds.get(n)), kids(ctx, n))];
+        }
         case 'block_quote':
             return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
