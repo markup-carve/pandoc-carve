@@ -54,3 +54,13 @@ test('a folded name is still sanitized', () => {
   assert.deepEqual(attr, ['', [], []]);
   assert.deepEqual(codes, ['unsafe-attribute-name']);
 });
+
+test('an ID key over a heading beats the generated slug', () => {
+  // `{ID=x}` over `# Head`: carve-js renders `<h1 ID="x">`.
+  const heading = (attrs) => carveAstToPandoc({ type: 'document', children: [{ type: 'heading', level: 1, attrs, children: [{ type: 'text', value: 'Head' }] }] });
+  const keyed = heading({ keyValues: { ID: 'x' }, order: ['ID'] });
+  assert.deepEqual(keyed.doc.blocks[0].c[1], ['x', [], []]);
+  assert.deepEqual(keyed.diagnostics, []);
+  assert.equal(heading(undefined).doc.blocks[0].c[1][0], 'Head');
+  assert.equal(heading({ id: 'a' }).doc.blocks[0].c[1][0], 'a');
+});

@@ -261,7 +261,7 @@ function truncateForWarning(content: string): string {
  * The engine keeps each spelling as its own key and moves the spelling written
  * last to the end, and `order` lists each spelling at its first write.
  */
-function foldedAttrs(ctx: Ctx, a: CAttrs): { id: string | undefined; classes: string[]; keyValues: [string, string][] } {
+function foldedAttrs(ctx: Ctx, a: CAttrs, generatedId?: string): { id: string | undefined; classes: string[]; keyValues: [string, string][] } {
     const own = a.keyValues ?? {};
     const groups = new Map<string, { name: string; value: string; values: string[] }>();
     for (const name of [...(a.order ?? []), ...Object.keys(own)]) {
@@ -285,6 +285,7 @@ function foldedAttrs(ctx: Ctx, a: CAttrs): { id: string | undefined; classes: st
             kept: a.id,
         });
     }
+    id ??= generatedId;
     let classes = [...(a.classes ?? [])];
     const classKey = groups.get('class');
     if (classKey) {
@@ -300,8 +301,9 @@ function foldedAttrs(ctx: Ctx, a: CAttrs): { id: string | undefined; classes: st
     return { id, classes: [...new Set(classes)], keyValues: [...groups.values()].map((g) => [g.name, g.value]) };
 }
 
-function toAttr(ctx: Ctx, attrs: unknown): P.Attr {
-    const a = foldedAttrs(ctx, (attrs ?? {}) as CAttrs);
+/** `generatedId` is a slug the author did not write; an id-spelled key beats it. */
+function toAttr(ctx: Ctx, attrs: unknown, generatedId?: string): P.Attr {
+    const a = foldedAttrs(ctx, (attrs ?? {}) as CAttrs, generatedId);
     const kvs: [string, string][] = [];
     for (const [name, value] of a.keyValues) {
         if (isDangerousAttrName(name)) {
@@ -1500,8 +1502,11 @@ function blockInner(ctx: Ctx, n: CNode): P.Block[] {
             const xs = kids(ctx, n);
             return [ctx.tight ? P.Plain(xs) : P.Para(xs)];
         }
-        case 'heading':
-            return [P.Header(Number(n.level ?? 1), toAttr(ctx, { ...(n.attrs ?? {}), id: ctx.headingIds.get(n) ?? (n.attrs as CAttrs | undefined)?.id }), kids(ctx, n))];
+        case 'heading': {
+            const authored = n.attrs as CAttrs | undefined;
+            const attrs = authored?.id === undefined ? authored : { ...authored, id: ctx.headingIds.get(n) ?? authored.id };
+            return [P.Header(Number(n.level ?? 1), toAttr(ctx, attrs, ctx.headingIds.get(n)), kids(ctx, n))];
+        }
         case 'block_quote':
             return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
         case 'code_block': {
