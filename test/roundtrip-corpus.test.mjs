@@ -67,6 +67,7 @@ const KNOWN_LOSSY = new Set([
   '291-a-fence-keeps-the-blank-line-at-the-end-of-its-content-6.crv',
   '619-a-fence-run-that-dedents-out-of-a-child-keeps-the-outer-item-tight-10.crv',
   '1014-a-stacked-host-reads-its-shifted-closer-past-a-payload-line-4.crv',
+  '1035-an-own-line-item-fence-ends-in-a-note.crv',
   '367-an-unterminated-fence-at-a-content-column-opens-no-block-so-the-paragraph-stays-open-4.crv',
   '638-nested-plus-below-fence-and-description.crv',
   '101-table-header-cell-rowspan.crv',
@@ -101,6 +102,7 @@ const KNOWN_LOSSY = new Set([
   // PANDOC'S `Note` HAS NO IDENTITY. A note cited twice becomes two notes on
   // the return leg.
   '311-a-footnote-in-reference-link-text-nests-the-anchors-too-4.crv',
+  '1032-a-tabbed-nested-note-keeps-document-references.crv',
   '573-a-footnote-reference-in-link-text-keeps-its-id-on-the-sup.crv',
   '730-multiple-footnote-backlinks-follow-inline-content.crv',
   // A heading inside a note is a reference target in Carve; the note's
