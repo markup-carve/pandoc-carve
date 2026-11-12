@@ -23,7 +23,7 @@ jobs:
         track: [current, minimum]
         include:
           - track: current
-            pandoc: '3.13'
+            pandoc: '3.14'
           - track: minimum
             pandoc: '3.12.1'
     steps:
