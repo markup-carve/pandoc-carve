@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /*
@@ -86,7 +86,7 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
  * down.
  *
  * spec/tests/corpus is generated from the `::: compare` blocks in
- * spec/resources/examples/{core,extensions,edge-cases}.md, one document per
+ * spec/resources/examples/{core,extensions}.md and edge-cases/*.md, one document per
  * `carve` fence (a block may hold several), so those pages are
  * the corpus's own declaration of its size. Counting them leaves no literal in
  * a test file to go stale: adding an example upstream moves the expectation on
@@ -101,7 +101,9 @@ export function pandocRender(pandoc, doc, target, extraArgs = []) {
  * that are not there is the "smaller question answered" this module exists to
  * make loud.
  */
-const EXAMPLE_PAGES = ['core.md', 'extensions.md', 'edge-cases.md'];
+const EXAMPLE_PAGES = ['core.md', 'extensions.md'];
+// The spec stores each edge-case section in its own file (carve#4132).
+const EDGE_CASE_DIR = 'edge-cases';
 
 const leadingRun = (s, ch) => {
   let n = 0;
@@ -111,48 +113,85 @@ const leadingRun = (s, ch) => {
 
 /** @returns {number} the corpus pairs one example page declares */
 export function declaredPairsIn(text) {
-  let pairs = 0;
+  return declaredInputsIn(text).length;
+}
+
+/**
+ * The fixture bytes each declared pair writes, after the generator's
+ * applyModifiers.
+ * @returns {string[]}
+ */
+export function declaredInputsIn(text) {
+  const inputs = [];
   let marker = null;
+  let modifiers = [];
   let fence = null;
+  let body = null;
   for (const line of text.split('\n')) {
     if (fence !== null) {
-      if (line.startsWith(fence) && line.slice(fence.length).trim() === '') fence = null;
+      if (line.startsWith(fence) && line.slice(fence.length).trim() === '') {
+        fence = null;
+        if (body !== null) inputs.push(fixtureInput(body.join('\n'), modifiers));
+        body = null;
+      } else if (body !== null) {
+        body.push(line);
+      }
       continue;
     }
     const ticks = leadingRun(line, '`');
     if (ticks >= 3) {
       fence = line.slice(0, ticks);
-      if (marker !== null && line.slice(ticks).trim() === 'carve') pairs += 1;
+      if (marker !== null && line.slice(ticks).trim() === 'carve') body = [];
       continue;
     }
     const trimmed = line.trim();
     const colons = leadingRun(trimmed, ':');
     if (colons < 3) continue;
     if (marker === null) {
-      if (/^[ \t]+compare(?:[ \t]|$)/.test(trimmed.slice(colons))) marker = trimmed.slice(0, colons);
+      if (/^[ \t]+compare(?:[ \t]|$)/.test(trimmed.slice(colons))) {
+        marker = trimmed.slice(0, colons);
+        modifiers = trimmed.split(/\s+/).slice(2);
+      }
     } else if (trimmed === marker) {
       marker = null;
     }
   }
-  return pairs;
+  return inputs;
+}
+
+function fixtureInput(carve, modifiers) {
+  let out = carve + '\n';
+  if (modifiers.includes('no-final-newline')) out = out.replace(/\n$/, '');
+  if (modifiers.includes('crlf')) out = out.replace(/\n/g, '\r\n');
+  if (modifiers.includes('cr')) out = out.replace(/\n/g, '\r');
+  if (modifiers.includes('bom')) out = '\ufeff' + out;
+  if (modifiers.includes('nul')) out = out.replace(/\u2400/g, '\u0000');
+  return out;
 }
 
 /** @returns {number} the number of corpus pairs the spec pages declare */
 export function declaredCorpusSize(repo) {
   const examplesDir = join(repo, 'spec', 'resources', 'examples');
-  let declared = 0;
-  for (const page of EXAMPLE_PAGES) {
+  const edgeCaseDir = join(examplesDir, EDGE_CASE_DIR);
+  const missing = (path) =>
+    new Error(
+      path + ' is missing - the submodule is incomplete, or the spec moved the ' +
+        'corpus source pages again. Without them there is nothing to check the ' +
+        'corpus size against.',
+    );
+  if (!existsSync(edgeCaseDir)) throw missing(edgeCaseDir);
+  const edgeCasePages = readdirSync(edgeCaseDir)
+    .filter((file) => file.endsWith('.md') && file !== 'README.md')
+    .map((file) => join(EDGE_CASE_DIR, file));
+  if (!edgeCasePages.length) throw missing(join(edgeCaseDir, '*.md'));
+  // The generator writes one fixture per distinct input (carve#5244).
+  const inputs = new Set();
+  for (const page of [...EXAMPLE_PAGES, ...edgeCasePages]) {
     const path = join(examplesDir, page);
-    if (!existsSync(path)) {
-      throw new Error(
-        path + ' is missing - the submodule is incomplete, or the spec moved the ' +
-          'corpus source pages again. Without them there is nothing to check the ' +
-          'corpus size against.',
-      );
-    }
-    declared += declaredPairsIn(readFileSync(path, 'utf8'));
+    if (!existsSync(path)) throw missing(path);
+    for (const input of declaredInputsIn(readFileSync(path, 'utf8'))) inputs.add(input);
   }
-  return declared;
+  return inputs.size;
 }
 
 /*

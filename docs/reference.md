@@ -433,14 +433,16 @@ it survives that import.
   the reader takes a count every row agrees on, and the disagreement is reported
   from both directions. Without a foot the reader splits a body at every change
   and every run survives.
-- A marker on a HEAD cell (`|=> Name |`) is the column's alignment and becomes
-  pandoc's `ColSpec`; a marker on a BODY cell (`|> 12 |`) aligns that cell alone
-  and becomes the cell's own `Alignment`. The two are not interchangeable: a
-  pandoc cell with `AlignDefault` inherits its ColSpec, so promoting a body
-  cell's marker to the column would align cells the author did not.
-- Column alignment needs a header row to live on (`|=> Name |`). A headerless
-  pandoc table's column alignment is written onto each cell instead, which
-  renders the same; the move is reported.
+- An alignment on a HEAD cell (`|={>} Name |`) is the column's alignment and
+  becomes pandoc's `ColSpec`; one on a BODY cell (`|{>} 12 |`) aligns that cell
+  alone and becomes the cell's own `Alignment`. The two are not
+  interchangeable: a pandoc cell with `AlignDefault` inherits its ColSpec, so
+  promoting a body cell's alignment to the column would align cells the author
+  did not. The 0.1.13 glued markers (`|=>`, `|>`) still read the same way and
+  are deprecated.
+- On import, column alignment is written as the table's `aligns` list
+  (`{aligns=right,center}`), with or without a header row; a cell's own
+  alignment is written in its leading braces.
 - The frontmatter reader covers the YAML subset frontmatter uses, not YAML.
   Anchors, tags, multi-document streams, block scalars and flow maps are out; a
   line that fits no shape is reported and skipped rather than guessed at.
