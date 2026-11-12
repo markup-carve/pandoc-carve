@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## 0.1.13 - 2026-11-12
+
+Requires the Carve engine 0.1.17. Round trips through Pandoc keep more of a document, and the bridge follows the 0.1.14 spec readings.
+
+### Breaking
+
+- Requires `@markup-carve/carve` 0.1.17 (#283). Braced cell alignment (`|={>} Price |`) reaches Pandoc as column alignment.
+- Frontmatter scalars follow Pandoc 3.13's YAML 1.2 reading: `on`, `yes`, `y` and their false counterparts are strings, not booleans. The tested Pandoc versions are 3.13 and 3.12.1 (#288).
+
+### Fixes
+
+- Comments, citations and unknown nodes come back from Pandoc in the engine's runtime form, so a comment inside link text no longer gets an escaped bracket (#282).
+- Roundtrip mode keeps authored table `valigns` and `widths` lists, caption numbers and crossrefs to caption labels (#282).
+- A `header-rows` or `footer-rows` count the engine does not consume survives the trip instead of being dropped (#283).
+- An unresolved footnote reference keeps its attribute as part of the literal text (#283).
+- A comment in a list item keeps the blank line before it through the round trip, so it no longer joins the paragraph above (#283).
+- An attribute written in several cases (`ID=`, `CLASS=`, `Key=` beside `key=`) reaches Pandoc as one attribute; beside `#id`, the `#id` value is the identifier and the export reports `id-write-order-unknown` (#291).
+
+**Full Changelog**: https://github.com/markup-carve/pandoc-carve/compare/0.1.12...0.1.13
+
 ## 0.1.12 - 2026-10-25
 
 Pandoc round trips now preserve more Carve source detail, including mixed table headers and the new task states. Captions imported from Pandoc retain readable content from every contributing block.
