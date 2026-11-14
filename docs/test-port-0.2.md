@@ -4,7 +4,7 @@ This is the observed case census from running each of the 58 old files alone on 
 
 | File | Cases | Ported | Dropped with reason | Pending |
 | --- | ---: | ---: | --- | ---: |
-| ast-json.test.mjs | 22 | 0 | 0 | 22 |
+| ast-json.test.mjs | 22 | 16 | 1: 0.1 pre-split node normalization; 1: 0.1 runtime serializer mapping; 1: 0.1 normalization API; 1: 0.1 mixed runtime and wire definition entries; 1: 0.1 malformed-entry repair; 1: 0.1 parseCarveAst wrapper | 0 |
 | ast-structure-preservation.test.mjs | 6 | 0 | 0 | 6 |
 | attribute-case-fold.test.mjs | 8 | 0 | 0 | 8 |
 | attribute-sanitize.test.mjs | 5 | 5 | 0 | 0 |
@@ -63,8 +63,8 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 221 | 17 | 492 |
+| Total | 730 | 237 | 23 | 470 |
 
-The 221 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 237 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
