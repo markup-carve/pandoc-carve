@@ -32,7 +32,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | import.test.mjs | 5 | 5 | 0 | 0 | 0 |
 | includes.test.mjs | 9 | 1 | 8: 0.1 file-backed include expansion API | 0 | 0 |
 | inline-literal.test.mjs | 5 | 3 | 2: 0.1 unclosed literal crossed a line boundary | 0 | 0 |
-| loss-audit.test.mjs | 7 | 0 | 0 | 0 | 7 |
+| loss-audit.test.mjs | 7 | 4 | 1: 0.1 roundtrip mode flag; 2: 0.1 listTable source fallback | 0 | 0 |
 | metadata-yaml12.test.mjs | 1 | 0 | 0 | 1: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
 | metadata.test.mjs | 26 | 0 | 1: 0.1 malformed-frontmatter line diagnostic; 1: 0.1 nested-YAML recovery diagnostic; 1: 0.1 TOML frontmatter rejection | 23: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
 | model-limits.test.mjs | 4 | 4 | 0 | 0 | 0 |
@@ -63,9 +63,15 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 585 | 104 | 26 | 15 |
+| Total | 730 | 589 | 107 | 26 | 8 |
 
-The 585 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 589 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+
+The three removed `loss-audit.test.mjs` cases, each with its 0.1 feature reason:
+
+- “ragged-table padding fails the loss gate with roundtrip=true”: the 0.1 `roundtrip` conversion mode is gone; the normal 0.2 path preserves ragged rows.
+- “list-table-body-groups-merged reports degraded fidelity and fails the CLI loss gate”: the 0.1 `listTable` source fallback is gone.
+- “list-table-row-heads-normalized reports degraded fidelity and fails the CLI loss gate”: the 0.1 `listTable` source fallback is gone.
 
 The eight removed `includes.test.mjs` cases, each with its 0.1 feature reason:
 
