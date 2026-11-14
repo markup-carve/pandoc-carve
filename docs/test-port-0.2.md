@@ -56,16 +56,16 @@ This is the observed case census from running each of the 58 old files alone on 
 | spec-corpus.test.mjs | 6 | 0 | 0 | 6 |
 | substitution.test.mjs | 3 | 0 | 0 | 3 |
 | table-body-structure.test.mjs | 6 | 0 | 0 | 6 |
-| table-reader-regressions.test.mjs | 14 | 0 | 0 | 14 |
+| table-reader-regressions.test.mjs | 14 | 13 | 1: 0.1 Figure/Div wrapper attributes collapsed into a table | 0 |
 | table-section-attributes.test.mjs | 3 | 0 | 0 | 3 |
 | task-states.test.mjs | 16 | 15 | 1: 0.1 checked plus taskState conflict model | 0 |
 | unit.test.mjs | 64 | 60 | 3: 0.1 listTable extension implementation; 1: 0.1 parsed inline div label | 0 |
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 343 | 45 | 342 |
+| Total | 730 | 356 | 46 | 328 |
 
-The 343 ported cases are in the current `npm test` gate. The row-groups rewrite also adds three 0.2-specific checks for explicit zero head rows, body header cell flags, and source diagnostics. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 356 ported cases are in the current `npm test` gate. The row-groups rewrite also adds three 0.2-specific checks for explicit zero head rows, body header cell flags, and source diagnostics. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -92,5 +92,7 @@ The four removed `block-cells.test.mjs` cases, each with its 0.1 feature reason:
 - “list-table: local header rows become separate pandoc body groups”: 0.1 `listTable` local `header-row` syntax is gone.
 - “block cells: the emitted tight flags match what the emitted source parses to”: 0.1 `listTable` used list item tightness to encode cells.
 - “block cells: row-head columns survive the list-table loop”: 0.1 `listTable` used a table-wide `header-cols` key.
+
+The removed `table-reader-regressions.test.mjs` case “Figure and alignment-Div attributes merge into the table with the caption” depended on the 0.1 wrapper-collapse rule, which discarded the Figure and Div nodes and merged their attributes into the table. Carve 0.2 keeps those nodes.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
