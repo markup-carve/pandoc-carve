@@ -2,70 +2,70 @@
 
 This is the observed case census from running each of the 58 old files alone on `next2` before edits. Dynamic test loops count as executed cases. `url-scheme.test.mjs` aborted during its top-level 0.1 private-module import, so its observed count is one file failure; it declares 14 tests. The pending column is work still required, not a dropped case.
 
-| File | Cases | Ported | Dropped with reason | Pending |
-| --- | ---: | ---: | --- | ---: |
-| ast-json.test.mjs | 22 | 16 | 1: 0.1 pre-split node normalization; 1: 0.1 runtime serializer mapping; 1: 0.1 normalization API; 1: 0.1 mixed runtime and wire definition entries; 1: 0.1 malformed-entry repair; 1: 0.1 parseCarveAst wrapper | 0 |
-| ast-structure-preservation.test.mjs | 6 | 5 | 1: 0.1 legacySpaceSentinels import option | 0 |
-| attribute-case-fold.test.mjs | 8 | 8 | 0 | 0 |
-| attribute-sanitize.test.mjs | 5 | 5 | 0 | 0 |
-| bidi-controls.test.mjs | 3 | 3 | 0 | 0 |
-| block-cells.test.mjs | 14 | 10 | 1: 0.1 listTable source round trip for block cells; 1: 0.1 listTable local header-row syntax; 1: 0.1 listTable list tightness encoding; 1: 0.1 listTable header-cols source key | 0 |
-| caption-blocks.test.mjs | 4 | 4 | 0 | 0 |
-| cell-attrs.test.mjs | 11 | 11 | 0 | 0 |
-| citations.test.mjs | 27 | 25 | 1: 0.1 citeproc bibliography metadata diagnostic; 1: 0.1 CSL-entry Div mapping for citation definitions | 0 |
-| cli.test.mjs | 24 | 0 | 0 | 24 |
-| conversion-correctness.test.mjs | 4 | 4 | 0 | 0 |
-| corpus-census.test.mjs | 1 | 0 | 0 | 1 |
-| corpus-link-targets.test.mjs | 9 | 0 | 0 | 9 |
-| corpus.test.mjs | 10 | 0 | 0 | 10 |
-| diagnostic-code-coverage.test.mjs | 22 | 0 | 0 | 22 |
-| diagnostics-v2.test.mjs | 1 | 0 | 0 | 1 |
-| djot-reader-and-inline-attrs.test.mjs | 31 | 24 | 3: 0.1 inserted/deleted class aliases; 1: 0.1 emoji class import heuristic; 1: 0.1 bridge symbols option; 1: 0.1 wrapper-key marker; 1: 0.1 Djot symbol-name inference | 0 |
-| empty-list-item.test.mjs | 8 | 8 | 0 | 0 |
-| equivalence.test.mjs | 41 | 41 | 0 | 0 |
-| examples.test.mjs | 11 | 0 | 0 | 11 |
-| figure-boundaries.test.mjs | 2 | 0 | 0 | 2 |
-| figure-groups.test.mjs | 15 | 0 | 0 | 15 |
-| heading-ids.test.mjs | 3 | 2 | 1: 0.1 corpus heading oracle | 0 |
-| html-equivalence.test.mjs | 3 | 3 | 0 | 0 |
-| import-limits.test.mjs | 1 | 0 | 0 | 1 |
-| import.test.mjs | 5 | 0 | 0 | 5 |
-| includes.test.mjs | 9 | 0 | 0 | 9 |
-| inline-literal.test.mjs | 5 | 3 | 2: 0.1 unclosed literal crossed a line boundary | 0 |
-| loss-audit.test.mjs | 7 | 0 | 0 | 7 |
-| metadata-yaml12.test.mjs | 1 | 0 | 0 | 1 |
-| metadata.test.mjs | 26 | 0 | 0 | 26 |
-| model-limits.test.mjs | 4 | 4 | 0 | 0 |
-| new-ast-nodes.test.mjs | 17 | 17 | 0 | 0 |
-| new-task-states.test.mjs | 6 | 3 | 3: 0.1 provenance-envelope diagnostic | 0 |
-| no-git-dependencies.test.mjs | 66 | 66 | 0 | 0 |
-| packaging.test.mjs | 4 | 4 | 0 | 0 |
-| parity.test.mjs | 11 | 11 | 0 | 0 |
-| participants.test.mjs | 4 | 0 | 0 | 4 |
-| policy.test.mjs | 20 | 0 | 0 | 20 |
-| provenance.test.mjs | 8 | 0 | 0 | 8 |
-| raw-block-payload.test.mjs | 7 | 0 | 0 | 7 |
-| reverse-edge-cases.test.mjs | 8 | 0 | 0 | 8 |
-| reverse.test.mjs | 36 | 0 | 0 | 36 |
-| roundtrip-corpus.test.mjs | 5 | 0 | 0 | 5 |
-| roundtrip-fidelity.test.mjs | 13 | 0 | 0 | 13 |
-| roundtrip.test.mjs | 9 | 0 | 0 | 9 |
-| row-groups.test.mjs | 44 | 28 | 1: 0.1 implicit rowGroups run split; 3: 0.1 flat rowGroups count validation; 1: 0.1 source writer's full positional partition spelling; 2: 0.1 row-head column inference from marked cells; 2: 0.1 declared-partition row-header inference; 2: 0.1 body-header-cols source key under a foot; 1: 0.1 single-body row-head count disagreement warning; 1: 0.1 leading body-header-cols source guard; 1: 0.1 derived count collapse; 2: 0.1 listTable extension | 0 |
-| smart-punctuation.test.mjs | 2 | 2 | 0 | 0 |
-| spec-citations.test.mjs | 5 | 0 | 0 | 5 |
-| spec-corpus.test.mjs | 6 | 0 | 0 | 6 |
-| substitution.test.mjs | 3 | 0 | 0 | 3 |
-| table-body-structure.test.mjs | 6 | 0 | 2: 0.1 positional body-key corpus contract; 3: 0.1.17 engine-lag waiver; 1: 0.1 corpus submodule fixture | 0 |
-| table-reader-regressions.test.mjs | 14 | 13 | 1: 0.1 Figure/Div wrapper attributes collapsed into a table | 0 |
-| table-section-attributes.test.mjs | 3 | 3 | 0 | 0 |
-| task-states.test.mjs | 16 | 15 | 1: 0.1 checked plus taskState conflict model | 0 |
-| unit.test.mjs | 64 | 60 | 3: 0.1 listTable extension implementation; 1: 0.1 parsed inline div label | 0 |
-| url-scheme.test.mjs | 1 | 1 | 0 | 0 |
-| wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
+| File | Cases | Ported | Dropped with reason | Skipped with finding | Pending |
+| --- | ---: | ---: | --- | ---: | ---: |
+| ast-json.test.mjs | 22 | 16 | 1: 0.1 pre-split node normalization; 1: 0.1 runtime serializer mapping; 1: 0.1 normalization API; 1: 0.1 mixed runtime and wire definition entries; 1: 0.1 malformed-entry repair; 1: 0.1 parseCarveAst wrapper | 0 | 0 |
+| ast-structure-preservation.test.mjs | 6 | 5 | 1: 0.1 legacySpaceSentinels import option | 0 | 0 |
+| attribute-case-fold.test.mjs | 8 | 8 | 0 | 0 | 0 |
+| attribute-sanitize.test.mjs | 5 | 5 | 0 | 0 | 0 |
+| bidi-controls.test.mjs | 3 | 3 | 0 | 0 | 0 |
+| block-cells.test.mjs | 14 | 10 | 1: 0.1 listTable source round trip for block cells; 1: 0.1 listTable local header-row syntax; 1: 0.1 listTable list tightness encoding; 1: 0.1 listTable header-cols source key | 0 | 0 |
+| caption-blocks.test.mjs | 4 | 4 | 0 | 0 | 0 |
+| cell-attrs.test.mjs | 11 | 11 | 0 | 0 | 0 |
+| citations.test.mjs | 27 | 25 | 1: 0.1 citeproc bibliography metadata diagnostic; 1: 0.1 CSL-entry Div mapping for citation definitions | 0 | 0 |
+| cli.test.mjs | 24 | 0 | 0 | 0 | 24 |
+| conversion-correctness.test.mjs | 4 | 4 | 0 | 0 | 0 |
+| corpus-census.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| corpus-link-targets.test.mjs | 9 | 0 | 0 | 0 | 9 |
+| corpus.test.mjs | 10 | 0 | 0 | 0 | 10 |
+| diagnostic-code-coverage.test.mjs | 22 | 0 | 0 | 0 | 22 |
+| diagnostics-v2.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| djot-reader-and-inline-attrs.test.mjs | 31 | 24 | 3: 0.1 inserted/deleted class aliases; 1: 0.1 emoji class import heuristic; 1: 0.1 bridge symbols option; 1: 0.1 wrapper-key marker; 1: 0.1 Djot symbol-name inference | 0 | 0 |
+| empty-list-item.test.mjs | 8 | 8 | 0 | 0 | 0 |
+| equivalence.test.mjs | 41 | 41 | 0 | 0 | 0 |
+| examples.test.mjs | 11 | 0 | 0 | 0 | 11 |
+| figure-boundaries.test.mjs | 2 | 0 | 0 | 0 | 2 |
+| figure-groups.test.mjs | 15 | 0 | 0 | 0 | 15 |
+| heading-ids.test.mjs | 3 | 2 | 1: 0.1 corpus heading oracle | 0 | 0 |
+| html-equivalence.test.mjs | 3 | 3 | 0 | 0 | 0 |
+| import-limits.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| import.test.mjs | 5 | 0 | 0 | 0 | 5 |
+| includes.test.mjs | 9 | 0 | 0 | 0 | 9 |
+| inline-literal.test.mjs | 5 | 3 | 2: 0.1 unclosed literal crossed a line boundary | 0 | 0 |
+| loss-audit.test.mjs | 7 | 0 | 0 | 0 | 7 |
+| metadata-yaml12.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| metadata.test.mjs | 26 | 0 | 1: 0.1 malformed-frontmatter line diagnostic; 1: 0.1 nested-YAML recovery diagnostic; 1: 0.1 TOML frontmatter rejection | 23: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
+| model-limits.test.mjs | 4 | 4 | 0 | 0 | 0 |
+| new-ast-nodes.test.mjs | 17 | 17 | 0 | 0 | 0 |
+| new-task-states.test.mjs | 6 | 3 | 3: 0.1 provenance-envelope diagnostic | 0 | 0 |
+| no-git-dependencies.test.mjs | 66 | 66 | 0 | 0 | 0 |
+| packaging.test.mjs | 4 | 4 | 0 | 0 | 0 |
+| parity.test.mjs | 11 | 11 | 0 | 0 | 0 |
+| participants.test.mjs | 4 | 0 | 0 | 0 | 4 |
+| policy.test.mjs | 20 | 0 | 0 | 0 | 20 |
+| provenance.test.mjs | 8 | 0 | 0 | 0 | 8 |
+| raw-block-payload.test.mjs | 7 | 0 | 0 | 0 | 7 |
+| reverse-edge-cases.test.mjs | 8 | 0 | 0 | 0 | 8 |
+| reverse.test.mjs | 36 | 0 | 0 | 0 | 36 |
+| roundtrip-corpus.test.mjs | 5 | 0 | 0 | 0 | 5 |
+| roundtrip-fidelity.test.mjs | 13 | 0 | 0 | 0 | 13 |
+| roundtrip.test.mjs | 9 | 0 | 0 | 0 | 9 |
+| row-groups.test.mjs | 44 | 28 | 1: 0.1 implicit rowGroups run split; 3: 0.1 flat rowGroups count validation; 1: 0.1 source writer's full positional partition spelling; 2: 0.1 row-head column inference from marked cells; 2: 0.1 declared-partition row-header inference; 2: 0.1 body-header-cols source key under a foot; 1: 0.1 single-body row-head count disagreement warning; 1: 0.1 leading body-header-cols source guard; 1: 0.1 derived count collapse; 2: 0.1 listTable extension | 0 | 0 |
+| smart-punctuation.test.mjs | 2 | 2 | 0 | 0 | 0 |
+| spec-citations.test.mjs | 5 | 0 | 0 | 0 | 5 |
+| spec-corpus.test.mjs | 6 | 0 | 0 | 0 | 6 |
+| substitution.test.mjs | 3 | 0 | 0 | 0 | 3 |
+| table-body-structure.test.mjs | 6 | 0 | 2: 0.1 positional body-key corpus contract; 3: 0.1.17 engine-lag waiver; 1: 0.1 corpus submodule fixture | 0 | 0 |
+| table-reader-regressions.test.mjs | 14 | 13 | 1: 0.1 Figure/Div wrapper attributes collapsed into a table | 0 | 0 |
+| table-section-attributes.test.mjs | 3 | 3 | 0 | 0 | 0 |
+| task-states.test.mjs | 16 | 15 | 1: 0.1 checked plus taskState conflict model | 0 | 0 |
+| unit.test.mjs | 64 | 60 | 3: 0.1 listTable extension implementation; 1: 0.1 parsed inline div label | 0 | 0 |
+| url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
+| wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
 
-| Total | 730 | 399 | 54 | 277 |
+| Total | 730 | 399 | 57 | 23 | 251 |
 
-The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, and the table-body rewrite adds two checks for 0.2 section nodes and ordinary body-key attributes. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrite adds two checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 23 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -108,5 +108,11 @@ The two removed `citations.test.mjs` cases, each with its 0.1 feature reason:
 
 - “citations: the bibliography diagnostic fires once per document”: the 0.1 bridge imported CSL bibliography entries from Pandoc metadata; the 0.2 citation definition uses a typed tree field and a raw JSON carrier.
 - “citations: the entry survives pandoc's own writer and reader”: the 0.1 bridge represented citation definitions as `csl-entry` Divs; the 0.2 bridge carries the definition tree in a raw Pandoc block.
+
+The three removed `metadata.test.mjs` cases, each with its 0.1 feature reason:
+
+- “a line that fits no shape is still reported and skipped”: the 0.1 bridge's handwritten YAML metadata parser and its line diagnostic are gone.
+- “a malformed deeper line terminates instead of spinning”: the 0.1 bridge's handwritten nested-YAML recovery loop is gone.
+- “a non-yaml frontmatter format is still refused”: the 0.1 bridge rejected non-YAML frontmatter; the 0.2 tree keeps the format and value verbatim.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
