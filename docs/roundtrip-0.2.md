@@ -27,23 +27,23 @@ These rules do not remove text, block structure, emphasis family, link destinati
 
 | Format | Exact | Same meaning | Same rendering | Same text | Lossy by nature | Lossy | Error |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| docx | 24 | 7 | 6 | 32 | 7 | 23 | 0 |
-| odt | 16 | 8 | 4 | 39 | 11 | 21 | 0 |
-| epub | 59 | 4 | 4 | 12 | 7 | 13 | 0 |
-| html | 73 | 4 | 3 | 4 | 6 | 9 | 0 |
-| latex | 20 | 4 | 4 | 40 | 13 | 18 | 0 |
-| typst | 20 | 8 | 5 | 37 | 13 | 16 | 0 |
-| jats | 16 | 5 | 6 | 41 | 9 | 22 | 0 |
-| docbook | 22 | 8 | 5 | 38 | 11 | 15 | 0 |
-| rst | 27 | 5 | 6 | 37 | 10 | 14 | 0 |
-| org | 29 | 8 | 5 | 31 | 13 | 13 | 0 |
-| asciidoc | 23 | 6 | 3 | 36 | 14 | 17 | 0 |
-| mediawiki | 22 | 6 | 4 | 10 | 40 | 17 | 0 |
-| ipynb | 18 | 5 | 6 | 17 | 31 | 22 | 0 |
+| docx | 26 | 7 | 6 | 31 | 8 | 21 | 0 |
+| odt | 18 | 8 | 4 | 38 | 12 | 19 | 0 |
+| epub | 58 | 4 | 4 | 12 | 10 | 11 | 0 |
+| html | 75 | 4 | 3 | 4 | 6 | 7 | 0 |
+| latex | 21 | 4 | 5 | 40 | 14 | 15 | 0 |
+| typst | 20 | 8 | 5 | 38 | 15 | 13 | 0 |
+| jats | 17 | 5 | 6 | 41 | 10 | 20 | 0 |
+| docbook | 25 | 8 | 5 | 38 | 13 | 10 | 0 |
+| rst | 29 | 5 | 7 | 36 | 11 | 11 | 0 |
+| org | 31 | 8 | 5 | 32 | 13 | 10 | 0 |
+| asciidoc | 23 | 6 | 5 | 37 | 15 | 13 | 0 |
+| mediawiki | 22 | 6 | 6 | 10 | 40 | 15 | 0 |
+| ipynb | 18 | 5 | 6 | 18 | 32 | 20 | 0 |
 | markdown | 73 | 0 | 0 | 8 | 7 | 11 | 0 |
 | gfm | 20 | 3 | 5 | 9 | 40 | 22 | 0 |
-| commonmark_x | 65 | 0 | 1 | 5 | 5 | 23 | 0 |
-| djot | 72 | 2 | 3 | 13 | 6 | 3 | 0 |
+| commonmark_x | 64 | 0 | 1 | 6 | 5 | 23 | 0 |
+| djot | 72 | 2 | 3 | 13 | 8 | 1 | 0 |
 
 ## Carve-to-format grid
 
@@ -53,8 +53,8 @@ E = exact; M = same meaning; R = same rendering; T = same text; N = lossy by nat
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | [abbreviation](../test/fixtures/probes-0.2/abbreviation.crv) | N | N | R | R | N | N | N | N | N | N | T | N | N | E | N | L | E |
 | [admonition](../test/fixtures/probes-0.2/admonition.crv) | T | T | E | E | T | T | T | T | T | N | T | N | T | E | N | E | E |
-| [admonition_label](../test/fixtures/probes-0.2/admonition_label.crv) | T | T | E | E | T | T | T | T | T | N | T | N | T | E | N | E | E |
-| [admonition_title](../test/fixtures/probes-0.2/admonition_title.crv) | L | L | E | E | L | L | L | L | L | L | L | L | L | E | L | L | E |
+| [admonition_label](../test/fixtures/probes-0.2/admonition_label.crv) | N | N | E | E | N | N | N | N | N | N | N | N | N | E | N | E | E |
+| [admonition_title](../test/fixtures/probes-0.2/admonition_title.crv) | T | T | E | E | T | T | T | T | T | L | T | L | T | E | L | L | E |
 | [autolink](../test/fixtures/probes-0.2/autolink.crv) | M | M | E | E | T | M | L | M | M | M | M | M | L | E | L | E | T |
 | [autolink_attrs](../test/fixtures/probes-0.2/autolink_attrs.crv) | T | T | E | E | T | T | L | T | T | T | T | T | L | E | L | E | T |
 | [block_quote](../test/fixtures/probes-0.2/block_quote.crv) | E | E | E | E | E | E | E | E | E | E | E | E | E | E | E | E | E |
@@ -76,12 +76,12 @@ E = exact; M = same meaning; R = same rendering; T = same text; N = lossy by nat
 | [directive](../test/fixtures/probes-0.2/directive.crv) | T | T | E | E | T | T | T | T | T | T | T | N | T | E | N | E | E |
 | [div](../test/fixtures/probes-0.2/div.crv) | T | T | E | E | T | T | T | T | T | T | T | N | T | E | N | E | E |
 | [div_attrs](../test/fixtures/probes-0.2/div_attrs.crv) | T | T | T | E | N | N | T | T | T | N | T | N | T | E | N | E | E |
-| [div_title](../test/fixtures/probes-0.2/div_title.crv) | L | L | E | E | L | L | L | L | L | L | L | L | L | E | L | L | E |
+| [div_title](../test/fixtures/probes-0.2/div_title.crv) | T | T | E | E | T | T | T | T | T | T | T | L | T | E | L | L | E |
 | [editorial_comment](../test/fixtures/probes-0.2/editorial_comment.crv) | N | N | N | N | N | N | N | N | N | N | N | N | N | N | N | L | E |
 | [emphasis](../test/fixtures/probes-0.2/emphasis.crv) | E | E | E | E | E | E | E | E | E | E | E | E | E | E | E | E | E |
 | [emphasis_attrs](../test/fixtures/probes-0.2/emphasis_attrs.crv) | T | T | E | E | T | T | T | T | T | T | T | N | N | E | N | E | E |
-| [figure_caption](../test/fixtures/probes-0.2/figure_caption.crv) | L | L | L | E | T | T | T | T | L | L | L | L | L | L | L | L | N |
-| [figure_group](../test/fixtures/probes-0.2/figure_group.crv) | L | L | L | E | L | L | L | L | L | L | L | L | L | L | L | L | L |
+| [figure_caption](../test/fixtures/probes-0.2/figure_caption.crv) | L | L | L | E | E | T | E | E | L | L | L | L | L | L | L | L | N |
+| [figure_group](../test/fixtures/probes-0.2/figure_group.crv) | L | L | L | E | R | N | L | N | L | L | L | L | L | L | L | L | L |
 | [footnote](../test/fixtures/probes-0.2/footnote.crv) | R | R | N | N | N | R | L | R | R | R | N | N | N | E | N | L | E |
 | [frontmatter](../test/fixtures/probes-0.2/frontmatter.crv) | R | R | R | R | R | R | R | R | R | R | R | R | R | L | R | L | E |
 | [hard_break](../test/fixtures/probes-0.2/hard_break.crv) | E | E | E | E | E | E | N | N | N | E | E | E | E | E | E | E | E |
@@ -138,15 +138,15 @@ E = exact; M = same meaning; R = same rendering; T = same text; N = lossy by nat
 | [table_body_partition](../test/fixtures/probes-0.2/table_body_partition.crv) | T | M | E | E | T | T | T | T | M | M | M | M | M | T | L | L | T |
 | [table_caption](../test/fixtures/probes-0.2/table_caption.crv) | T | T | E | E | L | T | T | T | E | N | E | E | N | T | N | N | E |
 | [table_cell_attrs](../test/fixtures/probes-0.2/table_cell_attrs.crv) | T | T | E | E | T | T | T | T | T | T | T | E | T | T | T | T | T |
-| [table_colspan](../test/fixtures/probes-0.2/table_colspan.crv) | L | L | L | L | L | L | L | L | L | L | L | L | L | L | L | L | L |
+| [table_colspan](../test/fixtures/probes-0.2/table_colspan.crv) | L | L | E | E | L | L | L | T | R | T | R | R | L | L | L | L | N |
 | [table_column_width](../test/fixtures/probes-0.2/table_column_width.crv) | T | T | E | E | L | T | T | T | T | T | T | T | T | T | T | T | T |
 | [table_footer](../test/fixtures/probes-0.2/table_footer.crv) | T | T | E | E | L | T | T | T | T | T | T | T | T | T | T | T | T |
-| [table_rowspan](../test/fixtures/probes-0.2/table_rowspan.crv) | L | L | L | L | L | L | L | L | L | L | L | L | L | L | L | L | L |
+| [table_rowspan](../test/fixtures/probes-0.2/table_rowspan.crv) | L | L | E | E | L | L | L | T | L | T | R | R | L | L | L | L | N |
 | [table_simple](../test/fixtures/probes-0.2/table_simple.crv) | T | T | E | E | T | T | T | T | E | E | E | E | E | T | E | E | E |
 | [tag](../test/fixtures/probes-0.2/tag.crv) | N | N | T | T | N | N | N | N | N | N | N | N | N | E | N | E | E |
-| [task_done](../test/fixtures/probes-0.2/task_done.crv) | T | T | E | E | T | T | T | T | T | T | N | N | N | E | N | E | E |
-| [task_mixed](../test/fixtures/probes-0.2/task_mixed.crv) | T | T | E | E | T | T | T | T | T | T | N | N | N | E | N | E | E |
-| [task_other](../test/fixtures/probes-0.2/task_other.crv) | T | T | E | E | T | T | T | T | T | T | N | N | N | E | N | E | E |
+| [task_done](../test/fixtures/probes-0.2/task_done.crv) | E | E | N | E | T | T | T | E | E | E | N | N | N | E | N | E | E |
+| [task_mixed](../test/fixtures/probes-0.2/task_mixed.crv) | E | E | N | E | T | T | T | E | E | E | N | N | N | E | N | T | E |
+| [task_other](../test/fixtures/probes-0.2/task_other.crv) | T | T | N | E | T | T | T | T | T | T | N | N | N | E | N | E | E |
 | [thematic_break](../test/fixtures/probes-0.2/thematic_break.crv) | E | T | E | E | T | E | N | N | E | E | N | E | E | E | E | E | E |
 | [underline](../test/fixtures/probes-0.2/underline.crv) | E | T | E | E | E | E | E | E | T | E | T | N | N | E | N | T | T |
 | [xref](../test/fixtures/probes-0.2/xref.crv) | L | N | E | E | R | R | R | R | R | N | R | N | L | E | L | E | N |
@@ -158,20 +158,11 @@ Each row is a plain lossy cell. The cause is classified from the first differing
 | Probe | Format | Cause |
 | --- | --- | --- |
 | abbreviation | commonmark_x | code changed |
-| admonition_title | docx | words changed: Hint → inside |
-| admonition_title | odt | words changed: Hint → inside |
-| admonition_title | latex | words changed: Hint → inside |
-| admonition_title | typst | words changed: Hint → inside |
-| admonition_title | jats | words changed: Hint → inside |
-| admonition_title | docbook | words changed: Hint → inside |
-| admonition_title | rst | words changed: Hint → inside |
 | admonition_title | org | words changed: Hint → Tip |
-| admonition_title | asciidoc | words changed: Hint → inside |
 | admonition_title | mediawiki | words changed: Hint → <div class="carve-admonition tip" data-carve-title="[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Hint&quot;}]"> |
-| admonition_title | ipynb | words changed: Hint → inside |
 | admonition_title | gfm | words changed: Hint → <div class="carve-admonition tip" data-carve-title="[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Hint&quot;}]">
  |
-| admonition_title | commonmark_x | words changed: Hint → ::: {.carve-admonition .tip carve-title=“[{"type":"text","value":"Hint"}]”} inside ::: |
+| admonition_title | commonmark_x | words changed: Hint → ::: {.carve-admonition .tip carve-title=“[{"type":"text","value":"Hint"}]”} Hint |
 | autolink | jats | link changed |
 | autolink | ipynb | link changed |
 | autolink | gfm | link changed |
@@ -182,7 +173,7 @@ Each row is a plain lossy cell. The cause is classified from the first differing
 | block_quote_caption | rst | words changed: Quote: A saying → quoted text |
 | block_quote_caption | org | words changed: Quote: A saying → #+caption: Quote: A saying |
 | block_quote_caption | asciidoc | words changed: Quote: A saying → quoted text |
-| block_quote_caption | mediawiki | words changed: Quote: A saying → <div class="figure"> |
+| block_quote_caption | mediawiki | words changed: Quote: A saying → <div class="figure" data-carve-caption="{&quot;type&quot;:&quot;caption&quot;,&quot;children&quot;:[{&quot;type&quot;:&quot;paragraph&quot;,&quot;children&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Quote: A saying&quot;}]}]}"> |
 | code_block | docx | code changed |
 | code_block | odt | code changed |
 | code_block | epub | code changed |
@@ -263,20 +254,10 @@ Each row is a plain lossy cell. The cause is classified from the first differing
 | comment_block | commonmark_x | code changed |
 | comment_braced | commonmark_x | code changed |
 | comment_line | commonmark_x | code changed |
-| div_title | docx | words changed: Box title → inside |
-| div_title | odt | words changed: Box title → inside |
-| div_title | latex | words changed: Box title → inside |
-| div_title | typst | words changed: Box title → inside |
-| div_title | jats | words changed: Box title → inside |
-| div_title | docbook | words changed: Box title → inside |
-| div_title | rst | words changed: Box title → inside |
-| div_title | org | words changed: Box title → inside |
-| div_title | asciidoc | words changed: Box title → inside |
 | div_title | mediawiki | words changed: Box title → <div class="custom" data-carve-title="[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Box title&quot;}]"> |
-| div_title | ipynb | words changed: Box title → inside |
 | div_title | gfm | words changed: Box title → <div class="custom" data-carve-title="[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Box title&quot;}]">
  |
-| div_title | commonmark_x | words changed: Box title → ::: {.custom carve-title=“[{"type":"text","value":"Box title"}]”} inside ::: |
+| div_title | commonmark_x | words changed: Box title → ::: {.custom carve-title=“[{"type":"text","value":"Box title"}]”} Box title |
 | editorial_comment | commonmark_x | code changed |
 | figure_caption | docx | image, cell changed |
 | figure_caption | odt | image changed |
@@ -292,10 +273,7 @@ Each row is a plain lossy cell. The cause is classified from the first differing
 | figure_group | docx | image, cell changed |
 | figure_group | odt | image changed |
 | figure_group | epub | image changed |
-| figure_group | latex | words changed: Figure : Both → (a) First |
-| figure_group | typst | words changed: Figure : Both → (a) First |
-| figure_group | jats | words changed: Figure : Both → (a) First |
-| figure_group | docbook | words changed: Figure : Both → (a) First |
+| figure_group | jats | words changed: Figure : Both → Figure 1: Both |
 | figure_group | rst | words changed: Figure : Both → a |
 | figure_group | org | image changed |
 | figure_group | asciidoc | words changed: Figure : Both → a |
@@ -363,7 +341,7 @@ Each row is a plain lossy cell. The cause is classified from the first differing
 | math_caption | rst | words changed: Equation: Square → x^2 |
 | math_caption | org | words changed: Equation: Square → #+caption: Equation: Square |
 | math_caption | asciidoc | math changed |
-| math_caption | mediawiki | words changed: Equation: Square → <div class="figure"> |
+| math_caption | mediawiki | words changed: Equation: Square → <div class="figure" data-carve-caption="{&quot;type&quot;:&quot;caption&quot;,&quot;children&quot;:[{&quot;type&quot;:&quot;paragraph&quot;,&quot;children&quot;:[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Equation: Square&quot;}]}]}"> |
 | math_caption | ipynb | math changed |
 | math_caption | markdown | math changed |
 | math_caption | gfm | math changed |
@@ -408,40 +386,25 @@ Each row is a plain lossy cell. The cause is classified from the first differing
 | table_caption | latex | cell changed |
 | table_colspan | docx | cell changed |
 | table_colspan | odt | cell changed |
-| table_colspan | epub | cell changed |
-| table_colspan | html | cell changed |
 | table_colspan | latex | cell changed |
 | table_colspan | typst | cell changed |
 | table_colspan | jats | cell changed |
-| table_colspan | docbook | cell changed |
-| table_colspan | rst | cell changed |
-| table_colspan | org | cell changed |
-| table_colspan | asciidoc | cell changed |
-| table_colspan | mediawiki | cell changed |
 | table_colspan | ipynb | cell changed |
 | table_colspan | markdown | cell changed |
 | table_colspan | gfm | cell changed |
 | table_colspan | commonmark_x | cell changed |
-| table_colspan | djot | cell changed |
 | table_column_width | latex | cell changed |
 | table_footer | latex | cell changed |
 | table_rowspan | docx | cell changed |
 | table_rowspan | odt | cell changed |
-| table_rowspan | epub | cell changed |
-| table_rowspan | html | cell changed |
 | table_rowspan | latex | cell changed |
 | table_rowspan | typst | cell changed |
 | table_rowspan | jats | cell changed |
-| table_rowspan | docbook | cell changed |
 | table_rowspan | rst | cell changed |
-| table_rowspan | org | cell changed |
-| table_rowspan | asciidoc | cell changed |
-| table_rowspan | mediawiki | cell changed |
 | table_rowspan | ipynb | cell changed |
 | table_rowspan | markdown | cell changed |
 | table_rowspan | gfm | cell changed |
 | table_rowspan | commonmark_x | cell changed |
-| table_rowspan | djot | cell changed |
 | xref | docx | link changed |
 | xref | ipynb | link changed |
 | xref | gfm | link changed |
@@ -454,7 +417,7 @@ For each feature, the table lists the *worst* rung among probes whose source tre
 | --- | --- | --- | --- | --- |
 | inline role (28 probes) | — | — | — | — |
 | attribute (19 probes) | — | — | — | djot |
-| table structure (10 probes) | — | — | — | — |
+| table structure (10 probes) | — | — | epub, html | docbook, asciidoc, mediawiki |
 | table alignment (1 probe) | epub, html | — | — | docx, odt, typst, jats, docbook, rst, org, asciidoc, mediawiki, ipynb, markdown, gfm, commonmark_x, djot |
 | caption (6 probes) | — | — | — | — |
 | footnote (3 probes) | markdown, djot | — | — | docx, odt, typst, docbook, rst, org |
@@ -463,8 +426,8 @@ For each feature, the table lists the *worst* rung among probes whose source tre
 | raw content (2 probes) | djot | — | — | — |
 | link target (8 probes) | markdown | — | — | — |
 | image (6 probes) | — | — | — | — |
-| list structure (11 probes) | markdown, commonmark_x, djot | epub, html | — | docx, odt, latex, typst, jats, docbook, rst, org |
-| task state (3 probes) | epub, html, markdown, commonmark_x, djot | — | — | docx, odt, latex, typst, jats, docbook, rst, org |
+| list structure (11 probes) | markdown, djot | html | — | docx, odt, latex, typst, jats, docbook, rst, org, commonmark_x |
+| task state (3 probes) | html, markdown, djot | — | — | docx, odt, latex, typst, jats, docbook, rst, org, commonmark_x |
 | container role (14 probes) | — | — | — | — |
 | heading level or id (5 probes) | html, markdown, commonmark_x | — | — | epub, latex, typst, jats, docbook, rst |
 | frontmatter (1 probe) | djot | — | docx, odt, epub, html, latex, typst, jats, docbook, rst, org, asciidoc, mediawiki, ipynb, gfm | — |
@@ -499,7 +462,7 @@ Direct means Pandoc JSON → validated Carve tree → Pandoc JSON. **typed** req
 | softbreak | typed | L− | L− | L− | S+ | S+ | S+ | S+ | L− | S+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ |
 | span_attrs | typed | L− | K+ | K+ | S+ | K+ | K+ | L− | K+ | L− | L− | K+ | K+ | K+ | S+ | K+ | S+ | S+ |
 | note | typed | S+ | S+ | K+ | S+ | S+ | S+ | K+ | S+ | S+ | S+ | S+ | K+ | K+ | S+ | S+ | S+ | S+ |
-| cite | typed | L− | L− | K+ | K+ | L− | K+ | L− | L− | L− | K+ | L− | L− | L− | S+ | L− | L− | L− |
+| cite | typed | L− | L− | K+ | K+ | L− | S+ | L− | L− | L− | K+ | L− | L− | L− | S+ | L− | L− | L− |
 | link | typed | S+ | S+ | K+ | S+ | S+ | S+ | K+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ |
 | link_title | typed | S+ | L− | K+ | S+ | L− | L− | L− | L− | L− | L− | L− | L− | S+ | S+ | S+ | S+ | K+ |
 | link_attrs | typed | L− | L− | K+ | S+ | K+ | L− | K+ | K+ | L− | L− | L− | L− | K+ | S+ | K+ | S+ | S+ |
@@ -528,17 +491,17 @@ Direct means Pandoc JSON → validated Carve tree → Pandoc JSON. **typed** req
 | list_nested | typed | S+ | K+ | K+ | S+ | K+ | K+ | K+ | S+ | S+ | S+ | K+ | S+ | S+ | S+ | S+ | S+ | S+ |
 | list_loose | typed | S+ | L− | K+ | S+ | L− | L− | L− | S+ | L− | S+ | L− | L− | S+ | S+ | S+ | S+ | S+ |
 | deflist | typed | S+ | K+ | K+ | S+ | K+ | S+ | S+ | S+ | S+ | S+ | S+ | S+ | K+ | S+ | K+ | S+ | S+ |
-| figure | typed | K+ | K+ | K+ | S+ | S+ | S+ | S+ | S+ | S+ | K+ | S+ | K+ | K+ | S+ | K+ | K+ | K+ |
-| figure_attrs | typed | L− | L− | K+ | S+ | K+ | K+ | K+ | L− | K+ | K+ | K+ | K+ | K+ | K+ | K+ | K+ | K+ |
+| figure | dropped | K+ | K+ | K+ | S+ | S+ | S+ | S+ | S+ | S+ | K+ | S+ | K+ | K+ | S+ | K+ | K+ | K+ |
+| figure_attrs | dropped | L− | L− | K+ | S+ | K+ | K+ | K+ | L− | K+ | K+ | K+ | K+ | K+ | K+ | K+ | K+ | K+ |
 | table | typed | K+ | S+ | K+ | S+ | K+ | K+ | K+ | K+ | S+ | S+ | S+ | S+ | S+ | K+ | K+ | K+ | K+ |
 | table_head | typed | K+ | K+ | K+ | S+ | K+ | K+ | K+ | K+ | S+ | S+ | S+ | S+ | S+ | K+ | S+ | S+ | S+ |
-| table_caption | typed | K+ | K+ | K+ | S+ | K+ | K+ | K+ | K+ | S+ | K+ | S+ | S+ | K+ | K+ | K+ | K+ | K+ |
+| table_caption | dropped | K+ | K+ | K+ | S+ | K+ | K+ | K+ | K+ | S+ | K+ | S+ | S+ | K+ | K+ | K+ | K+ | K+ |
 | table_foot | typed | K+ | K+ | K+ | S+ | K+ | K+ | K+ | K+ | K+ | K+ | S+ | K+ | K+ | K+ | K+ | K+ | K+ |
 | table_colspan | typed | K+ | S+ | K+ | S+ | K+ | K+ | K+ | L− | S+ | L− | S+ | S+ | K+ | K+ | K+ | K+ | L− |
 | table_rowspan | typed | K+ | S+ | K+ | S+ | K+ | K+ | K+ | L− | K+ | L− | S+ | S+ | K+ | K+ | K+ | K+ | L− |
 | table_align | typed | K+ | L− | K+ | K+ | S+ | K+ | K+ | S+ | L− | L− | S+ | K+ | S+ | S+ | K+ | K+ | K+ |
 | table_colwidth | typed | K+ | L− | K+ | S+ | L− | L− | L− | K+ | S+ | L− | K+ | L− | L− | K+ | L− | L− | L− |
-| table_attrs | typed | L− | L− | K+ | S+ | K+ | K+ | L− | L− | L− | L− | L− | L− | K+ | K+ | K+ | K+ | K+ |
+| table_attrs | dropped | L− | L− | K+ | S+ | K+ | K+ | L− | L− | L− | L− | L− | L− | K+ | K+ | K+ | K+ | K+ |
 | table_attrs_nocaption | typed | L− | L− | K+ | S+ | K+ | K+ | L− | L− | L− | L− | L− | L− | L− | L− | L− | L− | K+ |
 | table_cell_attrs | typed | L− | L− | K+ | S+ | L− | L− | L− | L− | L− | L− | L− | S+ | L− | L− | L− | L− | L− |
 | table_cell_align | typed | K+ | L− | K+ | K+ | L− | K+ | K+ | L− | L− | L− | S+ | K+ | L− | L− | L− | L− | L− |
@@ -553,6 +516,10 @@ Ranked by the number of these formats whose Pandoc writer/reader can carry the r
 
 | Probe | Direct | Formats carrying it | Need |
 | --- | --- | ---: | --- |
+| figure | dropped | 17: docx, odt, epub, html, latex, typst, jats, docbook, rst, org, asciidoc, mediawiki, ipynb, markdown, gfm, commonmark_x, djot | figure field on figure node |
+| table_caption | dropped | 17: docx, odt, epub, html, latex, typst, jats, docbook, rst, org, asciidoc, mediawiki, ipynb, markdown, gfm, commonmark_x, djot | table row, cell, or section field |
+| figure_attrs | dropped | 14: epub, html, latex, typst, jats, rst, org, asciidoc, mediawiki, ipynb, markdown, gfm, commonmark_x, djot | attribute field on the corresponding node |
+| table_attrs | dropped | 9: epub, html, latex, typst, ipynb, markdown, gfm, commonmark_x, djot | table row, cell, or section field |
 | ol_example | data | 2: typst, asciidoc | ordered-list Example style in a carve-example list marker attribute |
 
 ## Reproduce

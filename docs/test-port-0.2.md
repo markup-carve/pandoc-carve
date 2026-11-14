@@ -65,7 +65,7 @@ This is the observed case census from running each of the 58 old files alone on 
 
 | Total | 730 | 596 | 108 | 26 | 0 |
 
-The 596 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. All 58 original files have now been reviewed and the pending count is zero.
+The 596 ported cases are in the full `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. All 58 original files have now been reviewed and the pending count is zero. The 0.1 implementation and dependency have been removed.
 
 The removed `substitution.test.mjs` case “an older installed renderer receives its temporary string view” depended on the 0.1 substitution node's compatibility string view, which is gone after the 0.2 delete/insert split.
 

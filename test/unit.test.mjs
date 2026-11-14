@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc, carveAstToPandoc } from '../dist/index.js';
+import { carveToPandoc, carveAstToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
 
 const blocks = (src) => carveToPandoc(src).doc.blocks;
 const firstInlines = (src) => blocks(src)[0].c;
@@ -204,31 +204,24 @@ test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
   assert.deepEqual(tasks.c.map((item) => item[0].c[2].c[0][2]), [[['mark', 'x']], [['mark', '_']]]);
 });
 
-test('ordered-list delimiter maps to Period/OneParen, absence meaning Period', async () => {
-  // AST contract 1.1 omits the default `.` delimiter.
-  const { convert } = await import('../dist/convert.js');
-  const list = (delim) => ({
-    type: 'document',
-    children: [{
-      type: 'list', ordered: true, tight: true, delim,
-      items: [{ type: 'list-item', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'a' }] }] }],
-    }],
-  });
-  assert.equal(convert(list(')')).doc.blocks[0].c[0][2].t, 'OneParen');
-  assert.equal(convert(list('.')).doc.blocks[0].c[0][2].t, 'Period');
-  assert.equal(convert(list(undefined)).doc.blocks[0].c[0][2].t, 'Period');
+test('ordered-list delimiter maps to Period and OneParen in a 0.2 tree', () => {
+  const list = (delimiter) => ({ type: 'document', astVersion: '2.0', children: [{
+    type: 'list', marker: { kind: 'ordered', style: '1', ...(delimiter ? { delimiter } : {}) }, spacing: 'tight',
+    children: [{ type: 'list_item', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'a' }] }] }],
+  }] });
+  assert.equal(carveAstToPandoc(list(')')).doc.blocks[0].c[0][2].t, 'OneParen');
+  assert.equal(carveAstToPandoc(list('.')).doc.blocks[0].c[0][2].t, 'Period');
+  assert.equal(carveAstToPandoc(list(undefined)).doc.blocks[0].c[0][2].t, 'Period');
 });
 
-test('import records the pandoc list delimiter on the Carve AST', async () => {
-  const { pandocToCarve } = await import('../dist/reverse.js');
-  const doc = (delim) => ({
-    'pandoc-api-version': [1, 23, 1],
-    meta: {},
-    blocks: [{ t: 'OrderedList', c: [[1, { t: 'Decimal' }, { t: delim }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
+test('import records the Pandoc list delimiter on the 0.2 marker', () => {
+  const doc = (delimiter) => ({
+    'pandoc-api-version': [1, 23, 1], meta: {},
+    blocks: [{ t: 'OrderedList', c: [[1, { t: 'Decimal' }, { t: delimiter }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
   });
-  assert.equal(pandocToCarve(doc('OneParen')).ast.children[0].delim, ')');
-  assert.equal(pandocToCarve(doc('Period')).ast.children[0].delim, undefined);
-  assert.equal(pandocToCarve(doc('DefaultDelim')).ast.children[0].delim, undefined);
+  assert.equal(pandocToCarveAst(doc('OneParen')).ast.children[0].marker.delimiter, ')');
+  assert.equal(pandocToCarveAst(doc('Period')).ast.children[0].marker.delimiter, '.');
+  assert.equal(pandocToCarveAst(doc('DefaultDelim')).ast.children[0].marker.delimiter, '.');
 });
 
 test('tight list items become Plain, loose stay Para', () => {
@@ -596,38 +589,20 @@ test('block and inline comments retain their payload in raw carriers', () => {
   assert.ok(inline.doc.blocks[0].c[2].some(node => node.t === 'RawInline' && node.c[1] === 'tail note'));
 });
 
-test('ordered list: a style or delimiter with no Carve form is reported', async () => {
-  const { pandocToCarve } = await import('../dist/reverse.js');
-  const doc = (style, delim) => ({
-    'pandoc-api-version': [1, 23, 1],
-    meta: {},
-    blocks: [{ t: 'OrderedList', c: [[1, { t: style }, { t: delim }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
+test('Pandoc Example and TwoParens survive through 0.2 list carriers', () => {
+  const doc = (style, delimiter) => ({
+    'pandoc-api-version': [1, 23, 1], meta: {},
+    blocks: [{ t: 'OrderedList', c: [[1, { t: style }, { t: delimiter }], [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]]] }],
   });
-
-  // Pandoc always pairs `Example` with `TwoParens` - measured on `(@) one` -
-  // so that shape must produce ONE diagnostic, not the example warning plus a
-  // `(1)` warning describing a marker the author never wrote.
-  const example = pandocToCarve(doc('Example', 'TwoParens'));
-  assert.equal(example.ast.children[0].olType, undefined, 'it becomes a decimal list');
-  assert.equal(example.warnings.length, 1, example.warnings.join(' | '));
-  assert.ok(example.warnings[0].includes('example-list'), example.warnings[0]);
-  assert.equal(example.diagnostics[0].code, 'ordered-list-counter-degraded');
-  assert.equal(example.diagnostics[0].fidelity, 'degraded');
-  assert.ok(
-    example.warnings[0].includes('resolved numbers are kept'),
-    'the numbers survive in `start`; the shared counter is what does not',
-  );
-
-  const twoParens = pandocToCarve(doc('Decimal', 'TwoParens'));
-  assert.equal(twoParens.ast.children[0].delim, ')', 'the closing paren is kept');
-  assert.equal(twoParens.diagnostics[0].fidelity, 'normalized');
-  assert.ok(
-    twoParens.warnings.some((w) => w.includes('(1)')),
-    twoParens.warnings.join(' | '),
-  );
-
-  assert.deepEqual(pandocToCarve(doc('Decimal', 'OneParen')).warnings, [], 'control: `1)` is exact');
-  assert.deepEqual(pandocToCarve(doc('UpperRoman', 'Period')).warnings, [], 'control: `I.` is exact');
+  const example = doc('Example', 'TwoParens');
+  const ast = pandocToCarveAst(example).ast;
+  assert.deepEqual(ast.children[0].attrs.keyValues, [
+    ['carve-example', '1'], ['carve-example-delimiter', 'TwoParens'],
+  ]);
+  assert.deepEqual(carveAstToPandoc(ast).doc.blocks[0].c[0], example.blocks[0].c[0]);
+  assert.match(pandocToCarve(example).carve, /carve-example=1/u);
+  assert.equal(pandocToCarveAst(doc('Decimal', 'OneParen')).ast.children[0].marker.delimiter, ')');
+  assert.equal(pandocToCarveAst(doc('UpperRoman', 'Period')).ast.children[0].marker.style, 'I');
 });
 
 test('an unresolved reference is identifiable and reported', () => {
