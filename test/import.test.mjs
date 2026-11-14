@@ -5,12 +5,12 @@ import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { carveToHtml } from '@markup-carve/carve';
+import { render as carveToHtml } from '../vendor/carve-v2/index.js';
 import { pandocToCarve } from '../dist/index.js';
 import { findPandoc } from './helpers.mjs';
 
 const pandoc = findPandoc();
-const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli-v2.js');
 
 function pandocToJson(from, input) {
   const result = spawnSync(pandoc, ['-f', from, '-t', 'json'], {
@@ -38,11 +38,11 @@ test('import: markdown -> carve produces native Carve syntax', { skip: !pandoc &
     '| 1 | 2 |',
   ].join('\n');
   const { carve } = pandocToCarve(pandocToJson('markdown', md));
-  assert.ok(carve.includes('# Title'));
+  assert.ok(carve.includes('= Title'));
   // Markdown *em* must become Carve /em/, ** -> *
   assert.ok(carve.includes('/emphasis/'), carve);
   assert.ok(carve.includes('*strong*'), carve);
-  assert.ok(carve.includes('~strike~'), carve);
+  assert.ok(carve.includes('{~strike~}'), carve);
   assert.ok(carve.includes('[link](https://e.com)'));
   assert.ok(carve.includes('- one'));
   assert.ok(carve.includes('> quoted'));
@@ -55,7 +55,7 @@ test('import: markdown -> carve produces native Carve syntax', { skip: !pandoc &
 test('import: latex -> carve', { skip: !pandoc && 'pandoc not found' }, () => {
   const tex = '\\section{Intro}\n\nSome \\emph{em} and \\textbf{bold} plus $e=mc^2$ math.\n';
   const { carve } = pandocToCarve(pandocToJson('latex', tex));
-  assert.ok(carve.includes('# Intro'));
+  assert.ok(carve.includes('= Intro'));
   assert.ok(carve.includes('/em/'));
   assert.ok(carve.includes('*bold*'));
   assert.ok(carve.includes('$`e=mc^2`'), carve);
@@ -78,7 +78,7 @@ test('import: docx -> carve end-to-end via CLI', { skip: !pandoc && 'pandoc not 
   });
   assert.equal(result.status, 0, result.stderr);
   const carve = readFileSync(out, 'utf8');
-  assert.ok(carve.includes('# From Word'));
+  assert.ok(carve.includes('= From Word'));
   assert.ok(carve.includes('/styled/'), carve);
   assert.ok(carve.includes('[link](https://e.com)'));
   assert.ok(carve.includes('- bullet'));
@@ -102,8 +102,8 @@ test('import: cli -f json needs no pandoc', () => {
 test('import: html -> carve', { skip: !pandoc && 'pandoc not found' }, () => {
   const html = '<h1>Web Page</h1><p>Text with <em>em</em>, <strong>strong</strong> and <u>underline</u>.</p>';
   const { carve } = pandocToCarve(pandocToJson('html', html));
-  assert.ok(carve.includes('# Web Page'));
+  assert.ok(carve.includes('= Web Page'));
   assert.ok(carve.includes('/em/'));
   assert.ok(carve.includes('*strong*'));
-  assert.ok(carve.includes('_underline_'), carve);
+  assert.ok(carve.includes('{_underline_}'), carve);
 });
