@@ -70,7 +70,7 @@ function table(x: TableNode, c: Context): P.Block {
     }));
   }
   const columnFacts = x.columns.some(n => n.resolvedAlign !== undefined || n.valign !== undefined) ? [['carve-columns', JSON.stringify(x.columns.map(n => ({ align: n.align, width: n.width, valign: n.valign, authored: n.authored })))] as [string, string]] : [];
-  return P.Table(P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...columnFacts]), cap(x.caption, c), x.columns.map(n => alignment(n.resolvedAlign ?? n.align)), heads.flatMap(n => rows(n.children, c, true)), bodies.map(n => ({ attr: P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.headRows === 0 ? [['carve-head-rows', '0'] as [string, string]] : [])]), rowHeadColumns: n.rowHeadColumns, headRows: n.headRows === undefined ? [] : rows(n.children.filter(y => y.type === 'table_row').slice(0, n.headRows), c), bodyRows: rows(n.children.filter(y => y.type === 'table_row').slice(n.headRows ?? 0), c) })), feet.flatMap(n => rows(n.children, c)), x.caption?.short ? il(x.caption.short, c) : null, x.columns.map(n => n.width ?? null));
+  return P.Table(P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...columnFacts]), cap(x.caption, c), x.columns.map(n => alignment(n.resolvedAlign ?? n.align)), heads.flatMap(n => rows(n.children, c, true)), bodies.map(n => ({ attr: P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.headRows === 0 ? [['carve-head-rows', '0'] as [string, string]] : [])]), rowHeadColumns: n.rowHeadColumns, headRows: n.headRows === undefined ? [] : rows(n.children.filter(y => y.type === 'table_row').slice(0, n.headRows), c), bodyRows: rows(n.children.filter(y => y.type === 'table_row').slice(n.headRows ?? 0), c) })), feet.flatMap(n => rows(n.children, c)), x.caption?.short ? il(x.caption.short, c) : null, x.columns.map(n => n.width ?? null), attr(heads[0]?.attrs), attr(feet[0]?.attrs));
 }
 /** Every public 0.2 node has an explicit case; a new type is a compiler error. */
 function emit(n: Node, c: Context): P.PandocNode[] {
@@ -297,9 +297,9 @@ function importTable(c: any[], warnings: string[]): TableNode {
     return withAttr({ type: 'table_row', children: cells }, [rowAttr[0], rowAttr[1], rowAttr[2].filter(([key]) => key !== 'carve-covered-cells')]);
   };
   const children: TableNode['children'] = [];
-  if (c[3][1].length) children.push(withAttr({ type: 'table_head', children: c[3][1].map((r: any[]) => row(r, true)) }, c[3][0]));
+  if (c[3][1].length || importAttr(c[3][0])) children.push(withAttr({ type: 'table_head', children: c[3][1].map((r: any[]) => row(r, true)) }, c[3][0]));
   for (const b of c[4]) { const headZero = (b[0] as P.Attr)[2].some(([k]) => k === 'carve-head-rows'); children.push(withAttr({ type: 'table_body', ...(headZero || b[2].length ? { headRows: b[2].length } : {}), ...(b[1] ? { rowHeadColumns: b[1] } : {}), children: [...b[2].map((r: any[]) => row(r, true)), ...b[3].map((r: any[]) => row(r, false))] }, [(b[0] as P.Attr)[0], (b[0] as P.Attr)[1], (b[0] as P.Attr)[2].filter(([k]) => k !== 'carve-head-rows')])); }
-  if (c[5][1].length) children.push(withAttr({ type: 'table_foot', children: c[5][1].map((r: any[]) => row(r, false)) }, c[5][0]));
+  if (c[5][1].length || importAttr(c[5][0])) children.push(withAttr({ type: 'table_foot', children: c[5][1].map((r: any[]) => row(r, false)) }, c[5][0]));
   let columns: TableNode['columns'] = c[2].map((x: any[]) => ({ type: 'table_column', ...(x[0].t === 'AlignDefault' ? {} : { align: x[0].t === 'AlignLeft' ? 'left' as const : x[0].t === 'AlignRight' ? 'right' as const : 'center' as const, authored: true as const }), ...(x[1].t === 'ColWidth' ? { width: x[1].c, authored: true as const } : {}) }));
   const columnFacts = (c[0] as P.Attr)[2].find(([k]) => k === 'carve-columns')?.[1];
   if (columnFacts) { try { const saved = JSON.parse(columnFacts) as Omit<TableNode['columns'][number], 'type'>[]; if (Array.isArray(saved) && saved.length === columns.length) columns = saved.map(x => ({ type: 'table_column', ...x })); } catch { warnings.push('Table: invalid carve-columns carrier'); } }
@@ -364,5 +364,10 @@ export function pandocToCarve(input: P.PandocDoc | string): { carve: string; war
   addEmptyItemComments(spelled);
   const output = writeWithDiagnostics(spelled);
   warnings.push(...output.diagnostics.map(d => `${d.code}: ${d.message}`));
+  // The engine can elide an all-empty table without emitting a loss diagnostic.
+  if (output.source === '') for (const node of ast.children) if (node.type === 'table') {
+    warnings.push('structure-unspellable: an empty table node has no spelling in Carve source here');
+    for (const group of node.children) if (group.attrs) warnings.push(`field-unspellable: the field attrs of a ${group.type} node has no spelling in Carve source here`);
+  }
   return { carve: output.source, warnings };
 }
