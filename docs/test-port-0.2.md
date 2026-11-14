@@ -61,11 +61,11 @@ This is the observed case census from running each of the 58 old files alone on 
 | task-states.test.mjs | 16 | 15 | 1: 0.1 checked plus taskState conflict model | 0 | 0 |
 | unit.test.mjs | 64 | 60 | 3: 0.1 listTable extension implementation; 1: 0.1 parsed inline div label | 0 | 0 |
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
-| wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
+| wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 466 | 68 | 24 | 172 |
+| Total | 730 | 468 | 75 | 24 | 163 |
 
-The 466 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 468 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -134,5 +134,15 @@ The four removed `policy.test.mjs` cases, each with its 0.1 feature reason:
 - “a .smallcaps span keeps its other attributes around the SmallCaps”: the 0.1 `.smallcaps` source-class import alias is gone; typed `small_caps` attributes are tested instead.
 - “the class is matched case-sensitively, as pandoc matches it”: the 0.1 `.smallcaps` source-class import alias is gone.
 - “pandoc and the bridge agree on what a .smallcaps span means”: the 0.1 `.smallcaps` source-class import alias is gone.
+
+The seven removed `wrapper-marker.test.mjs` cases, each with its 0.1 feature reason:
+
+- “leads the key-values of a Para, BlockQuote, list or rule wrapper”: the 0.1 `wrapperMarker` option inserted the private `wrapper=1` carrier.
+- “a Plain stays unmarked”: the 0.1 `wrapperMarker` option distinguished Plain from Para for its private marker.
+- “roundtrip turns it on and keeps carve-block last”: the 0.1 roundtrip option ordered `wrapper=1` and `carve-block` private carriers.
+- “import restores the attributes, an authored wrapper key included”: the 0.1 `wrapper=1` import rule lifted attributes from a Pandoc wrapper.
+- “pandoc HTML puts the attributes where Carve does”: the 0.1 `wrapper=1` marker was written to guide Pandoc HTML attribute placement.
+- “a Djot round trip through pandoc keeps the attributes”: the 0.1 `wrapper=1` marker was written for Pandoc's Djot writer and reader.
+- “the CLI flag”: the 0.1 `--wrapper-marker` CLI option is gone.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
