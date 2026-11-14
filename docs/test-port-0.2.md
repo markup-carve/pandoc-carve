@@ -52,7 +52,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | roundtrip.test.mjs | 9 | 0 | 0 | 0 | 9 |
 | row-groups.test.mjs | 44 | 28 | 1: 0.1 implicit rowGroups run split; 3: 0.1 flat rowGroups count validation; 1: 0.1 source writer's full positional partition spelling; 2: 0.1 row-head column inference from marked cells; 2: 0.1 declared-partition row-header inference; 2: 0.1 body-header-cols source key under a foot; 1: 0.1 single-body row-head count disagreement warning; 1: 0.1 leading body-header-cols source guard; 1: 0.1 derived count collapse; 2: 0.1 listTable extension | 0 | 0 |
 | smart-punctuation.test.mjs | 2 | 2 | 0 | 0 | 0 |
-| spec-citations.test.mjs | 5 | 0 | 0 | 0 | 5 |
+| spec-citations.test.mjs | 5 | 0 | 5: 0.1 PART/section grammar citation system | 0 | 0 |
 | spec-corpus.test.mjs | 6 | 0 | 0 | 0 | 6 |
 | substitution.test.mjs | 3 | 0 | 0 | 0 | 3 |
 | table-body-structure.test.mjs | 6 | 0 | 2: 0.1 positional body-key corpus contract; 3: 0.1.17 engine-lag waiver; 1: 0.1 corpus submodule fixture | 0 | 0 |
@@ -63,7 +63,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
 
-| Total | 730 | 399 | 57 | 23 | 251 |
+| Total | 730 | 399 | 62 | 23 | 246 |
 
 The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrite adds two checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 23 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
@@ -114,5 +114,13 @@ The three removed `metadata.test.mjs` cases, each with its 0.1 feature reason:
 - “a line that fits no shape is still reported and skipped”: the 0.1 bridge's handwritten YAML metadata parser and its line diagnostic are gone.
 - “a malformed deeper line terminates instead of spinning”: the 0.1 bridge's handwritten nested-YAML recovery loop is gone.
 - “a non-yaml frontmatter format is still refused”: the 0.1 bridge rejected non-YAML frontmatter; the 0.2 tree keeps the format and value verbatim.
+
+The five removed `spec-citations.test.mjs` cases, each with its 0.1 feature reason:
+
+- “the citation scan actually reads this repo”: it scanned 0.1 `PART N §M` citations, which the 0.2 spec replaced with `C2` identifiers.
+- “the grammar splits into PARTs the way this test assumes”: the 0.1 `grammar.ebnf` PART banners are absent from the 0.2 spec.
+- “every spec clause this repo cites still exists”: the 0.1 PART/section clause resolver has no 0.2 clause source.
+- “no WITHDRAWN exemption outlived the withdrawal it records”: the 0.1 withdrawn PART clause ledger is obsolete under 0.2 clause identifiers.
+- “every WITHDRAWN exemption is still used by the file it names”: the 0.1 withdrawn PART clause ledger is obsolete under 0.2 clause identifiers.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
