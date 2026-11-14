@@ -22,7 +22,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | diagnostics-v2.test.mjs | 1 | 0 | 0 | 1 |
 | djot-reader-and-inline-attrs.test.mjs | 31 | 0 | 0 | 31 |
 | empty-list-item.test.mjs | 8 | 0 | 0 | 8 |
-| equivalence.test.mjs | 41 | 0 | 0 | 41 |
+| equivalence.test.mjs | 41 | 41 | 0 | 0 |
 | examples.test.mjs | 11 | 0 | 0 | 11 |
 | figure-boundaries.test.mjs | 2 | 0 | 0 | 2 |
 | figure-groups.test.mjs | 15 | 0 | 0 | 15 |
@@ -63,8 +63,8 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 156 | 10 | 564 |
+| Total | 730 | 197 | 10 | 523 |
 
-The 156 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 197 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
