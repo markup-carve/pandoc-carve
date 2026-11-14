@@ -25,7 +25,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | equivalence.test.mjs | 41 | 41 | 0 | 0 | 0 |
 | examples.test.mjs | 11 | 0 | 0 | 0 | 11 |
 | figure-boundaries.test.mjs | 2 | 0 | 0 | 0 | 2 |
-| figure-groups.test.mjs | 15 | 0 | 0 | 0 | 15 |
+| figure-groups.test.mjs | 15 | 15 | 0 | 0 | 0 |
 | heading-ids.test.mjs | 3 | 2 | 1: 0.1 corpus heading oracle | 0 | 0 |
 | html-equivalence.test.mjs | 3 | 3 | 0 | 0 | 0 |
 | import-limits.test.mjs | 1 | 0 | 0 | 0 | 1 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
 
-| Total | 730 | 399 | 62 | 24 | 245 |
+| Total | 730 | 414 | 62 | 24 | 230 |
 
-The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 414 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 

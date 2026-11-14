@@ -99,7 +99,10 @@ test('quote figure and inner quote keep separate attributes', () => {
     children: [{ type: 'block_quote', attrs: { id: 'inner', classes: ['kept'], keyValues: [['a', '1']] }, children: [paragraph([text('q')])] }],
     caption: { type: 'caption', children: [paragraph([text('Author')])] } }]);
   const [figure] = carveAstToPandoc(ast).doc.blocks;
-  assert.deepEqual(figure.c[0], ['outer', ['fancy'], [['b', '3']]]);
+  assert.equal(figure.c[0][0], 'outer');
+  assert.deepEqual(figure.c[0][1], ['fancy']);
+  assert.deepEqual(figure.c[0][2].filter(([key]) => key !== 'carve-caption'), [['b', '3']]);
+  assert.ok(figure.c[0][2].some(([key]) => key === 'carve-caption'));
   assert.deepEqual(figure.c[2][0].c[0], ['inner', ['carve-block-quote', 'kept'], [['a', '1']]]);
 });
 

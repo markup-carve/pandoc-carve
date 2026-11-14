@@ -46,6 +46,7 @@ const cap = (x: CaptionNode | undefined, c: Context): P.Inline[] | null => x ? b
 const alignment = (x?: string): P.Alignment => x === 'left' ? 'AlignLeft' : x === 'right' ? 'AlignRight' : x === 'center' ? 'AlignCenter' : 'AlignDefault';
 const safeTarget = (value: string, c: Context): string => { if (hasDeniedScheme(value)) { c.warnings.push('destination-denied: URL scheme is not allowed in Pandoc output'); return ''; } return value; };
 const titleCarrier = (title?: Inline[]): [string, string][] => title === undefined ? [] : [['carve-title', JSON.stringify(title, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)]];
+const captionCarrier = (caption?: CaptionNode): [string, string][] => caption === undefined ? [] : [['carve-caption', JSON.stringify(caption, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)]];
 const openingBlocks = (title: Inline[] | undefined, groupLabel: string | undefined, c: Context): P.Block[] => [
   ...(title === undefined ? [] : [P.Para([P.Strong(il(title, c))])]),
   ...(groupLabel === undefined ? [] : [P.Para([P.Strong(words(groupLabel))])]),
@@ -85,7 +86,6 @@ function emit(n: Node, c: Context): P.PandocNode[] {
   if (n.type === 'link' && n.targetKind !== undefined) c.warnings.push('link: target kind has no Pandoc slot');
   if ((n.type === 'div' || n.type === 'admonition' || n.type === 'directive' || n.type === 'code_block') && n.title !== undefined) c.warnings.push(`${n.type}: title uses a bridge-specific Pandoc attribute`);
   if (n.type === 'figure' && n.kind !== undefined) c.warnings.push('figure: kind uses a bridge-specific Pandoc attribute');
-  if (n.type === 'figure_group' && n.caption !== undefined) c.warnings.push('figure_group: caption uses a bridge-specific Pandoc attribute');
   if (n.type === 'document' && (n.extensions !== undefined || n.resources !== undefined)) c.warnings.push('document: extensions and resource manifest have no Pandoc slot');
   switch (n.type) {
     case 'document': return n.children.flatMap(x => emit(x, c));
@@ -144,8 +144,8 @@ function emit(n: Node, c: Context): P.PandocNode[] {
     case 'directive': return [P.Div(P.attr(n.attrs?.id, ['carve-directive', n.kind, ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.groupLabel !== undefined ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), [...openingBlocks(n.title, n.groupLabel, c), ...bl(n.children, c)])];
     case 'block_extension': c.warnings.push(`block_extension: ${n.name} uses fallback`); return [P.Div(P.attr('', ['carve-extension'], [['name', n.name]]), bl(n.fallback, c))];
     case 'include': c.warnings.push('include: unresolved'); return [P.Div(P.attr('', ['carve-include'], [['path', n.path], ...(n.section ? [['section', n.section] as [string, string]] : []), ...(n.options ? [['options', JSON.stringify(n.options)] as [string, string]] : [])]), [])];
-    case 'figure': return [P.Figure(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.kind ? [['carve-figure-kind', n.kind] as [string, string]] : [])]), cap(n.caption, c), bl(n.children, c), n.caption?.short ? il(n.caption.short, c) : null)];
-    case 'figure_group': return [P.Div(P.attr(n.attrs?.id, ['carve-figure-group', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.caption ? [['carve-caption', JSON.stringify(n.caption, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)] as [string, string]] : [])]), bl(n.children, c))];
+    case 'figure': return [P.Figure(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.kind ? [['carve-figure-kind', n.kind] as [string, string]] : []), ...captionCarrier(n.caption)]), cap(n.caption, c), bl(n.children, c), n.caption?.short ? il(n.caption.short, c) : null)];
+    case 'figure_group': return [P.Figure(P.attr(n.attrs?.id, ['carve-figure-group', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...captionCarrier(n.caption)]), cap(n.caption, c), bl(n.children, c), n.caption?.short ? il(n.caption.short, c) : null)];
     case 'line_block': return [P.LineBlock(n.children.map(x => {
       const [first, ...rest] = x.children;
       if (first?.type !== 'text') return il(x.children, c);
@@ -201,6 +201,17 @@ export function carveAstToPandoc(input: DocumentNode | string): Result {
       const number = caption[index];
       const prefix = captionText(caption.slice(0, index < 0 ? 0 : index)).trim();
       c.targets.set(x.attrs.id, number?.type === 'caption_number' ? words(`${prefix} ${number.n ?? '#'}`.trim()) : words(x.attrs.id));
+    }
+    if (x.type === 'figure_group' && x.attrs?.id) {
+      const caption = x.caption?.children.flatMap(block => block.type === 'paragraph' ? block.children : []) ?? [];
+      const number = caption.find(node => node.type === 'caption_number');
+      const numberText = number?.type === 'caption_number' ? String(number.n ?? '#') : '';
+      const prefix = captionText(caption.slice(0, caption.indexOf(number!))).trim() || 'Figure';
+      const label = numberText ? `${prefix} ${numberText}` : x.attrs.id;
+      c.targets.set(x.attrs.id, words(label));
+      x.children.forEach((panel, index) => {
+        if ((panel.type === 'figure' || panel.type === 'table') && panel.attrs?.id && numberText) c.targets.set(panel.attrs.id, words(`${label}${String.fromCharCode(97 + index)}`));
+      });
     }
   }
   const metadata = ast.metadata;
@@ -353,7 +364,18 @@ function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
     case 'OrderedList': { const example = c[0][1].t === 'Example'; const style = ({ LowerAlpha: 'a', UpperAlpha: 'A', LowerRoman: 'i', UpperRoman: 'I' } as Record<string, 'a'|'A'|'i'|'I'>)[c[0][1].t] ?? '1'; return [{ type: 'list', ...(example ? { attrs: { keyValues: [['carve-example', '1'], ['carve-example-delimiter', c[0][2].t]] as [string, string][] } } : {}), marker: { kind: 'ordered', style, delimiter: c[0][2].t === 'OneParen' ? ')' : '.', ...(c[0][0] === 1 ? {} : { start: c[0][0] }) }, spacing: c[1].every((item: P.PandocNode[]) => item.every(b => b.t !== 'Para')) ? 'tight' : 'loose', children: c[1].map((item: P.PandocNode[]) => importItem(item, warnings)) }]; }
     case 'LineBlock': return [{ type: 'line_block', children: c.map((line: P.PandocNode[]) => ({ type: 'line', children: inlineList(line, warnings) })) }];
     case 'DefinitionList': return [{ type: 'definition_list', children: c.flatMap((entry: [P.PandocNode[], P.PandocNode[][]]) => [{ type: 'definition_term', children: inlineList(entry[0], warnings) }, ...entry[1].map(xs => ({ type: 'definition_description', children: blockList(xs, warnings) }))]) }];
-    case 'Figure': { const a = c[0] as P.Attr; const figureKind = a[2].find(([key]) => key === 'carve-figure-kind')?.[1]; const caption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined; return [withAttr({ type: 'figure', children: blockList(c[2], warnings), ...(caption ? { caption } : {}), ...(figureKind ? { kind: figureKind as 'image' } : {}) }, [a[0], a[1], a[2].filter(([key]) => key !== 'carve-figure-kind')])]; }
+    case 'Figure': {
+      const a = c[0] as P.Attr;
+      const figureKind = a[2].find(([key]) => key === 'carve-figure-kind')?.[1];
+      const nativeCaption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
+      const savedCaption = a[2].find(([key]) => key === 'carve-caption')?.[1];
+      let caption = nativeCaption;
+      if (savedCaption) { try { caption = JSON.parse(savedCaption) as CaptionNode; } catch { warnings.push('Figure: invalid carve-caption carrier'); } }
+      const children = blockList(c[2], warnings);
+      const group = a[1].includes('carve-figure-group') || children.some(child => child.type === 'figure' || child.type === 'figure_group' || child.type === 'table');
+      const attrs: P.Attr = [a[0], a[1].filter(name => name !== 'carve-figure-group'), a[2].filter(([key]) => key !== 'carve-figure-kind' && key !== 'carve-caption')];
+      return [withAttr(group ? { type: 'figure_group', children, ...(caption ? { caption } : {}) } : { type: 'figure', children, ...(caption ? { caption } : {}), ...(figureKind ? { kind: figureKind as 'image' } : {}) }, attrs)];
+    }
     case 'Table': return [importTable(c, warnings)];
     default: warnings.push(`${node.t}: unsupported Pandoc block`); return [];
   }
