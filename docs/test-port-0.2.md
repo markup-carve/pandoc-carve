@@ -15,7 +15,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | citations.test.mjs | 27 | 25 | 1: 0.1 citeproc bibliography metadata diagnostic; 1: 0.1 CSL-entry Div mapping for citation definitions | 0 | 0 |
 | cli.test.mjs | 24 | 0 | 0 | 0 | 24 |
 | conversion-correctness.test.mjs | 4 | 4 | 0 | 0 | 0 |
-| corpus-census.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| corpus-census.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | corpus-link-targets.test.mjs | 9 | 7 | 2: 0.1 spec-corpus divergent allowlist | 0 | 0 |
 | corpus.test.mjs | 10 | 10 | 0 | 0 | 0 |
 | diagnostic-code-coverage.test.mjs | 22 | 0 | 0 | 0 | 22 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 555 | 80 | 24 | 71 |
+| Total | 730 | 556 | 80 | 24 | 70 |
 
-The 555 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 556 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
