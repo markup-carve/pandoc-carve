@@ -13,7 +13,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | caption-blocks.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | cell-attrs.test.mjs | 11 | 11 | 0 | 0 | 0 |
 | citations.test.mjs | 27 | 25 | 1: 0.1 citeproc bibliography metadata diagnostic; 1: 0.1 CSL-entry Div mapping for citation definitions | 0 | 0 |
-| cli.test.mjs | 24 | 0 | 0 | 0 | 24 |
+| cli.test.mjs | 24 | 11 | 10: 0.1 include expansion and include diagnostics; 3: 0.1 structured migration-report format | 0 | 0 |
 | conversion-correctness.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | corpus-census.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | corpus-link-targets.test.mjs | 9 | 7 | 2: 0.1 spec-corpus divergent allowlist | 0 | 0 |
@@ -63,9 +63,25 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 556 | 80 | 24 | 70 |
+| Total | 730 | 567 | 93 | 24 | 46 |
 
-The 556 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 567 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+
+The 13 removed `cli.test.mjs` cases, each with its 0.1 feature reason:
+
+- “stdin includes are opt-in through an absolute root”: 0.1 include expansion is absent from the 0.2 engine.
+- “named files expand from their directory and --no-includes opts out”: 0.1 include expansion is absent from the 0.2 engine.
+- “include warnings expose no absolute containment path”: 0.1 include expansion diagnostics are absent from the 0.2 engine.
+- “include warnings remain contained when the root is a symlink”: 0.1 include expansion diagnostics are absent from the 0.2 engine.
+- “include failures participate in structured diagnostics and fail-on-loss”: 0.1 include expansion diagnostics are absent from the 0.2 engine.
+- “normalized include renames do not fail on loss”: 0.1 include ID rewriting is absent from the 0.2 engine.
+- “stdin include diagnostics omit an unknown file identity”: 0.1 include expansion diagnostics are absent from the 0.2 engine.
+- “reports the count of suppressed include warnings”: 0.1 include expansion warning cap is absent from the 0.2 engine.
+- “-f carve-json rejects source-only include options”: 0.1 include expansion CLI options are absent from the 0.2 engine.
+- “Pandoc readers reject source-only include options”: 0.1 include expansion CLI options are absent from the 0.2 engine.
+- “structured diagnostics stay separate from converted output”: 0.1 structured migration-report format is absent from the 0.2 bridge.
+- “inbound diagnostics name the original source format”: 0.1 structured migration-report format is absent from the 0.2 bridge.
+- “replays every shared Pandoc fidelity fixture”: 0.1 structured migration-report fixtures are absent from the 0.2 bridge.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
