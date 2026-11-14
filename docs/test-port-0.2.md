@@ -9,7 +9,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | attribute-case-fold.test.mjs | 8 | 8 | 0 | 0 |
 | attribute-sanitize.test.mjs | 5 | 5 | 0 | 0 |
 | bidi-controls.test.mjs | 3 | 3 | 0 | 0 |
-| block-cells.test.mjs | 14 | 0 | 0 | 14 |
+| block-cells.test.mjs | 14 | 10 | 1: 0.1 listTable source round trip for block cells; 1: 0.1 listTable local header-row syntax; 1: 0.1 listTable list tightness encoding; 1: 0.1 listTable header-cols source key | 0 |
 | caption-blocks.test.mjs | 4 | 0 | 0 | 4 |
 | cell-attrs.test.mjs | 11 | 0 | 0 | 11 |
 | citations.test.mjs | 27 | 0 | 0 | 27 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 333 | 41 | 356 |
+| Total | 730 | 343 | 45 | 342 |
 
-The 333 ported cases are in the current `npm test` gate. The row-groups rewrite also adds three 0.2-specific checks for explicit zero head rows, body header cell flags, and source diagnostics. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 343 ported cases are in the current `npm test` gate. The row-groups rewrite also adds three 0.2-specific checks for explicit zero head rows, body header cell flags, and source diagnostics. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -85,5 +85,12 @@ The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 - “control: counts that alternate over more than one column still collapse”: 0.1 source writer collapsed body count runs inferred from marked cells.
 - “a forced list-table reports the row headers the disagreement invents”: 0.1 `listTable` extension had one table-wide `header-cols` count.
 - “the AST path says the same thing, because the warning names where it survives”: 0.1 `listTable` extension emitted a source-only row-head widening warning.
+
+The four removed `block-cells.test.mjs` cases, each with its 0.1 feature reason:
+
+- “block cells: the block content survives the whole loop back to pandoc”: 0.1 `listTable` source could spell full block cells; 0.2 source cannot.
+- “list-table: local header rows become separate pandoc body groups”: 0.1 `listTable` local `header-row` syntax is gone.
+- “block cells: the emitted tight flags match what the emitted source parses to”: 0.1 `listTable` used list item tightness to encode cells.
+- “block cells: row-head columns survive the list-table loop”: 0.1 `listTable` used a table-wide `header-cols` key.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
