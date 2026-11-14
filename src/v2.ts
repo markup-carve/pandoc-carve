@@ -305,7 +305,7 @@ function importTable(c: any[], warnings: string[]): TableNode {
   if (columnFacts) { try { const saved = JSON.parse(columnFacts) as Omit<TableNode['columns'][number], 'type'>[]; if (Array.isArray(saved) && saved.length === columns.length) columns = saved.map(x => ({ type: 'table_column', ...x })); } catch { warnings.push('Table: invalid carve-columns carrier'); } }
   const caption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
   // Source control keys describe rows; a stale Pandoc Attr must not override them.
-  const partitionKeys = new Set(['header-rows', 'footer-rows', 'body-rows', 'body-header-rows', 'body-header-cols']);
+  const partitionKeys = new Set(['header-rows', 'footer-rows']);
   return withAttr({ type: 'table', columns, children, ...(caption ? { caption } : {}) }, [(c[0] as P.Attr)[0], (c[0] as P.Attr)[1], (c[0] as P.Attr)[2].filter(([k]) => k !== 'carve-columns' && !partitionKeys.has(k))]);
 }
 

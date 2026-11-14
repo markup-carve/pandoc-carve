@@ -55,7 +55,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | spec-citations.test.mjs | 5 | 0 | 0 | 5 |
 | spec-corpus.test.mjs | 6 | 0 | 0 | 6 |
 | substitution.test.mjs | 3 | 0 | 0 | 3 |
-| table-body-structure.test.mjs | 6 | 0 | 0 | 6 |
+| table-body-structure.test.mjs | 6 | 0 | 2: 0.1 positional body-key corpus contract; 3: 0.1.17 engine-lag waiver; 1: 0.1 corpus submodule fixture | 0 |
 | table-reader-regressions.test.mjs | 14 | 13 | 1: 0.1 Figure/Div wrapper attributes collapsed into a table | 0 |
 | table-section-attributes.test.mjs | 3 | 0 | 0 | 3 |
 | task-states.test.mjs | 16 | 15 | 1: 0.1 checked plus taskState conflict model | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 367 | 46 | 317 |
+| Total | 730 | 367 | 52 | 311 |
 
-The 367 ported cases are in the current `npm test` gate. The row-groups rewrite also adds three 0.2-specific checks for explicit zero head rows, body header cell flags, and source diagnostics. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 367 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, and the table-body rewrite adds two checks for 0.2 section nodes and ordinary body-key attributes. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -94,5 +94,14 @@ The four removed `block-cells.test.mjs` cases, each with its 0.1 feature reason:
 - “block cells: row-head columns survive the list-table loop”: 0.1 `listTable` used a table-wide `header-cols` key.
 
 The removed `table-reader-regressions.test.mjs` case “Figure and alignment-Div attributes merge into the table with the caption” depended on the 0.1 wrapper-collapse rule, which discarded the Figure and Div nodes and merged their attributes into the table. Carve 0.2 keeps those nodes.
+
+The six removed `table-body-structure.test.mjs` cases, each with its 0.1 feature reason:
+
+- “the spec corpus submodule is checked out”: the 0.1 `spec/tests/corpus` submodule fixture is replaced by the 0.2 reference checkout.
+- “both arms of the check ran over real documents”: the 0.1 positional `body-rows` corpus contract no longer defines 0.2 partitions.
+- “every corpus table has the body split its source states”: the 0.1 positional `body-rows` source split is gone.
+- “the waiver is keyed to the engine pin and expires with it”: the 0.1.17 engine-lag waiver is obsolete for the vendored 0.2 engine.
+- “the waiver holds no document that already matches”: the 0.1.17 engine-lag waiver is obsolete for the vendored 0.2 engine.
+- “every waiver entry names a document the corpus still has”: the 0.1.17 engine-lag waiver is obsolete for the vendored 0.2 engine.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
