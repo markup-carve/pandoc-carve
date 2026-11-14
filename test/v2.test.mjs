@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import { parse, treesEqual, validateTree } from '../vendor/carve-v2/index.js';
 import { carveToPandoc, carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import * as P from '../dist/pandoc.js';
@@ -87,4 +88,15 @@ for (const [name, source] of [
   const exported = carveAstToPandoc(original);
   const imported = pandocToCarve(exported.doc);
   assert.ok(treesEqual(original, parse(imported.carve)), imported.warnings.join('\n'));
+});
+
+test('format probes have a lossless direct bridge baseline', () => {
+  const dir = new URL('./fixtures/probes-0.2/', import.meta.url);
+  const files = readdirSync(dir).filter(name => name.endsWith('.crv'));
+  assert.ok(files.length >= 60);
+  for (const file of files) {
+    const initial = parse(readFileSync(new URL(file, dir), 'utf8'));
+    const back = pandocToCarveAst(carveAstToPandoc(initial).doc).ast;
+    assert.ok(treesEqual(initial, back), file);
+  }
 });
