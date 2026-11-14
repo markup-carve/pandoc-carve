@@ -71,7 +71,7 @@ function table(x: TableNode, c: Context): P.Block {
     }));
   }
   const columnFacts = x.columns.some(n => n.resolvedAlign !== undefined || n.valign !== undefined) ? [['carve-columns', JSON.stringify(x.columns.map(n => ({ align: n.align, width: n.width, valign: n.valign, authored: n.authored })))] as [string, string]] : [];
-  return P.Table(P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...columnFacts]), cap(x.caption, c), x.columns.map(n => alignment(n.resolvedAlign ?? n.align)), heads.flatMap(n => rows(n.children, c, true)), bodies.map(n => ({ attr: P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.headRows === 0 ? [['carve-head-rows', '0'] as [string, string]] : [])]), rowHeadColumns: n.rowHeadColumns, headRows: n.headRows === undefined ? [] : rows(n.children.filter(y => y.type === 'table_row').slice(0, n.headRows), c), bodyRows: rows(n.children.filter(y => y.type === 'table_row').slice(n.headRows ?? 0), c) })), feet.flatMap(n => rows(n.children, c)), x.caption?.short ? il(x.caption.short, c) : null, x.columns.map(n => n.width ?? null), attr(heads[0]?.attrs), attr(feet[0]?.attrs));
+  return P.Table(P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...columnFacts, ...captionCarrier(x.caption)]), cap(x.caption, c), x.columns.map(n => alignment(n.resolvedAlign ?? n.align)), heads.flatMap(n => rows(n.children, c, true)), bodies.map(n => ({ attr: P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.headRows === 0 ? [['carve-head-rows', '0'] as [string, string]] : [])]), rowHeadColumns: n.rowHeadColumns, headRows: n.headRows === undefined ? [] : rows(n.children.filter(y => y.type === 'table_row').slice(0, n.headRows), c), bodyRows: rows(n.children.filter(y => y.type === 'table_row').slice(n.headRows ?? 0), c) })), feet.flatMap(n => rows(n.children, c)), x.caption?.short ? il(x.caption.short, c) : null, x.columns.map(n => n.width ?? null), attr(heads[0]?.attrs), attr(feet[0]?.attrs));
 }
 /** Every public 0.2 node has an explicit case; a new type is a compiler error. */
 function emit(n: Node, c: Context): P.PandocNode[] {
@@ -194,7 +194,7 @@ export function carveAstToPandoc(input: DocumentNode | string): Result {
   const c: Context = { warnings: [], notes: new Map(), links: new Map(), targets: new Map(), noteCount: 0 };
   for (const x of ast.children) { if (x.type === 'footnote') c.notes.set(x.key, x.children); if (x.type === 'link_reference_definition') c.links.set(x.key, [x.href, x.tooltip ?? '']); }
   for (const x of ast.children) {
-    if (x.type === 'heading') { const id = x.attrs?.id ?? x.generatedId; if (id) { const label = il(x.children.filter(node => node.type !== 'xref' || node.key !== id), c); while (label.at(-1)?.t === 'Space') label.pop(); c.targets.set(id, label); } }
+    if (x.type === 'heading') { const id = x.attrs?.id ?? x.generatedId; if (id) { const label = x.children.filter(node => node.type !== 'xref' || node.key !== id).flatMap(node => node.type === 'link' ? words(captionText(node.children)) : il([node], c)); while (label.at(-1)?.t === 'Space') label.pop(); c.targets.set(id, label); } }
     if ((x.type === 'figure' || x.type === 'table') && x.attrs?.id) {
       const caption = x.caption?.children.flatMap(block => block.type === 'paragraph' ? block.children : []) ?? [];
       const index = caption.findIndex(node => node.type === 'caption_number');
@@ -385,10 +385,12 @@ function importTable(c: any[], warnings: string[]): TableNode {
   let columns: TableNode['columns'] = c[2].map((x: any[]) => ({ type: 'table_column', ...(x[0].t === 'AlignDefault' ? {} : { align: x[0].t === 'AlignLeft' ? 'left' as const : x[0].t === 'AlignRight' ? 'right' as const : 'center' as const, authored: true as const }), ...(x[1].t === 'ColWidth' ? { width: x[1].c, authored: true as const } : {}) }));
   const columnFacts = (c[0] as P.Attr)[2].find(([k]) => k === 'carve-columns')?.[1];
   if (columnFacts) { try { const saved = JSON.parse(columnFacts) as Omit<TableNode['columns'][number], 'type'>[]; if (Array.isArray(saved) && saved.length === columns.length) columns = saved.map(x => ({ type: 'table_column', ...x })); } catch { warnings.push('Table: invalid carve-columns carrier'); } }
-  const caption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
+  let caption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
+  const savedCaption = (c[0] as P.Attr)[2].find(([key]) => key === 'carve-caption')?.[1];
+  if (savedCaption) { const restored = readCaption(savedCaption); if (restored) caption = restored; else warnings.push('Table: invalid carve-caption carrier'); }
   // Source control keys describe rows; a stale Pandoc Attr must not override them.
   const partitionKeys = new Set(['header-rows', 'footer-rows']);
-  return withAttr({ type: 'table', columns, children, ...(caption ? { caption } : {}) }, [(c[0] as P.Attr)[0], (c[0] as P.Attr)[1], (c[0] as P.Attr)[2].filter(([k]) => k !== 'carve-columns' && !partitionKeys.has(k))]);
+  return withAttr({ type: 'table', columns, children, ...(caption ? { caption } : {}) }, [(c[0] as P.Attr)[0], (c[0] as P.Attr)[1], (c[0] as P.Attr)[2].filter(([k]) => k !== 'carve-columns' && k !== 'carve-caption' && !partitionKeys.has(k))]);
 }
 
 function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
