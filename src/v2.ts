@@ -235,6 +235,39 @@ const importAttr = (a: unknown): Attrs | undefined => {
 const readTitle = (value: string | undefined): Inline[] | undefined => { if (value === undefined) return undefined; try { const parsed: unknown = JSON.parse(value); return Array.isArray(parsed) ? parsed as Inline[] : undefined; } catch { return undefined; } };
 const readCaption = (value: string | undefined): CaptionNode | undefined => { if (value === undefined) return undefined; try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === 'object' && 'type' in parsed && parsed.type === 'caption' ? parsed as CaptionNode : undefined; } catch { return undefined; } };
 const withAttr = <T extends Node>(node: T, a: unknown): T => { const attrs = importAttr(a); return attrs ? { ...node, attrs } : node; };
+const MAX_PANDOC_NODE_DEPTH = 200;
+const MAX_PANDOC_LIST_DEPTH = 100;
+function checkPandocJsonDepth(source: string): void {
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (const char of source) {
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{' || char === '[') {
+      if (++depth > MAX_PANDOC_NODE_DEPTH * 2 + 32) throw new Error('Pandoc JSON nesting exceeds the import limit');
+    } else if (char === '}' || char === ']') depth--;
+  }
+}
+function checkPandocNodeDepth(doc: P.PandocDoc): void {
+  const stack: { value: unknown; depth: number; lists: number }[] = [{ value: doc, depth: 0, lists: 0 }];
+  while (stack.length) {
+    const { value, depth, lists } = stack.pop()!;
+    if (Array.isArray(value)) {
+      for (const child of value) stack.push({ value: child, depth, lists });
+    } else if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      const nextDepth = typeof record.t === 'string' ? depth + 1 : depth;
+      const nextLists = record.t === 'BulletList' || record.t === 'OrderedList' ? lists + 1 : lists;
+      if (nextDepth > MAX_PANDOC_NODE_DEPTH) throw new Error('Pandoc node nesting exceeds the import limit');
+      if (nextLists > MAX_PANDOC_LIST_DEPTH) throw new Error('Pandoc list nesting exceeds the import limit');
+      for (const child of Object.values(record)) stack.push({ value: child, depth: nextDepth, lists: nextLists });
+    }
+  }
+}
 const inlineList = (xs: P.PandocNode[], warnings: string[]): Inline[] => xs.flatMap(x => importInline(x, warnings));
 const blockList = (xs: P.PandocNode[], warnings: string[]): Block[] => xs.flatMap(x => importBlock(x, warnings));
 function importItem(item: P.PandocNode[], warnings: string[]): Extract<Node, { type: 'list_item' }> {
@@ -391,7 +424,9 @@ function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
 }
 
 export function pandocToCarveAst(input: P.PandocDoc | string): { ast: DocumentNode; warnings: string[] } {
+  if (typeof input === 'string') checkPandocJsonDepth(input);
   const doc = typeof input === 'string' ? JSON.parse(input) as P.PandocDoc : input;
+  checkPandocNodeDepth(doc);
   const warnings: string[] = [];
   const metadata: NonNullable<DocumentNode['metadata']> = {};
   const metaInlines = (name: string): Inline[] | undefined => doc.meta?.[name]?.t === 'MetaInlines' ? inlineList(doc.meta[name]!.c as P.Inline[], warnings) : undefined;

@@ -28,7 +28,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | figure-groups.test.mjs | 15 | 15 | 0 | 0 | 0 |
 | heading-ids.test.mjs | 3 | 2 | 1: 0.1 corpus heading oracle | 0 | 0 |
 | html-equivalence.test.mjs | 3 | 3 | 0 | 0 | 0 |
-| import-limits.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| import-limits.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | import.test.mjs | 5 | 5 | 0 | 0 | 0 |
 | includes.test.mjs | 9 | 0 | 0 | 0 | 9 |
 | inline-literal.test.mjs | 5 | 3 | 2: 0.1 unclosed literal crossed a line boundary | 0 | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 493 | 78 | 24 | 135 |
+| Total | 730 | 494 | 78 | 24 | 134 |
 
-The 493 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 494 ported cases are in the current `npm test` gate. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
