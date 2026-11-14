@@ -41,7 +41,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | no-git-dependencies.test.mjs | 66 | 66 | 0 | 0 | 0 |
 | packaging.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | parity.test.mjs | 11 | 11 | 0 | 0 | 0 |
-| participants.test.mjs | 4 | 0 | 0 | 0 | 4 |
+| participants.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | policy.test.mjs | 20 | 16 | 4: 0.1 `.smallcaps` source-class import alias | 0 | 0 |
 | provenance.test.mjs | 8 | 5 | 2: 0.1 opaque unknown-node provenance; 1: 0.1 structured bridge diagnostics API | 0 | 0 |
 | raw-block-payload.test.mjs | 7 | 7 | 0 | 0 | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 589 | 107 | 26 | 8 |
+| Total | 730 | 593 | 107 | 26 | 4 |
 
-The 589 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 593 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The three removed `loss-audit.test.mjs` cases, each with its 0.1 feature reason:
 
