@@ -372,6 +372,7 @@ function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
       let caption = nativeCaption;
       if (savedCaption) { try { caption = JSON.parse(savedCaption) as CaptionNode; } catch { warnings.push('Figure: invalid carve-caption carrier'); } }
       const children = blockList(c[2], warnings);
+      for (const child of children) if (child.type === 'paragraph' && child.children.length === 1 && child.children[0]?.type === 'image') child.role = 'image';
       const group = a[1].includes('carve-figure-group') || children.some(child => child.type === 'figure' || child.type === 'figure_group' || child.type === 'table');
       const attrs: P.Attr = [a[0], a[1].filter(name => name !== 'carve-figure-group'), a[2].filter(([key]) => key !== 'carve-figure-kind' && key !== 'carve-caption')];
       return [withAttr(group ? { type: 'figure_group', children, ...(caption ? { caption } : {}) } : { type: 'figure', children, ...(caption ? { caption } : {}), ...(figureKind ? { kind: figureKind as 'image' } : {}) }, attrs)];
