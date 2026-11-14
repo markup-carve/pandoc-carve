@@ -1,131 +1,136 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 import { parse } from '../vendor/carve-v2/index.js';
+import { meaningRules } from './roundtrip-grade.mjs';
 
-const repo = resolve(import.meta.dirname, '..');
-const brief = process.env.CARVE_RT_BRIEF_DIR;
-const run = JSON.parse(readFileSync(join(repo, 'docs/roundtrip-0.2-data.json'), 'utf8'));
-const names = run.probes.map(x => x.slice(0, -4));
-const cell = (p, f) => run.cells[p][f];
-const counts = Object.fromEntries(run.formats.map(f => [f, Object.fromEntries(['exact', 'equivalent', 'lossy', 'error'].map(v => [v, names.filter(p => cell(p, f).verdict === v).length]))]));
-const fmt = fs => fs.map(x => `\`${x}\``).join(', ');
-const short = s => String(s ?? '').replace(/\|/g, '\\|').replace(/\s+/g, ' ').slice(0, 90);
-function nodeAt(probe, path) {
-  let x = parse(readFileSync(join(repo, 'test/fixtures/probes-0.2', `${probe}.crv`), 'utf8'));
-  let last = x?.type || 'document';
-  for (const part of path.split('/').filter(Boolean)) {
-    if (x?.type) last = x.type;
-    if (x === undefined || x === null) break;
-    x = x[Number.isInteger(Number(part)) && part !== '' ? Number(part) : part];
+const root = resolve(import.meta.dirname, '..');
+const data = JSON.parse(readFileSync(process.env.CARVE_RT_OUTPUT || join(root, 'docs/roundtrip-0.2-data.json'), 'utf8'));
+const order = ['exact', 'same-meaning', 'same-rendering', 'same-text', 'lossy', 'error'];
+const label = v => ({ exact: 'E', 'same-meaning': 'M', 'same-rendering': 'R', 'same-text': 'T', lossy: 'L', error: '!' })[v] ?? '?';
+const names = data.formats;
+const probes = data.probes.map(f => f.replace(/\.crv$/, ''));
+const counts = Object.fromEntries(names.map(fmt => [fmt, Object.fromEntries(order.map(v => [v, probes.filter(p => data.cells[p][fmt].verdict === v).length]))]));
+
+function sourceFeatures(name) {
+  const ast = parse(readFileSync(join(root, 'test/fixtures/probes-0.2', `${name}.crv`), 'utf8'));
+  const found = new Set();
+  function walk(n) {
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    if (!n || typeof n !== 'object') return;
+    const t = n.type ?? '';
+    if (n.attrs) found.add('attribute');
+    if (t === 'table') found.add('table structure');
+    if (t === 'table_column' && (n.align || n.width)) found.add('table alignment');
+    if (/caption/.test(t) || n.caption) found.add('caption');
+    if (/footnote/.test(t)) found.add('footnote');
+    if (/math/.test(t)) found.add('math');
+    if (/code/.test(t) && (n.syntax || n.language || n.attrs?.classes?.length)) found.add('code language');
+    if (/raw/.test(t)) found.add('raw content');
+    if (['link', 'autolink', 'xref'].includes(t)) found.add('link target');
+    if (t === 'image') found.add('image');
+    if (t === 'list') found.add('list structure');
+    if (n.task || t === 'task') found.add('task state');
+    if (/figure|quote|admonition|directive|div|container/.test(t)) found.add('container role');
+    if (t === 'heading') found.add('heading level or id');
+    if (/frontmatter/.test(t)) found.add('frontmatter');
+    if (/comment/.test(t)) found.add('comment');
+    if (['emphasis', 'strong', 'underline', 'strike', 'highlight', 'superscript', 'subscript', 'small_caps', 'span', 'code', 'literal_inline', 'smart_punctuation', 'autolink', 'link', 'image', 'citation_group'].includes(t)) found.add('inline role');
+    Object.values(n).forEach(walk);
   }
-  return last;
+  walk(ast);
+  return found;
 }
-const markers = ['carve-tree','carve-frontmatter','carve-comment','carve-critic-comment','carve-generated-id','carve-list','carve-task','carve-span','carve-columns','carve-head-rows','carve-block-image','carve-block-math','carve-paragraph','carve-figure-group','carve-figure-kind','carve-admonition','carve-directive','carve-title','carve-group-label','carve-abbreviation','carve-mention','carve-tag','carve-symbol','carve-smart','carve-xref','carve-inline-attrs','carve-block-quote','carve-literal','carve-delete','carve-insert','carve-autolink','carve-footnote-ref','carve-key','carve-form'];
-function lostMarkers(x) {
-  if (!x.pandocBefore || !x.pandocAfter) return [];
-  const before = JSON.stringify(x.pandocBefore.blocks), after = JSON.stringify(x.pandocAfter.blocks);
-  return markers.filter(m => before.includes(m) && !after.includes(m)).map(m => ({ marker: m, step: x.writerText === undefined ? 'not determined' : x.writerText.includes(m) ? 'Pandoc reader' : 'Pandoc writer' }));
-}
-const relevant = {
-  abbreviation: ['carve-tree'], footnote: ['carve-tree'], image_reference: ['carve-tree','carve-key'], link_reference: ['carve-tree','carve-key'], link_reference_collapsed: ['carve-tree','carve-key'], frontmatter: ['carve-frontmatter'],
-  comment_line: ['carve-comment'], comment_block: ['carve-comment'], comment_braced: ['carve-comment'], editorial_comment: ['carve-critic-comment'],
-  heading: ['carve-generated-id'], heading_level_6: ['carve-generated-id'], heading_authored_id: ['carve-generated-id'], xref: ['carve-xref','carve-generated-id'],
-  list_bullet_star: ['carve-list'], task_done: ['carve-task'], task_other: ['carve-task'], task_mixed: ['carve-task'],
-  table_colspan: ['carve-span'], table_rowspan: ['carve-span'],
-  table_alignment: ['carve-columns'], table_body_partition: ['carve-head-rows'],
-  admonition: ['carve-admonition'], admonition_label: ['carve-group-label','carve-admonition'], admonition_title: ['carve-title','carve-admonition'], div_title: ['carve-title'], code_block_title: ['carve-title'],
-  mention: ['carve-mention'], tag: ['carve-tag'], symbol: ['carve-symbol'], smart_dash: ['carve-smart'], smart_quotes: ['carve-smart'], literal_inline: ['carve-literal'],
-  autolink: ['carve-autolink'], autolink_attrs: ['carve-autolink'], insertion: ['carve-insert'], deletion: ['carve-delete'], replacement: ['carve-delete','carve-insert'],
-  emphasis_attrs: ['carve-inline-attrs'], strong_attrs: ['carve-inline-attrs'], math_attrs: ['carve-inline-attrs'], inline_footnote_attrs: ['carve-inline-attrs'], block_quote_attrs: ['carve-block-quote'],
+const present = Object.fromEntries(probes.map(p => [p, sourceFeatures(p)]));
+const features = ['inline role', 'attribute', 'table structure', 'table alignment', 'caption', 'footnote', 'math', 'code language', 'raw content', 'link target', 'image', 'list structure', 'task state', 'container role', 'heading level or id', 'frontmatter', 'comment'];
+const direct = data.reverse.direct;
+const reverseNames = data.reverse.probes;
+const need = {
+  quoted_double: 'quote kind and quoted span on an inline node', quoted_single: 'quote kind and quoted span on an inline node',
+  ol_example: 'ordered-list Example style on list.marker',
 };
-function attribution(p, x) {
-  if (x.verdict === 'error') return `${x.step}: ${short(x.message)}`;
-  if (x.bridgeBaselineDifference) return 'Bridge export/import: direct Pandoc JSON baseline differs';
-  if (!x.pandocDifference) return 'Bridge import: Pandoc JSON blocks are unchanged';
-  const m = lostMarkers(x).find(z => relevant[p]?.includes(z.marker));
-  if (m) return `${m.step}: ${m.marker} absent after format`;
-  return 'Not determined: Pandoc writer or reader';
+function needFor(p) {
+  if (need[p]) return need[p];
+  if (/^raw/.test(p)) return 'raw content node with format';
+  if (/^table_/.test(p)) return /align|width/.test(p) ? 'column or cell alignment/width field on table' : 'table row, cell, or section field';
+  if (/^ol_/.test(p)) return 'ordered-list marker field on list';
+  if (/^image_/.test(p)) return 'image attribute field or carve.style';
+  if (/attrs/.test(p)) return 'attribute field on the corresponding node';
+  if (/^code/.test(p)) return 'code field on code node';
+  if (/^figure/.test(p)) return 'figure field on figure node';
+  if (/^line/.test(p)) return 'line node or carve.source';
+  if (/^cite/.test(p)) return 'citation field on citation node';
+  return 'carve.source or a typed field on the corresponding node';
 }
-
-let md = `# Carve 0.2 through Pandoc formats\n\n${run.version}; ${names.length} source probes, ${run.formats.length} formats. Every cell runs Carve source → 0.2 tree → Pandoc JSON → writer → reader → Pandoc JSON → 0.2 tree. Equality uses the vendored engine's \`treesEqual\`. \`equivalent\` is reserved for documented defaults: ordered start 1, cell span 1, and empty attributes; resolution results are already excluded by \`treesEqual\`. No cell met the separate equivalent rule in this run.\n\nDOCX, ODT and EPUB use actual files; all other formats use writer stdout. Writers use \`--wrap=preserve\` and a resource path containing the probe PNGs. EPUB's empty chapter wrapper and notebook's sole cell wrapper are removed before the bridge import; the original reader blocks remain in [the evidence](roundtrip-0.2-data.json). Volatile metadata added by EPUB is listed by key and omitted from the saved JSON. Pandoc ${run.readers.asciidoc ? 'has an AsciiDoc reader in this installation' : 'has no AsciiDoc reader; its cells are writer-only errors'}. No PDF run was attempted.\n\n## Grid\n\n`;
-md += `| Probe | ${run.formats.join(' | ')} |\n| --- | ${run.formats.map(() => '---').join(' | ')} |\n`;
-for (const p of names) md += `| [${p}](../test/fixtures/probes-0.2/${p}.crv) | ${run.formats.map(f => cell(p, f).verdict).join(' | ')} |\n`;
-md += '\n## Attribution by feature\n\nEach row groups formats with the same first differing tree node and field and the same supported attribution. The before and after Pandoc JSON for every nonexact cell, including the original EPUB/notebook wrappers, are in [the evidence](roundtrip-0.2-data.json). “Not determined” means the JSON snapshots show a change across the format boundary but do not distinguish the writer from the reader. A writer/reader attribution based on a carrier is made only when that carrier is present in the first JSON and absent in the second; the saved writer text distinguishes those steps for text formats.\n\n| Probe | Formats | First differing node.field | Attribution |\n| --- | --- | --- | --- |\n';
-for (const p of names) {
-  const groups = new Map();
-  for (const f of run.formats) {
-    const x = cell(p, f);
-    if (x.verdict === 'exact') continue;
-    const d = x.difference || { path: '/', field: x.verdict === 'equivalent' ? `defaults: ${x.defaults?.join(', ')}` : x.step || 'error' };
-    const where = `${nodeAt(p, d.path)}.${d.field} (${d.path || '/'})`;
-    const stage = attribution(p, x);
-    const key = `${where}|${stage}`;
-    if (!groups.has(key)) groups.set(key, { where, stage, formats: [] });
-    groups.get(key).formats.push(f);
+function rank() {
+  return reverseNames.filter(p => direct[p].verdict !== 'typed').map(p => {
+    const carriers = names.filter(fmt => data.reverse.formats[fmt]?.[p]?.formatCarries);
+    return { p, carriers, verdict: direct[p].verdict, need: needFor(p) };
+  }).sort((a, b) => b.carriers.length - a.carriers.length || a.p.localeCompare(b.p));
+}
+const gaps = rank();
+const md = [];
+md.push('# Carve 0.2 format round trips', '', `${data.version}. ${probes.length} Carve probes × ${names.length} readable formats; ${reverseNames.length} Pandoc rich/degraded pairs in the reverse direction.`, '',
+  '## Verdict ladder', '',
+  'The first true rung wins: **exact** uses the vendored engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy** names the first differing block; **error** records the failing stage.', '',
+  'The same-meaning rules, in script order, are:', '',
+  ...meaningRules.map(([description], i) => `${i + 1}. ${description}.`), '',
+  'These rules do not remove text, block structure, emphasis family, link destinations, images, table cells, math, code content or language, footnote content, task state, attribute values, or classes. The vendored engine’s equality already ignores positions and computed resolution fields.', '',
+  '## Per-format summary', '',
+  '| Format | Exact | Same meaning | Same rendering | Same text | Lossy | Error |',
+  '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+  ...names.map(f => `| ${f} | ${order.map(v => counts[f][v]).join(' | ')} |`), '',
+  '## Carve-to-format grid', '',
+  'E = exact; M = same meaning; R = same rendering; T = same text; L = lossy; ! = error. First differing block, degraded feature names, attribution, and Pandoc snapshots are in [the data](roundtrip-0.2-data.json).', '',
+  `| Probe | ${names.join(' | ')} |`, `| --- | ${names.map(() => ':---:').join(' | ')} |`,
+  ...probes.map(p => `| [${p}](../test/fixtures/probes-0.2/${p}.crv) | ${names.map(f => label(data.cells[p][f].verdict)).join(' | ')} |`), '',
+  '## Features in Carve sources', '',
+  'For each feature, the table lists the *worst* rung among probes whose source tree contains that feature. A format appears under the best rung it guarantees across those probes. Lossy formats are omitted; this is deliberately stricter than finding one successful example.', '',
+  '| Feature | Exact | Same meaning | Same rendering | Same text |', '| --- | --- | --- | --- | --- |');
+for (const feature of features) {
+  const ps = probes.filter(p => present[p].has(feature));
+  const by = Object.fromEntries(order.map(v => [v, []]));
+  for (const fmt of names) {
+    if (!ps.length) continue;
+    const worst = ps.map(p => data.cells[p][fmt].verdict).sort((a, b) => order.indexOf(b) - order.indexOf(a))[0];
+    by[worst].push(fmt);
   }
-  for (const g of groups.values()) md += `| ${p} | ${fmt(g.formats)} | ${short(g.where)} | ${short(g.stage)} |\n`;
+  md.push(`| ${feature} (${ps.length} ${ps.length === 1 ? 'probe' : 'probes'}) | ${order.slice(0, 4).map(v => by[v].join(', ') || '—').join(' | ')} |`);
 }
-md += '\n## Scope of the attribution\n\nThe direct bridge export/import baseline is equal for all 99 probes. The format changes above are therefore observed after the first Pandoc JSON and before or at bridge import. A lost Pandoc carrier does not prove that a format has no way to express the underlying content; it proves this bridge’s carrier did not survive Pandoc’s writer/reader pair. Ordinary text reflow, code trailing line feeds, image paths rewritten to embedded media, and table normalization are recorded as tree loss when they change a compared field.\n';
-writeFileSync(join(repo, 'docs/roundtrip-0.2.md'), md);
+md.push('', '## Attribution', '',
+  'The data records bridge on export, Pandoc writer, Pandoc reader, bridge on import, or tree comparison for every nonexact cell. For text formats, the original and observed degraded tree are both written with the same Pandoc options; identical output supports writer loss, different output supports reader loss. For binary formats, the writer/reader split remains undetermined. This differential is evidence about the observed degradation, not a claim that every intermediate difference has one cause.', '',
+  '## Pandoc-to-Carve result', '',
+  'Direct means Pandoc JSON → validated Carve tree → Pandoc JSON. **typed** requires the pair’s distinction in a typed tree field/node and the rich Pandoc AST to come back; **data** means it comes back solely through opaque data or a marker attribute; **dropped** means it does not come back; **refused** means the bridge or validator rejected it. Format cells compare real-file rich and degraded imports: **S** = same tree as direct rich import, **K** = distinction survives in a changed tree, **L** = distinction lost in the tree, **!** = error. A trailing **+** means Pandoc’s reader still distinguishes rich from degraded; **−** means the format erased that distinction. Thus S+ beside a dropped direct result means the format carries the feature but the tree already lacks it.', '',
+  `| Pandoc probe | Direct | ${names.join(' | ')} |`, `| --- | --- | ${names.map(() => ':---:').join(' | ')} |`,
+  ...reverseNames.map(p => `| ${p} | ${direct[p].verdict}${direct[p].carrier?.length ? ` (${direct[p].carrier.join(', ')})` : ''} | ${names.map(f => { const cell = data.reverse.formats[f]?.[p]; return cell?.verdict === 'error' ? '!' : `${({ 'same-tree': 'S', kept: 'K', lost: 'L' })[cell?.verdict] ?? '?'}${cell?.formatCarries ? '+' : '−'}`; }).join(' | ')} |`), '',
+  '## Pandoc features without a typed round trip', '',
+  'Ranked by the number of these formats whose Pandoc writer/reader can carry the rich/degraded distinction. The need names the tree location or standard namespace; it does not imply a specification change is already approved.', '',
+  '| Probe | Direct | Formats carrying it | Need |', '| --- | --- | ---: | --- |',
+  ...gaps.map(g => `| ${g.p} | ${g.verdict} | ${g.carriers.length}: ${g.carriers.join(', ') || '—'} | ${g.need} |`), '',
+  '## Reproduce', '',
+  '`npm run build && node scripts/roundtrip-formats.mjs && node scripts/report-roundtrip-0.2.mjs` with Pandoc 3.14 on PATH. The fidelity pairs and their image resource were copied from `pandoc-format-fidelity/results/probes.json` and `fixtures/i.png` at commit `480beefd3e9a6227e8564dd8bfebf7528b659df8`; see that project’s README and `src/probes.py`, `src/run_matrix.py`, and `src/run_roundtrip.py` for the pair method.');
+writeFileSync(join(root, 'docs/roundtrip-0.2.md'), md.join('\n') + '\n');
 
-const gaps = [
-  { title: 'Definitions and raw frontmatter', markers: ['carve-tree','carve-frontmatter'], probes: ['abbreviation','footnote','image_reference','link_reference','link_reference_collapsed','frontmatter'], need: 'A standard data namespace for typed definitions and frontmatter provenance.' },
-  { title: 'Comments and editorial comments', markers: ['carve-comment','carve-critic-comment'], probes: ['comment_line','comment_block','comment_braced','editorial_comment'], need: 'A standard data namespace for comment form and placement.' },
-  { title: 'Titles and labels on containers', markers: ['carve-title','carve-group-label'], probes: ['admonition_title','admonition_label','div_title','code_block_title'], need: 'A standard data namespace for inline title content and literal group labels.' },
-  { title: 'Container roles and figure groups', markers: ['carve-admonition','carve-directive','carve-figure-group','carve-figure-kind'], probes: ['admonition','admonition_label','admonition_title','directive','figure_group','figure_caption','code_block_caption','math_caption'], need: 'A standard data namespace for typed container roles, figure groups, and figure kind.' },
-  { title: 'Generated versus authored heading IDs', markers: ['carve-generated-id'], probes: ['heading','heading_level_6','xref'], need: 'A standard data namespace for heading ID provenance.' },
-  { title: 'Literal inline versus code', markers: ['carve-literal'], probes: ['literal_inline'], need: 'A standard data namespace for the literal-inline role.' },
-  { title: 'Table span marks and covered cells', markers: ['carve-span'], probes: ['table_colspan','table_rowspan'], need: 'A standard data namespace for source span marks and an explicit covered-cell rule.' },
-  { title: 'Table authored columns and declared partitions', markers: ['carve-columns','carve-head-rows'], probes: ['table_alignment','table_body_partition'], need: 'A standard data namespace for authored versus resolved alignment and explicit zero head rows.' },
-  { title: 'Block image and block math facts', markers: ['carve-block-image','carve-block-math'], probes: ['image','image_attrs','image_title','figure_caption','figure_group','math_display','math_caption'], need: 'A standard data namespace for paragraph blockImage and blockMath facts.' },
-  { title: 'Paragraph attributes on hosts without Pandoc Attr', markers: ['carve-paragraph'], probes: ['paragraph_attrs','image','image_attrs','figure_caption','math_display'], need: 'A standard data namespace for paragraph attributes and promoted image/math paragraph identity.' },
-  { title: 'Cross-reference identity', markers: ['carve-xref','carve-key','carve-form'], probes: ['xref','link_reference','link_reference_collapsed','image_reference'], need: 'A standard data namespace for keyed reference identity and display form.' },
-  { title: 'Autolink identity', markers: ['carve-autolink'], probes: ['autolink','autolink_attrs'], need: 'A standard data namespace to distinguish authored autolinks from ordinary links.' },
-  { title: 'Footnote reference identity', markers: ['carve-footnote-ref'], probes: ['footnote'], need: 'A standard data namespace to distinguish a keyed footnote reference from an inline note.' },
-  { title: 'Inline attributes on un-attributed Pandoc nodes', markers: ['carve-inline-attrs'], probes: ['emphasis_attrs','strong_attrs','math_attrs','inline_footnote_attrs'], need: 'A standard data namespace for attributes on inline roles that have no Pandoc Attr slot.' },
-  { title: 'Block quote attributes', markers: ['carve-block-quote'], probes: ['block_quote_attrs'], need: 'A standard data namespace for attributes on a quote.' },
-  { title: 'Bullet glyph', markers: ['carve-list'], probes: ['list_bullet_star'], need: 'A standard data namespace for list marker.char.' },
-  { title: 'Task states', markers: ['carve-task'], probes: ['task_done','task_other','task_mixed'], need: 'A standard data namespace for task mark and status.' },
-  { title: 'Mentions, tags, symbols, abbreviations', markers: ['carve-mention','carve-tag','carve-symbol','carve-abbreviation'], probes: ['mention','tag','symbol','abbreviation'], need: 'A standard data namespace for the distinct inline roles and their typed payloads.' },
-  { title: 'Smart punctuation source', markers: ['carve-smart'], probes: ['smart_dash','smart_quotes'], need: 'A standard data namespace for punctuation source and kind.' },
-  { title: 'Insertion and deletion roles', markers: ['carve-insert','carve-delete'], probes: ['insertion','deletion','replacement'], need: 'A standard data namespace for edit roles where Pandoc has only generic Span.' },
-];
-for (const g of gaps) {
-  g.cases = [];
-  for (const p of g.probes) {
-    const affected = run.formats.filter(f => {
-      const x = cell(p, f);
-      return x.verdict === 'lossy' && lostMarkers(x).some(m => g.markers.includes(m.marker));
-    });
-    if (affected.length) g.cases.push({ probe: p, formats: affected });
-  }
-  g.formats = [...new Set(g.cases.flatMap(c => c.formats))];
-}
-gaps.sort((a,b) => b.formats.length - a.formats.length || a.title.localeCompare(b.title));
-let tree = '# Carve 0.2 tree and Pandoc carrier gaps\n\nThese are cross-model gaps observed in the 99-probe run. The Carve tree already has the named typed fact; Pandoc JSON has no native slot for it, so the bridge uses a marker. A listed format is one where that marker occurs in the first Pandoc JSON and is absent in the reader JSON. This is a carrier-loss census, not a claim that the format itself cannot express the visible feature. Counts rank distinct affected formats. For binary formats, the writer/reader split is not determined.\n\n| Rank | Gap | Affected formats | Lost or marked | Tree addition or convention |\n| ---: | --- | ---: | --- | --- |\n';
-for (const [i,g] of gaps.entries()) tree += `| ${i+1} | ${g.title} | ${g.formats.length} | ${g.markers.map(x => `\`${x}\``).join(', ')} | ${g.need} |\n`;
-tree += '\n## Observed probe and format cases\n\n| Gap | Probe | Formats with carrier loss |\n| --- | --- | --- |\n';
-for (const g of gaps) for (const c of g.cases) tree += `| ${g.title} | ${c.probe} | ${fmt(c.formats)} |\n`;
-tree += '\nThe run did not prove a missing Carve core node for any source-spellable probe: all 99 direct bridge JSON baselines are tree-equal. A typed foreign metadata projection remains a candidate because frontmatter is currently a raw value and Pandoc readers may return structured metadata; the present probes do not establish that adding a core field is necessary.\n';
-
-const causeGroups = new Map();
-for (const p of names) for (const f of run.formats) {
-  const x = cell(p, f); if (x.verdict !== 'lossy') continue;
-  const stage = attribution(p, x);
-  const cause = p.startsWith('table_') ? 'Table structure, width, or alignment changed' : /^(list_|task_)/.test(p) ? 'List spacing, marker, or task changed' : /^(admonition|div|directive|figure|block_quote)/.test(p) ? 'Container role, title, or caption changed' : /^(image|math|code_block)/.test(p) ? 'Image, math, or code payload/role changed' : /^(abbreviation|footnote|frontmatter|comment|editorial_comment|link_reference)/.test(p) ? 'Definition, comment, or frontmatter carrier changed' : 'Inline role, attributes, or text changed';
-  const entry = causeGroups.get(cause) || { total: 0, writer: 0, reader: 0, bridge: 0, undetermined: 0 };
-  entry.total++;
-  if (stage.startsWith('Pandoc writer')) entry.writer++;
-  else if (stage.startsWith('Pandoc reader')) entry.reader++;
-  else if (stage.startsWith('Bridge')) entry.bridge++;
-  else entry.undetermined++;
-  causeGroups.set(cause, entry);
-}
-const top = [...causeGroups].sort((a,b) => b[1].total-a[1].total).slice(0,5);
-let report = `# Carve 0.2 format round-trip report\n\n${run.version}. The bridge tested ${names.length} Carve 0.2 source probes across ${run.formats.length} formats after local fixes. The direct bridge Pandoc JSON baseline is tree-equal for every probe.\n\n## Counts\n\n| Format | Exact | Equivalent | Lossy | Error |\n| --- | ---: | ---: | ---: | ---: |\n`;
-for (const f of run.formats) report += `| ${f} | ${counts[f].exact} | ${counts[f].equivalent} | ${counts[f].lossy} | ${counts[f].error} |\n`;
-report += '\n## Five most common observed loss groups\n\n| Cause | Cells | Pandoc writer | Pandoc reader | Bridge | Not determined |\n| --- | ---: | ---: | ---: | ---: | ---: |\n';
-for (const [cause,n] of top) report += `| ${cause} | ${n.total} | ${n.writer} | ${n.reader} | ${n.bridge} | ${n.undetermined} |\n`;
-report += '\nThe attribution table and both Pandoc JSON snapshots for each nonexact cell are in the bridge’s `docs/roundtrip-0.2.md` and `docs/roundtrip-0.2-data.json`. “Not determined” means the Pandoc snapshots changed but do not isolate the writer or reader.\n\n## Bridge fixes\n\nThe bridge now reconstructs abbreviation uses, preserves authored attributes on inline formatting, math, inline footnotes and block quotes through explicit Pandoc carriers, removes its own `mark` class when importing highlights, and carries table span marks, authored column alignment and an explicit zero head-row partition. The final direct JSON baseline has zero differences. The vendored engine was not changed.\n\n## Tree gaps\n\n' + tree + '\nFrom this measurement, the 0.2 tree can hold the tested rich-format content: every source probe has a tree-equal direct Pandoc JSON baseline, while formats vary widely in how much they return. The three additions with the broadest measured reach are standard `data` namespace profiles for definitions, comments and frontmatter; for reference and generated-ID provenance; and for table authored columns, partitions and covered cells. These are interchange conventions for facts the tree already types, rather than evidence that 0.2 needs new core nodes.\n';
-if (brief) { writeFileSync(join(brief, '_TREE-GAPS.md'), tree); writeFileSync(join(brief, '_REPORT.md'), report); }
-console.log(`wrote docs/roundtrip-0.2.md${brief ? ' and brief reports' : ''}`);
+const families = {
+  'office formats (DOCX, ODT)': ['docx', 'odt'],
+  'web and publication formats (EPUB, HTML, JATS, DocBook)': ['epub', 'html', 'jats', 'docbook'],
+  'the remaining markup and notebook formats (eleven)': names.filter(f => !['docx', 'odt', 'epub', 'html', 'jats', 'docbook'].includes(f)),
+};
+const familySentence = ([name, fmts]) => {
+  const n = fmts.length * probes.length;
+  const c = Object.fromEntries(order.map(v => [v, fmts.reduce((sum, f) => sum + counts[f][v], 0)]));
+  const percent = x => `${Math.round(100 * x / n)}%`;
+  return `Across ${name}, ${percent(c.exact + c['same-meaning'])} of probe cells preserve meaning, ${percent(c.exact + c['same-meaning'] + c['same-rendering'])} preserve rendering, and ${percent(c.exact + c['same-meaning'] + c['same-rendering'] + c['same-text'])} preserve block text.`;
+};
+const notDetermined = Object.values(data.cells).flatMap(row => Object.values(row)).filter(c => /not determined|unavailable/.test(c.attribution ?? '')).length;
+const report = ['# Carve 0.2 round-trip measurement', '', `${data.version}; ${probes.length} Carve probes, ${names.length} formats, ${reverseNames.length} Pandoc pairs.`, '',
+  '| Format | Exact | Same meaning | Same rendering | Same text | Lossy |', '| --- | ---: | ---: | ---: | ---: | ---: |',
+  ...names.map(f => `| ${f} | ${order.slice(0, 5).map(v => counts[f][v]).join(' | ')} |`), '',
+  ...Object.entries(families).map(familySentence), '',
+  `Reverse direct result: ${['typed', 'data', 'dropped', 'refused'].map(v => `${reverseNames.filter(p => direct[p].verdict === v).length} ${v}`).join(', ')}.`, '',
+  'Untyped Pandoc features ranked by readable formats that carry them:', '',
+  '| Probe | Formats | Need |', '| --- | ---: | --- |',
+  ...gaps.map(g => `| ${g.p} (${g.verdict}) | ${g.carriers.length} | ${g.need} |`), '',
+  `Could not determine a writer/reader split for ${notDetermined} forward cells, all in DOCX, ODT, or EPUB; appearance in applications outside Pandoc was not measured. Visual quote punctuation alone does not restore Pandoc’s typed Quoted node.`, '',
+  'Full grids, per-cell evidence, and reproduction instructions: [docs/roundtrip-0.2.md](pandoc-carve/docs/roundtrip-0.2.md).'];
+writeFileSync(resolve(root, '..', '_REPORT.md'), report.join('\n') + '\n');
+console.log('wrote docs/roundtrip-0.2.md and ../_REPORT.md');

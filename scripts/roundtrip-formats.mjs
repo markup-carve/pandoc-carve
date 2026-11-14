@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse, treesEqual } from '../vendor/carve-v2/index.js';
 import { carveAstToPandoc, pandocToCarveAst } from '../dist/v2.js';
+import { grade } from './roundtrip-grade.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const fixtures = join(root, 'test/fixtures/probes-0.2');
+const fidelity = JSON.parse(readFileSync(join(root, 'test/fixtures/pandoc-fidelity-probes.json'), 'utf8'));
 const formats = ['docx', 'odt', 'epub', 'html', 'latex', 'typst', 'jats', 'docbook', 'rst', 'org', 'asciidoc', 'mediawiki', 'ipynb', 'markdown', 'gfm', 'commonmark_x', 'djot'];
 const pandoc = process.env.PANDOC || 'pandoc';
 const out = process.env.CARVE_RT_OUTPUT || join(root, 'docs/roundtrip-0.2-data.json');
@@ -54,18 +56,6 @@ function firstDifference(a, b, path = '') {
   } else return { path, field: path.split('/').at(-1) || 'root', before: a, after: b };
   return { path, field: path.split('/').at(-1) || 'root', before: a, after: b };
 }
-function defaultNames(a, b) {
-  const raw = firstDifference(a, b);
-  if (!raw) return [];
-  const names = [];
-  for (const x of [a, b]) {
-    const s = JSON.stringify(x);
-    if (/"start":1/.test(s)) names.push('ordered start 1');
-    if (/"(?:rowspan|colspan)":1/.test(s)) names.push('cell span 1');
-    if (/"attrs":\{\}/.test(s)) names.push('empty attributes');
-  }
-  return [...new Set(names)];
-}
 function run(args, input, step) {
   const result = spawnSync(pandoc, args, { input, maxBuffer: 64 * 1024 * 1024, encoding: null });
   if (result.error || result.status !== 0) throw { step, message: (result.stderr?.toString() || result.error?.message || `exit ${result.status}`).trim().slice(0, 400) };
@@ -86,8 +76,62 @@ function removeReaderChrome(doc, fmt) {
   if (fmt === 'ipynb' && blocks.length === 1 && blocks[0]?.t === 'Div' && blocks[0].c?.[0]?.[1]?.includes('cell')) blocks = blocks[0].c[1];
   return { ...doc, blocks };
 }
+function opaqueCarriers(tree) {
+  const names = new Set();
+  function visit(x) {
+    if (Array.isArray(x)) { x.forEach(visit); return; }
+    if (!x || typeof x !== 'object') return;
+    if (x.data !== undefined) names.add('data');
+    for (const cls of x.attrs?.classes ?? []) if (/^(?:carve-|data-carve-)/.test(cls)) names.add(`class ${cls}`);
+    for (const [key] of x.attrs?.keyValues ?? []) if (/^(?:carve[.-]|data-carve-)/.test(key)) names.add(`attribute ${key}`);
+    Object.values(x).forEach(visit);
+  }
+  visit(tree);
+  return [...names].sort();
+}
+function withoutOpaque(x) {
+  if (Array.isArray(x)) return x.map(withoutOpaque);
+  if (!x || typeof x !== 'object') return x;
+  const y = Object.fromEntries(Object.entries(x).filter(([k]) => k !== 'data').map(([k, v]) => [k, withoutOpaque(v)]));
+  if (y.attrs) {
+    if (y.attrs.classes) y.attrs.classes = y.attrs.classes.filter(v => !/^(?:carve-|data-carve-)/.test(v));
+    if (y.attrs.keyValues) y.attrs.keyValues = y.attrs.keyValues.filter(([k]) => !/^(?:carve[.-]|data-carve-)/.test(k));
+    if (!y.attrs.classes?.length) delete y.attrs.classes;
+    if (!y.attrs.keyValues?.length) delete y.attrs.keyValues;
+    if (!Object.keys(y.attrs).length) delete y.attrs;
+  }
+  return y;
+}
+function canonicalDirectBlocks(blocks) {
+  // The bridge spells Plain as Para inside figure bodies and definition
+  // descriptions. That changes tightness but not the paired feature being
+  // measured (figure identity, figure attributes, definition-list identity).
+  return blocks.map(block => {
+    const copy = structuredClone(block);
+    const para = b => b?.t === 'Plain' ? { ...b, t: 'Para' } : b;
+    if (copy.t === 'Figure') copy.c[2] = copy.c[2].map(para);
+    if (copy.t === 'DefinitionList') copy.c = copy.c.map(([term, descriptions]) => [term, descriptions.map(d => d.map(para))]);
+    return copy;
+  });
+}
+function reverseDirect(pair) {
+  const doc = blocks => ({ 'pandoc-api-version': fidelity.api, meta: {}, blocks });
+  try {
+    const rich = pandocToCarveAst(doc(pair.rich));
+    const degraded = pandocToCarveAst(doc(pair.degraded));
+    const backRich = carveAstToPandoc(rich.ast).doc.blocks;
+    const backDegraded = carveAstToPandoc(degraded.ast).doc.blocks;
+    const distinct = !treesEqual(rich.ast, degraded.ast);
+    const returned = JSON.stringify(backRich) !== JSON.stringify(backDegraded);
+    const exactFeature = JSON.stringify(backRich) === JSON.stringify(canonicalDirectBlocks(pair.rich));
+    const carrier = opaqueCarriers(rich.ast);
+    const opaqueOnly = treesEqual(withoutOpaque(rich.ast), withoutOpaque(degraded.ast));
+    const verdict = !distinct || !returned || !exactFeature ? 'dropped' : opaqueOnly && carrier.length ? 'data' : 'typed';
+    return { verdict, ...(carrier.length ? { carrier } : {}), warnings: rich.warnings, tree: rich.ast, degradedTree: degraded.ast, backRich, backDegraded };
+  } catch (e) { return { verdict: 'refused', message: String(e?.message ?? e).slice(0, 400) }; }
+}
 const probes = readdirSync(fixtures).filter(x => x.endsWith('.crv')).sort();
-const result = { version, formats, readers: Object.fromEntries(formats.map(f => [f, readers.has(f)])), probes, cells: {} };
+const result = { version, formats, readers: Object.fromEntries(formats.map(f => [f, readers.has(f)])), probes, cells: {}, reverse: { probes: Object.keys(fidelity.probes), direct: {}, formats: {} } };
 try {
   for (const file of probes) {
     const name = file.slice(0, -4);
@@ -116,18 +160,60 @@ try {
       let imported;
       try { imported = pandocToCarveAst(cleanedBack); }
       catch (e) { cells[fmt] = error('bridge import', e); cells[fmt].pandocBefore = exported.doc; cells[fmt].pandocAfter = back; continue; }
-      const equal = treesEqual(initial, imported.ast);
+      const graded = grade(initial, imported.ast);
+      const equal = graded.verdict === 'exact';
       const afterClean = stripIncidental(imported.ast);
       const diff = firstDifference(initialClean, afterClean);
-      const defaults = defaultNames(initial, imported.ast);
-      const equivalent = !equal && !firstDifference(initialClean, afterClean) && defaults.length > 0;
       const pandocDifference = firstDifference(exported.doc.blocks, cleanedBack.blocks);
-      const attribution = equal || equivalent ? null : baselineDiff ? 'bridge export or import' : pandocDifference ? 'Pandoc writer or reader; not determined' : 'bridge import';
+      let attribution = equal ? null : baselineDiff ? 'bridge on export or import' : pandocDifference ? 'Pandoc writer or reader; not determined' : 'bridge on import';
+      if (!equal && !baselineDiff && pandocDifference && !binary.has(fmt)) {
+        // Differential writer check: write the original and the observed
+        // degraded tree through the same writer with identical options.
+        try {
+          const degradedDoc = carveAstToPandoc(imported.ast).doc;
+          const degradedText = run(['-f', 'json', '-t', fmt, '--wrap=preserve', '-o', '-', '--resource-path', fixtures], Buffer.from(JSON.stringify(degradedDoc)), 'Pandoc writer');
+          attribution = written.equals(degradedText) ? 'Pandoc writer: rich and degraded output identical' : 'Pandoc reader: rich and degraded output differ';
+        } catch {
+          const src = diff?.field === 'src' ? diff.after : null;
+          if (fmt === 'ipynb' && typeof src === 'string' && /^[0-9a-f-]{36}-/.test(src) && written.toString().includes('attachment:'))
+            attribution = 'Pandoc writer and reader: attachment source and cell id rewrite';
+          else attribution = 'Pandoc writer or reader; differential unavailable';
+        }
+      }
+      if (!equal && !baselineDiff && pandocDifference && binary.has(fmt)) attribution = 'Pandoc writer or reader; binary split not determined';
       const readerAddedMetaKeys = Object.keys(back.meta ?? {}).filter(k => !(k in exported.doc.meta));
       const stableBack = { ...back, meta: Object.fromEntries(Object.entries(back.meta ?? {}).filter(([k]) => k in exported.doc.meta)) };
-      cells[fmt] = { verdict: equal ? 'exact' : equivalent ? 'equivalent' : 'lossy', ...(equivalent ? { defaults } : {}), ...(diff ? { difference: diff } : {}), ...(attribution ? { attribution } : {}), ...(baselineDiff ? { bridgeBaselineDifference: baselineDiff } : {}), ...(pandocDifference ? { pandocDifference } : {}), ...(equal ? {} : { pandocBefore: exported.doc, pandocAfter: stableBack, ...(readerAddedMetaKeys.length ? { readerAddedMetaKeys } : {}), ...(!binary.has(fmt) ? { writerText: written.toString().slice(0, 20000) } : {}) }), ...(exported.warnings.length ? { exportWarnings: exported.warnings } : {}), ...(imported.warnings.length ? { importWarnings: imported.warnings } : {}) };
+      cells[fmt] = { ...graded, ...(diff ? { difference: diff } : {}), ...(attribution ? { attribution } : {}), ...(baselineDiff ? { bridgeBaselineDifference: baselineDiff } : {}), ...(pandocDifference ? { pandocDifference } : {}), ...(equal ? {} : { pandocBefore: exported.doc, pandocAfter: stableBack, ...(readerAddedMetaKeys.length ? { readerAddedMetaKeys } : {}), ...(!binary.has(fmt) ? { writerText: written.toString().slice(0, 20000) } : {}) }), ...(exported.warnings.length ? { exportWarnings: exported.warnings } : {}), ...(imported.warnings.length ? { importWarnings: imported.warnings } : {}) };
     }
     process.stderr.write(`${name}\n`);
+  }
+  for (const [name, pair] of Object.entries(fidelity.probes)) {
+    const direct = reverseDirect(pair);
+    result.reverse.direct[name] = { verdict: direct.verdict, ...(direct.carrier ? { carrier: direct.carrier } : {}), ...(direct.warnings?.length ? { warnings: direct.warnings } : {}), ...(direct.message ? { message: direct.message } : {}) };
+    for (const fmt of formats) {
+      const grid = result.reverse.formats[fmt] ??= {};
+      if (!readers.has(fmt) || !writers.has(fmt)) { grid[name] = { verdict: 'error', message: 'reader or writer unavailable' }; continue; }
+      try {
+        const transfer = blocks => {
+          const doc = { 'pandoc-api-version': fidelity.api, meta: {}, blocks };
+          const path = join(temp, `reverse.${fmt}`);
+          const input = Buffer.from(JSON.stringify(doc));
+          let written;
+          if (binary.has(fmt)) { run(['-f', 'json', '-t', fmt, '--wrap=preserve', '--resource-path', join(root, 'test/fixtures/pandoc-fidelity'), '-o', path], input, 'Pandoc writer'); written = readFileSync(path); }
+          else written = run(['-f', 'json', '-t', fmt, '--wrap=preserve', '--resource-path', join(root, 'test/fixtures/pandoc-fidelity'), '-o', '-'], input, 'Pandoc writer');
+          const back = JSON.parse(run(['-f', fmt, '-t', 'json'], written, 'Pandoc reader').toString());
+          const clean = removeReaderChrome(back, fmt);
+          return { tree: pandocToCarveAst(clean).ast, blocks: clean.blocks };
+        };
+        const rich = transfer(pair.rich);
+        const degraded = transfer(pair.degraded);
+        grid[name] = {
+          verdict: treesEqual(rich.tree, degraded.tree) ? 'lost' : direct.tree && treesEqual(rich.tree, direct.tree) ? 'same-tree' : 'kept',
+          formatCarries: JSON.stringify(rich.blocks) !== JSON.stringify(degraded.blocks),
+        };
+      } catch (e) { grid[name] = { verdict: 'error', step: e.step ?? 'bridge on import', message: String(e?.message ?? e).slice(0, 300) }; }
+    }
+    process.stderr.write(`reverse ${name}\n`);
   }
 } finally { rmSync(temp, { recursive: true, force: true }); }
 mkdirSync(resolve(out, '..'), { recursive: true });
