@@ -99,7 +99,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
     case 'strike': return [inlineAttr(n, P.Strikeout(il(n.children, c)))];
     case 'subscript': return [inlineAttr(n, P.Subscript(il(n.children, c)))];
     case 'superscript': return [inlineAttr(n, P.Superscript(il(n.children, c)))];
-    case 'small_caps': return [P.SmallCaps(il(n.children, c))];
+    case 'small_caps': return [inlineAttr(n, P.SmallCaps(il(n.children, c)))];
     case 'span': return [P.Span(attr(n.attrs), il(n.children, c))];
     case 'highlight': return [P.Span(P.attr(n.attrs?.id, ['mark', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
     case 'delete': return [P.Span(P.attr(n.attrs?.id, ['carve-delete', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];

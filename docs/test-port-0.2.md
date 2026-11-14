@@ -42,7 +42,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | packaging.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | parity.test.mjs | 11 | 11 | 0 | 0 | 0 |
 | participants.test.mjs | 4 | 0 | 0 | 0 | 4 |
-| policy.test.mjs | 20 | 0 | 0 | 0 | 20 |
+| policy.test.mjs | 20 | 16 | 4: 0.1 `.smallcaps` source-class import alias | 0 | 0 |
 | provenance.test.mjs | 8 | 0 | 0 | 0 | 8 |
 | raw-block-payload.test.mjs | 7 | 0 | 0 | 0 | 7 |
 | reverse-edge-cases.test.mjs | 8 | 0 | 0 | 0 | 8 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
 
-| Total | 730 | 450 | 64 | 24 | 192 |
+| Total | 730 | 466 | 68 | 24 | 172 |
 
-The 450 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 466 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -127,5 +127,12 @@ The two removed `reverse.test.mjs` cases, each with its 0.1 feature reason:
 
 - “pandoc's wrapper=1 Div restores its attrs onto the inner block”: 0.1 treated the private `wrapper=1` key as an instruction to lift a Div's attributes onto its child.
 - “pandoc's wrapper=1 Span puts its attrs on the inline it wraps”: 0.1 treated the private `wrapper=1` key as an instruction to lift a Span's attributes onto its child.
+
+The four removed `policy.test.mjs` cases, each with its 0.1 feature reason:
+
+- “the .smallcaps span exports back to SmallCaps, so the degradation round-trips”: the 0.1 `.smallcaps` source-class import alias is gone.
+- “a .smallcaps span keeps its other attributes around the SmallCaps”: the 0.1 `.smallcaps` source-class import alias is gone; typed `small_caps` attributes are tested instead.
+- “the class is matched case-sensitively, as pandoc matches it”: the 0.1 `.smallcaps` source-class import alias is gone.
+- “pandoc and the bridge agree on what a .smallcaps span means”: the 0.1 `.smallcaps` source-class import alias is gone.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
