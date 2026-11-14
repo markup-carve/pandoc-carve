@@ -13,6 +13,7 @@ export interface WriterFacts {
         row?: number;
     }[];
     rawRef?: string;
+    optionSpelling?: Record<string, string>;
     sourceFormat?: string;
 }
 /** One node that did not read back, and how far the writer is in the ways to make it form. */

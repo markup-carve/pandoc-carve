@@ -14,7 +14,7 @@ export { type Attributes, foldLabel } from './ast-attributes.js';
 export { SMART_GLYPHS, SMART_KIND_NAMES } from './inline-tables.js';
 export { type DelimitedTable, readDelimitedTable } from './delimited.js';
 export { CarveInputError, CarveRenderError, type LayoutResult, parse, type ParsedTree, type ParseResult, parseTree, parseWithDiagnostics, parseWithLayout, render, type RenderOutput, renderTree, renderWithDiagnostics, type ResolvedTree, resolveTree, } from './api.js';
-export { AST_VERSION, type Attrs, type Envelope, type ExtensionDeclaration, type Marker, type Position, type Resource, type RubyPair, type Task, } from './ast.js';
+export { AST_VERSION, type Attrs, type BibliographyMetadata, type CitationLocator, type Envelope, type ExtensionDeclaration, type IncludeOptions, type Marker, type Metadata, type Position, type Resource, type Task, } from './ast.js';
 export type * from './ast-nodes.js';
 export { decodeTree, encodeEnvelope, encodeTree, treesEqual } from './ast-json.js';
 export { CarveTreeError, MAX_TREE_DEPTH, validateTree } from './ast-validate.js';
@@ -26,5 +26,8 @@ export { format, type FormatOptions, type FormatOutput, formatWithDiagnostics } 
 export { type LayoutEntry, write, type WriteOptions, type WriteOutput, writeWithDiagnostics } from './write.js';
 export { displayWidth } from './width.js';
 export { type Diagnostic } from './diagnostics.js';
+/** C2-H-173: shared scheme test and default policy data for consumers of URL sinks. */
+export { isUrlAllowed, urlScheme } from './html-attributes.js';
+export { DEFAULT_DENIED_SCHEMES } from './option-tables.js';
 /** Block tree of `src`. Leaves keep their source spans; inline content is not parsed. */
 export declare function parseBlockTree(src: string): BlockNode;

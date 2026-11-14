@@ -58,9 +58,9 @@ function referenceLinkSpelling(tree) {
     if (n.type !== 'link' || !n.key) return n;
     const def = defs.get(n.key);
     if (!def || (n.href && n.href !== def.href)) return n;
-    const { key, namespace, form, ...rest } = n;
+    const { key, namespace, refForm, ...rest } = n;
     return { ...rest, href: def.href,
-      ...(def.title && !n.title ? { title: def.title } : {}), __resolvedReferenceKey: key };
+      ...(def.tooltip && !n.tooltip ? { tooltip: def.tooltip } : {}), __resolvedReferenceKey: key };
   });
 }
 function emptyTooltip(tree) {
@@ -171,6 +171,20 @@ function firstBlockDifference(a, b) {
   }
   return null;
 }
+function criticalFacts(tree) {
+  const facts = [];
+  walk(tree, n => {
+    switch (n.type) {
+      case 'link': case 'autolink': case 'xref': facts.push(['link', n.href ?? null, n.key ?? null]); break;
+      case 'image': facts.push(['image', n.src ?? null, n.key ?? null, n.alt ?? '']); break;
+      case 'table_cell': facts.push(['cell', nodeText(n)]); break;
+      case 'math': facts.push(['math', n.value]); break;
+      case 'code': case 'code_block': facts.push(['code', n.value]); break;
+    }
+    return n;
+  });
+  return facts;
+}
 const featureNames = ['inline role', 'attribute', 'table structure', 'table alignment', 'caption', 'footnote', 'math', 'code language', 'raw content', 'link target', 'image', 'list structure', 'task state', 'container role', 'heading level or id', 'frontmatter', 'comment'];
 function featureFor(node, key, other) {
   const type = node?.type ?? other?.type ?? '';
@@ -226,5 +240,8 @@ export function grade(a, b) {
   }
   catch { /* Some valid imported raw nodes have no render profile; continue. */ }
   const differenceBlock = firstBlockDifference(a, b);
-  return differenceBlock ? { verdict: 'lossy', features, differenceBlock } : { verdict: 'same-text', features };
+  if (differenceBlock) return { verdict: 'lossy', features, differenceBlock };
+  const beforeFacts = criticalFacts(a), afterFacts = criticalFacts(b);
+  if (JSON.stringify(beforeFacts) !== JSON.stringify(afterFacts)) return { verdict: 'lossy', features, cause: 'link, image, table cell, math, or code content changed' };
+  return { verdict: 'same-text', features };
 }

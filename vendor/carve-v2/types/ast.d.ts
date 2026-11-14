@@ -29,12 +29,37 @@ export interface Marker {
 /** C2-A-060, C2-A-061. */
 export interface Task {
     mark: string;
-    status: string;
 }
-export interface RubyPair {
-    type: 'rubyPair';
-    base: Inline[];
-    annotation: Inline[];
+/** C2-A-121: the structured fields of a bibliography entry. */
+export interface BibliographyMetadata {
+    title?: Inline[];
+    containerTitle?: Inline[];
+    authors?: string[];
+    issued?: string;
+    doi?: string;
+    url?: string;
+}
+/** C2-A-030: the typed metadata of a node. */
+export interface Metadata {
+    title?: Inline[];
+    subtitle?: Inline[];
+    authors?: string[];
+    date?: string;
+    bibliography?: BibliographyMetadata;
+}
+/** C2-A-120: a citation locator and its inline text. */
+export interface CitationLocator {
+    label?: string;
+    children: Inline[];
+}
+/** C2-A-181: decoded include options. */
+export interface IncludeOptions {
+    lines?: string;
+    region?: string;
+    rows?: string;
+    cols?: string | string[];
+    shift?: number | 'auto';
+    code?: string | true;
 }
 export interface ExtensionDeclaration {
     name: string;
@@ -73,12 +98,12 @@ export type BlockParent = Extract<Node, {
 export interface NodeSlots {
     readonly type: string;
     readonly children?: readonly Node[];
-    readonly title?: Inline[] | string;
+    readonly title?: Inline[];
     readonly caption?: CaptionNode;
 }
 /** The children of `node`, or none: for a node of a type the reader has not narrowed. */
 export declare function childNodes(node: NodeSlots): readonly Node[];
-/** The inline title of `node`, where it has one (C2-A-024). The title of a link definition is a string and no slot. */
+/** C2-A-024: the inline title of `node`, where it has one. */
 export declare function titleOf(node: NodeSlots): Inline[] | undefined;
 /** The caption of `node`, where it has one (C2-A-024). */
 export declare function captionOf(node: NodeSlots): CaptionNode | undefined;
@@ -91,11 +116,14 @@ export type SlotVisitor = (nodes: readonly Node[], step: string, single: boolean
 /** The order of a walk: that of C2-A-025, or that of the source, in which a title stands before the children. */
 export declare const SPEC_ORDER = 0;
 export declare const SOURCE_ORDER = 1;
+export declare const NO_SLOTS = 0;
+export declare const CHILDREN_ONLY = 1;
+export declare const MIXED_SLOTS = 2;
+/** C2-A-025: the generated row's shape, including metadata slots when metadata is present. */
+export declare function slotShape(node: Node): 0 | 1 | 2;
 /**
- * C2-A-024, C2-A-025: visits every slot of `node` that holds nodes: `children` first, then `caption`,
- * `short`, `prefix`, `locator` and `suffix`, the `base` and `annotation` of each ruby pair, `title`,
- * `fallback` and each named slot. In source order the title comes first. Strings, URLs, data and
- * payloads are no slots. Every walk over the nodes of a tree goes through this.
+ * C2-A-024, C2-A-025: visits exactly the slots of the generated node table. In source order a title
+ * precedes children. Opaque data and props are not slots.
  */
 export declare function forEachSlot(node: Node, visit: SlotVisitor, order?: number): void;
 /** Whether `node` is of type `type`. */

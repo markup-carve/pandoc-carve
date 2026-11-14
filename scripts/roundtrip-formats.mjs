@@ -156,7 +156,9 @@ try {
       } catch (e) { cells[fmt] = error(e.step || 'Pandoc writer', e); continue; }
       try { back = JSON.parse(run(['-f', fmt, '-t', 'json'], written, 'Pandoc reader').toString()); }
       catch (e) { cells[fmt] = error(e.step || 'Pandoc reader', e); continue; }
-      const cleanedBack = removeReaderChrome(back, fmt);
+      const chromeFree = removeReaderChrome(back, fmt);
+      const readerAddedMetaKeys = Object.keys(back.meta ?? {}).filter(k => !(k in exported.doc.meta));
+      const cleanedBack = { ...chromeFree, meta: Object.fromEntries(Object.entries(chromeFree.meta ?? {}).filter(([key]) => key in exported.doc.meta)) };
       let imported;
       try { imported = pandocToCarveAst(cleanedBack); }
       catch (e) { cells[fmt] = error('bridge import', e); cells[fmt].pandocBefore = exported.doc; cells[fmt].pandocAfter = back; continue; }
@@ -181,9 +183,7 @@ try {
         }
       }
       if (!equal && !baselineDiff && pandocDifference && binary.has(fmt)) attribution = 'Pandoc writer or reader; binary split not determined';
-      const readerAddedMetaKeys = Object.keys(back.meta ?? {}).filter(k => !(k in exported.doc.meta));
-      const stableBack = { ...back, meta: Object.fromEntries(Object.entries(back.meta ?? {}).filter(([k]) => k in exported.doc.meta)) };
-      cells[fmt] = { ...graded, ...(diff ? { difference: diff } : {}), ...(attribution ? { attribution } : {}), ...(baselineDiff ? { bridgeBaselineDifference: baselineDiff } : {}), ...(pandocDifference ? { pandocDifference } : {}), ...(equal ? {} : { pandocBefore: exported.doc, pandocAfter: stableBack, ...(readerAddedMetaKeys.length ? { readerAddedMetaKeys } : {}), ...(!binary.has(fmt) ? { writerText: written.toString().slice(0, 20000) } : {}) }), ...(exported.warnings.length ? { exportWarnings: exported.warnings } : {}), ...(imported.warnings.length ? { importWarnings: imported.warnings } : {}) };
+      cells[fmt] = { ...graded, ...(diff ? { difference: diff } : {}), ...(attribution ? { attribution } : {}), ...(baselineDiff ? { bridgeBaselineDifference: baselineDiff } : {}), ...(pandocDifference ? { pandocDifference } : {}), ...(equal ? {} : { pandocBefore: exported.doc, pandocAfter: cleanedBack, ...(readerAddedMetaKeys.length ? { readerAddedMetaKeys } : {}), ...(!binary.has(fmt) ? { writerText: written.toString().slice(0, 20000) } : {}) }), ...(exported.warnings.length ? { exportWarnings: exported.warnings } : {}), ...(imported.warnings.length ? { importWarnings: imported.warnings } : {}) };
     }
     process.stderr.write(`${name}\n`);
   }

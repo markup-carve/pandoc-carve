@@ -2,11 +2,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { parse } from '../vendor/carve-v2/index.js';
 import { meaningRules } from './roundtrip-grade.mjs';
+import { classifyLosses } from './classify-roundtrip-0.2.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const data = JSON.parse(readFileSync(process.env.CARVE_RT_OUTPUT || join(root, 'docs/roundtrip-0.2-data.json'), 'utf8'));
-const order = ['exact', 'same-meaning', 'same-rendering', 'same-text', 'lossy', 'error'];
-const label = v => ({ exact: 'E', 'same-meaning': 'M', 'same-rendering': 'R', 'same-text': 'T', lossy: 'L', error: '!' })[v] ?? '?';
+const dataPath = process.env.CARVE_RT_OUTPUT || join(root, 'docs/roundtrip-0.2-data.json');
+const data = classifyLosses(JSON.parse(readFileSync(dataPath, 'utf8')));
+writeFileSync(dataPath, JSON.stringify(data, null, 2) + '\n');
+const order = ['exact', 'same-meaning', 'same-rendering', 'same-text', 'lossy-by-nature', 'lossy', 'error'];
+const label = v => ({ exact: 'E', 'same-meaning': 'M', 'same-rendering': 'R', 'same-text': 'T', 'lossy-by-nature': 'N', lossy: 'L', error: '!' })[v] ?? '?';
 const names = data.formats;
 const probes = data.probes.map(f => f.replace(/\.crv$/, ''));
 const counts = Object.fromEntries(names.map(fmt => [fmt, Object.fromEntries(order.map(v => [v, probes.filter(p => data.cells[p][fmt].verdict === v).length]))]));
@@ -45,8 +48,7 @@ const features = ['inline role', 'attribute', 'table structure', 'table alignmen
 const direct = data.reverse.direct;
 const reverseNames = data.reverse.probes;
 const need = {
-  quoted_double: 'quote kind and quoted span on an inline node', quoted_single: 'quote kind and quoted span on an inline node',
-  ol_example: 'ordered-list Example style on list.marker',
+  ol_example: 'ordered-list Example style in a carve-example list marker attribute',
 };
 function needFor(p) {
   if (need[p]) return need[p];
@@ -71,19 +73,19 @@ const gaps = rank();
 const md = [];
 md.push('# Carve 0.2 format round trips', '', `${data.version}. ${probes.length} Carve probes × ${names.length} readable formats; ${reverseNames.length} Pandoc rich/degraded pairs in the reverse direction.`, '',
   '## Verdict ladder', '',
-  'The first true rung wins: **exact** uses the vendored engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy** names the first differing block; **error** records the failing stage.', '',
+  'The first true rung wins: **exact** uses the vendored engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy-by-nature** retains readable words and critical content facts while the target loses a source role or attribute; **lossy** loses words or critical content; **error** records the failing stage.', '',
   'The same-meaning rules, in script order, are:', '',
   ...meaningRules.map(([description], i) => `${i + 1}. ${description}.`), '',
   'These rules do not remove text, block structure, emphasis family, link destinations, images, table cells, math, code content or language, footnote content, task state, attribute values, or classes. The vendored engine’s equality already ignores positions and computed resolution fields.', '',
   '## Per-format summary', '',
-  '| Format | Exact | Same meaning | Same rendering | Same text | Lossy | Error |',
-  '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+  '| Format | Exact | Same meaning | Same rendering | Same text | Lossy by nature | Lossy | Error |',
+  '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ...names.map(f => `| ${f} | ${order.map(v => counts[f][v]).join(' | ')} |`), '',
   '## Carve-to-format grid', '',
-  'E = exact; M = same meaning; R = same rendering; T = same text; L = lossy; ! = error. First differing block, degraded feature names, attribution, and Pandoc snapshots are in [the data](roundtrip-0.2-data.json).', '',
+  'E = exact; M = same meaning; R = same rendering; T = same text; N = lossy by nature; L = lossy; ! = error. First differing block, degraded feature names, attribution, and Pandoc snapshots are in [the data](roundtrip-0.2-data.json).', '',
   `| Probe | ${names.join(' | ')} |`, `| --- | ${names.map(() => ':---:').join(' | ')} |`,
   ...probes.map(p => `| [${p}](../test/fixtures/probes-0.2/${p}.crv) | ${names.map(f => label(data.cells[p][f].verdict)).join(' | ')} |`), '',
-  '## Features in Carve sources', '',
+  '## Real losses', '', 'Each row is a plain lossy cell. The cause is classified from the first differing block, visible words, and critical link, image, table-cell, math, code, and format-matched raw facts.', '', '| Probe | Format | Cause |', '| --- | --- | --- |', ...probes.flatMap(p => names.filter(f => data.cells[p][f].verdict === 'lossy').map(f => `| ${p} | ${f} | ${(data.cells[p][f].lossCause ?? 'unclassified').replaceAll('|', '\\|')} |`)), '', '## Features in Carve sources', '',
   'For each feature, the table lists the *worst* rung among probes whose source tree contains that feature. A format appears under the best rung it guarantees across those probes. Lossy formats are omitted; this is deliberately stricter than finding one successful example.', '',
   '| Feature | Exact | Same meaning | Same rendering | Same text |', '| --- | --- | --- | --- | --- |');
 for (const feature of features) {
@@ -107,7 +109,7 @@ md.push('', '## Attribution', '',
   '| Probe | Direct | Formats carrying it | Need |', '| --- | --- | ---: | --- |',
   ...gaps.map(g => `| ${g.p} | ${g.verdict} | ${g.carriers.length}: ${g.carriers.join(', ') || '—'} | ${g.need} |`), '',
   '## Reproduce', '',
-  '`npm run build && node scripts/roundtrip-formats.mjs && node scripts/report-roundtrip-0.2.mjs` with Pandoc 3.14 on PATH. The fidelity pairs and their image resource were copied from `pandoc-format-fidelity/results/probes.json` and `fixtures/i.png` at commit `480beefd3e9a6227e8564dd8bfebf7528b659df8`; see that project’s README and `src/probes.py`, `src/run_matrix.py`, and `src/run_roundtrip.py` for the pair method.');
+  '`npm run build && node scripts/roundtrip-formats.mjs && node scripts/report-roundtrip-0.2.mjs && node scripts/consumer-report-0.2.mjs` with Pandoc 3.14 on PATH. The fidelity pairs and their image resource were copied from `pandoc-format-fidelity/results/probes.json` and `fixtures/i.png` at commit `480beefd3e9a6227e8564dd8bfebf7528b659df8`; see that project’s README and `src/probes.py`, `src/run_matrix.py`, and `src/run_roundtrip.py` for the pair method.');
 writeFileSync(join(root, 'docs/roundtrip-0.2.md'), md.join('\n') + '\n');
 
 const families = {
@@ -119,18 +121,18 @@ const familySentence = ([name, fmts]) => {
   const n = fmts.length * probes.length;
   const c = Object.fromEntries(order.map(v => [v, fmts.reduce((sum, f) => sum + counts[f][v], 0)]));
   const percent = x => `${Math.round(100 * x / n)}%`;
-  return `Across ${name}, ${percent(c.exact + c['same-meaning'])} of probe cells preserve meaning, ${percent(c.exact + c['same-meaning'] + c['same-rendering'])} preserve rendering, and ${percent(c.exact + c['same-meaning'] + c['same-rendering'] + c['same-text'])} preserve block text.`;
+  return `Across ${name}, ${percent(c.exact + c['same-meaning'])} of probe cells preserve meaning, ${percent(c.exact + c['same-meaning'] + c['same-rendering'])} preserve rendering, and ${percent(c.exact + c['same-meaning'] + c['same-rendering'] + c['same-text'] + c['lossy-by-nature'])} preserve readable words and critical content facts.`;
 };
 const notDetermined = Object.values(data.cells).flatMap(row => Object.values(row)).filter(c => /not determined|unavailable/.test(c.attribution ?? '')).length;
 const report = ['# Carve 0.2 round-trip measurement', '', `${data.version}; ${probes.length} Carve probes, ${names.length} formats, ${reverseNames.length} Pandoc pairs.`, '',
-  '| Format | Exact | Same meaning | Same rendering | Same text | Lossy |', '| --- | ---: | ---: | ---: | ---: | ---: |',
-  ...names.map(f => `| ${f} | ${order.slice(0, 5).map(v => counts[f][v]).join(' | ')} |`), '',
+  '| Format | Exact | Same meaning | Same rendering | Same text | Lossy by nature | Lossy |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+  ...names.map(f => `| ${f} | ${order.slice(0, 6).map(v => counts[f][v]).join(' | ')} |`), '',
   ...Object.entries(families).map(familySentence), '',
   `Reverse direct result: ${['typed', 'data', 'dropped', 'refused'].map(v => `${reverseNames.filter(p => direct[p].verdict === v).length} ${v}`).join(', ')}.`, '',
   'Untyped Pandoc features ranked by readable formats that carry them:', '',
   '| Probe | Formats | Need |', '| --- | ---: | --- |',
   ...gaps.map(g => `| ${g.p} (${g.verdict}) | ${g.carriers.length} | ${g.need} |`), '',
-  `Could not determine a writer/reader split for ${notDetermined} forward cells, all in DOCX, ODT, or EPUB; appearance in applications outside Pandoc was not measured. Visual quote punctuation alone does not restore Pandoc’s typed Quoted node.`, '',
-  'Full grids, per-cell evidence, and reproduction instructions: [docs/roundtrip-0.2.md](pandoc-carve/docs/roundtrip-0.2.md).'];
+  `Could not determine a writer/reader split for ${notDetermined} forward cells, all in DOCX, ODT, or EPUB; appearance in applications outside Pandoc was not measured. Pandoc’s GFM writer emits HTML for attributes and spans, and its GFM reader returns that HTML as raw blocks and inlines. The bridge does not interpret those raw HTML fragments. The earlier comparator also counted HTML markup as prose; the classification now strips tags for the word check. Paired smart quotes now restore Pandoc’s typed Quoted node.`, '',
+  'The full list of plain lossy cells and causes is in [docs/roundtrip-0.2.md](pandoc-carve/docs/roundtrip-0.2.md).', '', 'Full grids, per-cell evidence, and reproduction instructions: [docs/roundtrip-0.2.md](pandoc-carve/docs/roundtrip-0.2.md).'];
 writeFileSync(resolve(root, '..', '_REPORT.md'), report.join('\n') + '\n');
 console.log('wrote docs/roundtrip-0.2.md and ../_REPORT.md');

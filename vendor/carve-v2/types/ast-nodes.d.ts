@@ -1,11 +1,11 @@
-import { type Attrs, type ExtensionDeclaration, type Marker, type Position, type Resource, type RubyPair, type Task } from './ast.js';
+import { type Attrs, type CitationLocator, type ExtensionDeclaration, type IncludeOptions, type Marker, type Metadata, type Position, type Resource, type Task } from './ast.js';
 /** C2-A-027: the fields every node may carry. */
 export interface NodeBase {
     attrs?: Attrs;
     data?: Record<string, unknown>;
     pos?: Position;
     segments?: Position[];
-    metadata?: Record<string, unknown>;
+    metadata?: Metadata;
     dir?: "ltr" | "rtl" | "auto";
     lang?: string;
 }
@@ -63,19 +63,15 @@ export interface CaptionNumberNode extends NodeBase {
 export interface CellParagraphNode extends NodeBase {
     type: "cell_paragraph";
     children: Inline[];
-    blockImage?: true;
 }
 export interface CitationNode extends NodeBase {
     type: "citation";
     key: string;
-    suppressAuthor: boolean;
     namespace: "citation";
     prefix?: Inline[];
-    locator?: Inline[];
-    locatorLabel?: string;
-    locatorValue?: string;
+    locator?: CitationLocator;
     suffix?: Inline[];
-    mode?: string;
+    mode?: "normal" | "author-in-text" | "suppress-author";
     number?: number;
     useIndex?: boolean;
 }
@@ -89,7 +85,6 @@ export interface CitationGroupNode extends NodeBase {
     type: "citation_group";
     children: CitationNode[];
     raw: string;
-    mode?: string;
 }
 export interface CodeNode extends NodeBase {
     type: "code";
@@ -205,13 +200,14 @@ export interface ImageNode extends NodeBase {
     key?: string;
     namespace?: "link";
     resourceId?: string;
-    form?: "full" | "collapsed";
+    refForm?: "full" | "collapsed";
+    longDescription?: Block[];
 }
 export interface IncludeNode extends NodeBase {
     type: "include";
     path: string;
     section?: string;
-    options?: [string, string][];
+    options?: IncludeOptions;
 }
 export interface InlineExtensionNode extends NodeBase {
     type: "inline_extension";
@@ -252,14 +248,14 @@ export interface LinkNode extends NodeBase {
     targetKind?: "url" | "wiki" | "doc" | "xref";
     key?: string;
     namespace?: "link";
-    form?: "full" | "collapsed";
+    refForm?: "full" | "collapsed";
 }
 export interface LinkReferenceDefinitionNode extends NodeBase {
     type: "link_reference_definition";
     href: string;
     key: string;
     namespace: "link";
-    title?: string;
+    tooltip?: string;
 }
 export interface ListNode extends NodeBase {
     type: "list";
@@ -295,8 +291,7 @@ export interface NonBreakingSpaceNode extends NodeBase {
 export interface ParagraphNode extends NodeBase {
     type: "paragraph";
     children: Inline[];
-    blockImage?: true;
-    blockMath?: true;
+    role?: "image" | "math";
 }
 export interface RawBlockNode extends NodeBase {
     type: "raw_block";
@@ -310,7 +305,12 @@ export interface RawInlineNode extends NodeBase {
 }
 export interface RubyNode extends NodeBase {
     type: "ruby";
-    pairs: RubyPair[];
+    pairs: RubyPairNode[];
+}
+export interface RubyPairNode extends NodeBase {
+    type: "ruby_pair";
+    base: Inline[];
+    annotation: Inline[];
 }
 export interface SectionNode extends NodeBase {
     type: "section";
@@ -323,7 +323,7 @@ export interface SmallCapsNode extends NodeBase {
 }
 export interface SmartPunctuationNode extends NodeBase {
     type: "smart_punctuation";
-    kind: string;
+    kind: "ellipsis" | "em_dash" | "en_dash" | "greater_than_or_equal" | "left_double_quote" | "left_right_arrow" | "left_right_double_arrow" | "left_single_quote" | "leftwards_arrow" | "leftwards_double_arrow" | "less_than_or_equal" | "not_equal" | "plus_minus" | "right_double_quote" | "right_single_quote" | "rightwards_arrow" | "rightwards_double_arrow" | "trademark";
     source: string;
     glyph?: string;
 }
@@ -374,12 +374,14 @@ export interface TableCellNode extends NodeBase {
     colspan?: number;
     rowspan?: number;
     align?: "left" | "right" | "center";
-    valign?: string;
+    valign?: "top" | "middle" | "bottom" | "baseline";
+    scope?: "row" | "col" | "rowgroup" | "colgroup";
+    headerIds?: string[];
 }
 export interface TableColumnNode extends NodeBase {
     type: "table_column";
     align?: "left" | "right" | "center";
-    valign?: string;
+    valign?: "top" | "middle" | "bottom" | "baseline";
     width?: number;
     resolvedAlign?: "left" | "right" | "center";
     authored?: true;
@@ -416,14 +418,14 @@ export interface XrefNode extends NodeBase {
     key: string;
     namespace: "link" | "footnote" | "citation" | "abbr" | "heading";
     href?: string;
-    form?: "number" | "page" | "title" | "full";
+    display?: "number" | "page" | "title" | "full";
 }
 /** The node types that stand in a list of blocks. */
 export type Block = AdmonitionNode | BlockExtensionNode | BlockQuoteNode | CodeBlockNode | CommentNode | DefinitionListNode | DirectiveNode | DivNode | FigureNode | FigureGroupNode | HeadingNode | IncludeNode | LineBlockNode | ListNode | ParagraphNode | RawBlockNode | SectionNode | TableNode | ThematicBreakNode;
 /** The node types that stand in a list of inlines. */
 export type Inline = AbbreviationNode | AutolinkNode | CaptionNumberNode | CitationGroupNode | CodeNode | CommentNode | CriticCommentNode | DeleteNode | EmphasisNode | FootnoteRefNode | HardBreakNode | HighlightNode | ImageNode | InlineExtensionNode | InlineFootnoteNode | InsertNode | LinkNode | LiteralInlineNode | MathNode | MentionNode | NonBreakingSpaceNode | RawInlineNode | RubyNode | SmallCapsNode | SmartPunctuationNode | SoftBreakNode | SpanNode | StrikeNode | StrongNode | SubscriptNode | SuperscriptNode | SymbolNode | TagNode | TextNode | UnderlineNode | XrefNode;
 /** Every node of the tree document, told apart by `type`. */
-export type Node = AbbreviationNode | AbbreviationDefNode | AdmonitionNode | AutolinkNode | BlockExtensionNode | BlockQuoteNode | CaptionNode | CaptionNumberNode | CellParagraphNode | CitationNode | CitationDefinitionNode | CitationGroupNode | CodeNode | CodeBlockNode | CommentNode | CriticCommentNode | DefinitionDescriptionNode | DefinitionListNode | DefinitionTermNode | DeleteNode | DirectiveNode | DivNode | DocumentNode | EmphasisNode | FigureNode | FigureGroupNode | FootnoteNode | FootnoteRefNode | FrontmatterNode | HardBreakNode | HeadingNode | HighlightNode | ImageNode | IncludeNode | InlineExtensionNode | InlineFootnoteNode | InsertNode | LineNode | LineBlockNode | LinkNode | LinkReferenceDefinitionNode | ListNode | ListItemNode | LiteralInlineNode | MathNode | MentionNode | NonBreakingSpaceNode | ParagraphNode | RawBlockNode | RawInlineNode | RubyNode | SectionNode | SmallCapsNode | SmartPunctuationNode | SoftBreakNode | SpanNode | StrikeNode | StrongNode | SubscriptNode | SuperscriptNode | SymbolNode | TableNode | TableBodyNode | TableCellNode | TableColumnNode | TableFootNode | TableHeadNode | TableRowNode | TagNode | TextNode | ThematicBreakNode | UnderlineNode | XrefNode;
+export type Node = AbbreviationNode | AbbreviationDefNode | AdmonitionNode | AutolinkNode | BlockExtensionNode | BlockQuoteNode | CaptionNode | CaptionNumberNode | CellParagraphNode | CitationNode | CitationDefinitionNode | CitationGroupNode | CodeNode | CodeBlockNode | CommentNode | CriticCommentNode | DefinitionDescriptionNode | DefinitionListNode | DefinitionTermNode | DeleteNode | DirectiveNode | DivNode | DocumentNode | EmphasisNode | FigureNode | FigureGroupNode | FootnoteNode | FootnoteRefNode | FrontmatterNode | HardBreakNode | HeadingNode | HighlightNode | ImageNode | IncludeNode | InlineExtensionNode | InlineFootnoteNode | InsertNode | LineNode | LineBlockNode | LinkNode | LinkReferenceDefinitionNode | ListNode | ListItemNode | LiteralInlineNode | MathNode | MentionNode | NonBreakingSpaceNode | ParagraphNode | RawBlockNode | RawInlineNode | RubyNode | RubyPairNode | SectionNode | SmallCapsNode | SmartPunctuationNode | SoftBreakNode | SpanNode | StrikeNode | StrongNode | SubscriptNode | SuperscriptNode | SymbolNode | TableNode | TableBodyNode | TableCellNode | TableColumnNode | TableFootNode | TableHeadNode | TableRowNode | TagNode | TextNode | ThematicBreakNode | UnderlineNode | XrefNode;
 /** The node of each type. */
 export interface NodeOfType {
     abbreviation: AbbreviationNode;
@@ -477,6 +479,7 @@ export interface NodeOfType {
     raw_block: RawBlockNode;
     raw_inline: RawInlineNode;
     ruby: RubyNode;
+    ruby_pair: RubyPairNode;
     section: SectionNode;
     small_caps: SmallCapsNode;
     smart_punctuation: SmartPunctuationNode;
@@ -512,14 +515,20 @@ export type NodeHandlers<R, C = void> = {
 export declare const FIELD_VALUES: {
     readonly "*.dir": readonly ["ltr", "rtl", "auto"];
     readonly "comment.form": readonly ["block", "line", "braced"];
-    readonly "link.form": readonly ["full", "collapsed"];
-    readonly "image.form": readonly ["full", "collapsed"];
-    readonly "xref.form": readonly ["number", "page", "title", "full"];
+    readonly "link.refForm": readonly ["full", "collapsed"];
+    readonly "image.refForm": readonly ["full", "collapsed"];
+    readonly "xref.display": readonly ["number", "page", "title", "full"];
+    readonly "paragraph.role": readonly ["image", "math"];
+    readonly "citation.mode": readonly ["normal", "author-in-text", "suppress-author"];
+    readonly "table_cell.scope": readonly ["row", "col", "rowgroup", "colgroup"];
     readonly "list.spacing": readonly ["tight", "loose"];
     readonly "table_cell.span": readonly ["rowspan", "colspan"];
     readonly "table_cell.align": readonly ["left", "right", "center"];
     readonly "table_column.align": readonly ["left", "right", "center"];
     readonly "table_column.resolvedAlign": readonly ["left", "right", "center"];
+    readonly "table_cell.valign": readonly ["top", "middle", "bottom", "baseline"];
+    readonly "table_column.valign": readonly ["top", "middle", "bottom", "baseline"];
+    readonly "smart_punctuation.kind": readonly ["ellipsis", "em_dash", "en_dash", "greater_than_or_equal", "left_double_quote", "left_right_arrow", "left_right_double_arrow", "left_single_quote", "leftwards_arrow", "leftwards_double_arrow", "less_than_or_equal", "not_equal", "plus_minus", "right_double_quote", "right_single_quote", "rightwards_arrow", "rightwards_double_arrow", "trademark"];
     readonly "link.targetKind": readonly ["url", "wiki", "doc", "xref"];
     readonly "image.targetKind": readonly ["url", "wiki", "doc", "xref"];
     readonly "directive.tocTarget": readonly ["headings", "figures", "tables", "listings"];

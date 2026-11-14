@@ -68,9 +68,57 @@ test('an unspellable Pandoc table cell reports a writer loss', () => {
   const table = P.Table(P.emptyAttr, null, ['AlignLeft'], [], [{ bodyRows: [P.row([P.cell([P.Para([P.Str('a')]), P.Para([P.Str('b')])])])] }]);
   assert.match(pandocToCarve(doc([table])).warnings.join('\n'), /unspellable/);
 });
-test('the parser currently splits adjacent task and plain items', () => {
+test('the parser groups adjacent task and plain items', () => {
   const ast = parse('- [x] done\n- plain');
-  assert.equal(ast.children.length, 2);
+  assert.equal(ast.children.length, 1);
+  assert.equal(ast.children[0].children.length, 2);
+});
+test('Pandoc single and double quotes use paired Carve punctuation', () => {
+  for (const kind of ['SingleQuote', 'DoubleQuote']) {
+    const input = doc([P.Para([P.Quoted(kind, [P.Str('inside')])])]);
+    const { ast } = pandocToCarveAst(input);
+    assert.deepEqual(ast.children[0].children.map(node => node.type), ['smart_punctuation', 'text', 'smart_punctuation']);
+    assert.equal(carveAstToPandoc(ast).doc.blocks[0].c[0].t, 'Quoted');
+  }
+});
+test('Pandoc Example list style survives through a list marker attribute', () => {
+  const input = doc([P.OrderedList(1, 'Example', [[P.Plain([P.Str('one')])]], 'TwoParens')]);
+  const ast = pandocToCarveAst(input).ast;
+  assert.deepEqual(ast.children[0].attrs.keyValues, [['carve-example', '1'], ['carve-example-delimiter', 'TwoParens']]);
+  assert.equal(carveAstToPandoc(ast).doc.blocks[0].c[0][1].t, 'Example');
+  assert.match(pandocToCarve(input).carve, /carve-example=1/);
+});
+test('typed root metadata maps through Pandoc metadata', () => {
+  const ast = { type: 'document', astVersion: '2.0', children: [], metadata: {
+    title: [{ type: 'text', value: 'Title' }], subtitle: [{ type: 'text', value: 'Sub' }],
+    authors: ['Ann', 'Bob'], date: '2026-11-14', bibliography: { title: [{ type: 'text', value: 'Book' }], authors: ['A'] },
+  } };
+  const { doc } = carveAstToPandoc(ast);
+  assert.equal(doc.meta.title.t, 'MetaInlines');
+  assert.equal(doc.meta.author.t, 'MetaList');
+  assert.ok(treesEqual(ast, pandocToCarveAst(doc).ast));
+});
+test('Pandoc metadata without a typed 0.2 slot is reported', () => {
+  const input = doc([]);
+  input.meta.abstract = { t: 'MetaBlocks', c: [P.Para([P.Str('Abstract')])] };
+  const result = pandocToCarveAst(input);
+  assert.match(result.warnings.join('\n'), /metadata abstract: no typed 0.2 slot/);
+});
+test('decoded include options survive the Pandoc JSON carrier', () => {
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'include', path: 'part.crv', section: 'intro', options: { lines: '1-3', cols: ['A', 'B'], shift: 'auto', code: true } }] };
+  assert.ok(treesEqual(ast, pandocToCarveAst(carveAstToPandoc(ast).doc).ast));
+});
+test('image long description survives the Pandoc JSON carrier', () => {
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', children: [{ type: 'image', src: 'a.png', alt: 'A', longDescription: [{ type: 'paragraph', children: [{ type: 'text', value: 'Details' }] }] }] }] };
+  assert.ok(treesEqual(ast, pandocToCarveAst(carveAstToPandoc(ast).doc).ast));
+});
+test('table accessibility fields survive the Pandoc JSON carrier', () => {
+  const cell = (value, header, extra = {}) => ({ type: 'table_cell', header, children: [{ type: 'cell_paragraph', children: [{ type: 'text', value }] }], ...extra });
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'table', columns: [{ type: 'table_column' }], children: [
+    { type: 'table_head', children: [{ type: 'table_row', children: [cell('Head', true, { attrs: { id: 'h' }, scope: 'col' })] }] },
+    { type: 'table_body', children: [{ type: 'table_row', children: [cell('Body', false, { headerIds: ['h'] })] }] },
+  ] }] };
+  assert.ok(treesEqual(ast, pandocToCarveAst(carveAstToPandoc(ast).doc).ast));
 });
 for (const [name, source] of [
   ['plain list', '- one\n- two'],

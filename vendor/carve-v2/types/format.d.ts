@@ -1,7 +1,7 @@
 import { type Options } from './options.js';
 import { type Diagnostic } from './diagnostics.js';
-/** The options of the formatter (C2-H-137): `alignTables` (C2-W-068). */
-export type FormatOptions = Pick<Options, 'alignTables'>;
+/** The options of the formatter (C2-H-137): `alignTables` (C2-W-068) and `normalize` (C2-W-127). */
+export type FormatOptions = Pick<Options, 'alignTables' | 'normalize'>;
 export interface FormatOutput {
     source: string;
     /** The diagnostics of the parse, and what the writer could not write (C2-W-103). */

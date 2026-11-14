@@ -1,10 +1,9 @@
-import { DANGEROUS_URL_SCHEMES, SCHEME_PROBE_STRIP_RE } from './url-scheme.js';
+import { hasDeniedScheme } from './url-scheme.js';
 
 /** Attribute names Carve never emits, regardless of value. */
 export const DANGEROUS_ATTR_NAMES: readonly string[] = ['srcdoc', 'formaction'];
 
 const DANGEROUS_NAMES = new Set(DANGEROUS_ATTR_NAMES);
-const DANGEROUS_VALUE_SCHEMES = new Set(DANGEROUS_URL_SCHEMES);
 const ASCII_WHITESPACE = '\\t\\n\\f\\r ';
 const URL_LIST_SEPARATORS = new Map([
     ['srcset', new RegExp(`[,${ASCII_WHITESPACE}]+`)],
@@ -20,10 +19,7 @@ export function isDangerousAttrName(name: string): boolean {
 }
 
 function hasDeniedValueScheme(value: string): boolean {
-    const colon = value.indexOf(':');
-    if (colon === -1) return false;
-    const scheme = value.slice(0, colon).replace(SCHEME_PROBE_STRIP_RE, '').toLowerCase();
-    return DANGEROUS_VALUE_SCHEMES.has(scheme);
+    return hasDeniedScheme(value);
 }
 
 function decodeCssEscapes(value: string): string {

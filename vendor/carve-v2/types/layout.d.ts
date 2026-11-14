@@ -19,6 +19,7 @@ export interface NodeLayout {
     wraps?: Wrap[];
     continuationLines?: number;
     rawRef?: string;
+    optionSpelling?: Record<string, string>;
     sourceFormat?: 'pipe' | 'csv' | 'tsv';
     markerRaw?: string;
     markerColumn?: number;

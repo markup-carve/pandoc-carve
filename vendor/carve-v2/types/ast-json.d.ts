@@ -7,6 +7,6 @@ export declare function encodeEnvelope(document: DocumentNode): string;
  * Reads a bare tree or an envelope from JSON. C2-A-167, C2-A-170: a text that is no JSON, or no
  * tree of contract 2.0, is refused here with a `CarveTreeError`, not with the error of the JSON library.
  */
-export declare function decodeTree(json: string): DocumentNode;
+export declare function decodeTree(json: string, source?: string): DocumentNode;
 /** C2-A-161: whether two trees are the same document. */
 export declare function treesEqual(a: Node, b: Node): boolean;

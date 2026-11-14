@@ -29,4 +29,4 @@ export declare const NODE_TABLE: {
  */
 export declare function validateEnvelope(envelope: Readonly<Record<string, unknown>>): void;
 /** Refuses `document` unless it is a tree of contract 2.0. */
-export declare function validateTree(document: unknown): asserts document is DocumentNode;
+export declare function validateTree(document: unknown, envelope?: Readonly<Record<string, unknown>>, source?: string): asserts document is DocumentNode;

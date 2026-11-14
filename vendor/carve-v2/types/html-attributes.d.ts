@@ -1,6 +1,6 @@
-import { type Node, type ParagraphNode } from './ast.js';
+import { type Block, type Node, type ParagraphNode } from './ast.js';
 import { type Findings } from './diagnostics.js';
-import { type Settings } from './options.js';
+import { type Settings, type UrlPolicy } from './options.js';
 import { type Resolution } from './resolve.js';
 /** The state of one render. */
 export interface Render {
@@ -21,6 +21,8 @@ export interface Render {
     backlinks: string;
     /** C2-H-172: false where the text nodes are known to hold no bidirectional control. */
     bidi: boolean;
+    /** C2-H-080: descriptions awaiting the end of the containing block. */
+    longDescriptions: Block[][];
 }
 /** An attribute name and its value. A null value writes the bare name (C2-H-117). */
 export type Pair = readonly [string, string | null];
@@ -41,6 +43,8 @@ export interface TagParts {
     alignStyle?: boolean;
     /** Declarations that follow the authored `style` (C2-H-057). */
     style?: string;
+    /** C2-H-032: the item declaration precedes an authored style. */
+    styleFirst?: boolean;
     /** C2-H-011: the id stands before the structural attributes, or the class does. */
     idFirst?: boolean;
     classFirst?: boolean;
@@ -70,6 +74,10 @@ export declare function escapeText(text: string): string;
 export declare function escapeAttribute(text: string): string;
 /** C2-H-132: a render loss on `node`, or on the document when it is null. */
 export declare function loss(r: Render, node: Node | null, code: string, message: string, severity?: 'error' | 'warning'): void;
+/** C2-H-159: the scheme of `url` in lower case, or the empty string when it has none. */
+export declare function urlScheme(url: string): string;
+/** C2-H-159, C2-H-173: whether a URL sink passes the same scheme test as the HTML renderer. */
+export declare function isUrlAllowed(url: string, policy?: UrlPolicy): boolean;
 /** C2-H-160: a destination the policy denies is written as the empty string, and the denial is reported on `node`. */
 export declare function destination(r: Render, url: string, node: Node): string;
 /**

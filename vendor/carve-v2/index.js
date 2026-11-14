@@ -337,7 +337,6 @@ function isOpaqueLeaf(kind) {
   return kind >= CODE && kind <= FRONTMATTER;
 }
 var FLAG_STAR = 1;
-var FLAG_TASK = 2;
 var FLAG_PAREN = 4;
 var FLAG_ALPHA = 8;
 var FLAG_ROMAN = 16;
@@ -764,14 +763,39 @@ function unescape(text, start, end) {
 var FIELD_VALUES = {
   "*.dir": ["ltr", "rtl", "auto"],
   "comment.form": ["block", "line", "braced"],
-  "link.form": ["full", "collapsed"],
-  "image.form": ["full", "collapsed"],
-  "xref.form": ["number", "page", "title", "full"],
+  "link.refForm": ["full", "collapsed"],
+  "image.refForm": ["full", "collapsed"],
+  "xref.display": ["number", "page", "title", "full"],
+  "paragraph.role": ["image", "math"],
+  "citation.mode": ["normal", "author-in-text", "suppress-author"],
+  "table_cell.scope": ["row", "col", "rowgroup", "colgroup"],
   "list.spacing": ["tight", "loose"],
   "table_cell.span": ["rowspan", "colspan"],
   "table_cell.align": ["left", "right", "center"],
   "table_column.align": ["left", "right", "center"],
   "table_column.resolvedAlign": ["left", "right", "center"],
+  "table_cell.valign": ["top", "middle", "bottom", "baseline"],
+  "table_column.valign": ["top", "middle", "bottom", "baseline"],
+  "smart_punctuation.kind": [
+    "ellipsis",
+    "em_dash",
+    "en_dash",
+    "greater_than_or_equal",
+    "left_double_quote",
+    "left_right_arrow",
+    "left_right_double_arrow",
+    "left_single_quote",
+    "leftwards_arrow",
+    "leftwards_double_arrow",
+    "less_than_or_equal",
+    "not_equal",
+    "plus_minus",
+    "right_double_quote",
+    "right_single_quote",
+    "rightwards_arrow",
+    "rightwards_double_arrow",
+    "trademark"
+  ],
   "link.targetKind": ["url", "wiki", "doc", "xref"],
   "image.targetKind": ["url", "wiki", "doc", "xref"],
   "directive.tocTarget": ["headings", "figures", "tables", "listings"],
@@ -792,6 +816,622 @@ var FIELD_VALUES = {
 function isFieldValue(field, value) {
   return FIELD_VALUES[field].some((allowed) => allowed === value);
 }
+
+// ../carve-js/v2/src/ast-tables.ts
+var AST_RESULTS = /* @__PURE__ */ new Map([
+  ["abbreviation", [
+    { "field": "expansion" }
+  ]],
+  ["abbreviation_def", []],
+  ["admonition", []],
+  ["autolink", []],
+  ["block_extension", []],
+  ["block_quote", []],
+  ["caption", []],
+  ["caption_number", [
+    { "field": "n" }
+  ]],
+  ["cell_paragraph", []],
+  ["citation", [
+    { "field": "number" },
+    { "field": "useIndex" }
+  ]],
+  ["citation_definition", []],
+  ["citation_group", []],
+  ["code", []],
+  ["code_block", []],
+  ["comment", []],
+  ["critic_comment", []],
+  ["definition_description", []],
+  ["definition_list", []],
+  ["definition_term", []],
+  ["delete", []],
+  ["directive", []],
+  ["div", []],
+  ["document", [
+    { "field": "stages" }
+  ]],
+  ["emphasis", []],
+  ["figure", []],
+  ["figure_group", []],
+  ["footnote", []],
+  ["footnote_ref", [
+    { "field": "number" }
+  ]],
+  ["frontmatter", []],
+  ["hard_break", []],
+  ["heading", [
+    { "field": "generatedId" }
+  ]],
+  ["highlight", []],
+  ["image", [
+    { "field": "src", "when": "reference use" }
+  ]],
+  ["include", []],
+  ["inline_extension", []],
+  ["inline_footnote", [
+    { "field": "number" }
+  ]],
+  ["insert", []],
+  ["line", []],
+  ["line_block", []],
+  ["link", [
+    { "field": "href", "when": "reference use" }
+  ]],
+  ["link_reference_definition", []],
+  ["list", []],
+  ["list_item", []],
+  ["literal_inline", []],
+  ["math", [
+    { "field": "number" },
+    { "field": "numberPrefix" }
+  ]],
+  ["mention", []],
+  ["non_breaking_space", []],
+  ["paragraph", []],
+  ["raw_block", []],
+  ["raw_inline", []],
+  ["ruby", []],
+  ["ruby_pair", []],
+  ["section", []],
+  ["small_caps", []],
+  ["smart_punctuation", []],
+  ["soft_break", []],
+  ["span", []],
+  ["strike", []],
+  ["strong", []],
+  ["subscript", []],
+  ["superscript", []],
+  ["symbol", []],
+  ["table", []],
+  ["table_body", []],
+  ["table_cell", [
+    { "field": "colspan", "when": "derived from authored span mark" },
+    { "field": "rowspan", "when": "derived from authored span mark" }
+  ]],
+  ["table_column", [
+    { "field": "resolvedAlign" }
+  ]],
+  ["table_foot", []],
+  ["table_head", []],
+  ["table_row", []],
+  ["tag", []],
+  ["text", []],
+  ["thematic_break", []],
+  ["underline", []],
+  ["xref", [
+    { "field": "href" }
+  ]]
+]);
+var NODE_SLOTS = /* @__PURE__ */ new Map([
+  ["abbreviation", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["abbreviation_def", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["admonition", [
+    "children",
+    "title",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["autolink", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["block_extension", [
+    "children",
+    "fallback",
+    "slots.*",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["block_quote", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["caption", [
+    "children",
+    "short",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["caption_number", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["cell_paragraph", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["citation", [
+    "prefix",
+    "locator.children",
+    "suffix",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["citation_definition", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["citation_group", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["code", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["code_block", [
+    "title",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["comment", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["critic_comment", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["definition_description", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["definition_list", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["definition_term", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["delete", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["directive", [
+    "children",
+    "title",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["div", [
+    "children",
+    "title",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["document", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["emphasis", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["figure", [
+    "children",
+    "caption",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["figure_group", [
+    "children",
+    "caption",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["footnote", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["footnote_ref", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["frontmatter", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["hard_break", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["heading", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["highlight", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["image", [
+    "longDescription",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["include", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["inline_extension", [
+    "children",
+    "fallback",
+    "slots.*",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["inline_footnote", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["insert", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["line", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["line_block", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["link", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["link_reference_definition", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["list", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["list_item", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["literal_inline", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["math", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["mention", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["non_breaking_space", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["paragraph", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["raw_block", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["raw_inline", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["ruby", [
+    "pairs",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["ruby_pair", [
+    "base",
+    "annotation",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["section", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["small_caps", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["smart_punctuation", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["soft_break", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["span", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["strike", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["strong", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["subscript", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["superscript", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["symbol", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table", [
+    "children",
+    "caption",
+    "columns",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table_body", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table_cell", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table_column", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table_foot", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table_head", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["table_row", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["tag", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["text", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["thematic_break", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["underline", [
+    "children",
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]],
+  ["xref", [
+    "metadata.title",
+    "metadata.subtitle",
+    "metadata.bibliography.title",
+    "metadata.bibliography.containerTitle"
+  ]]
+]);
 
 // ../carve-js/v2/src/ast.ts
 var AST_VERSION = "2.0";
@@ -839,8 +1479,7 @@ function childNodes(node) {
   return node.children ?? NO_NODES;
 }
 function titleOf(node) {
-  const title = node.title;
-  return typeof title === "string" ? void 0 : title;
+  return node.title;
 }
 function captionOf(node) {
   return node.caption;
@@ -853,35 +1492,56 @@ function pointerToken(token) {
 }
 var SPEC_ORDER = 0;
 var SOURCE_ORDER = 1;
-function forEachSlot(node, visit3, order = SPEC_ORDER) {
-  const fields = node;
-  const title = titleOf(node);
-  if (order === SOURCE_ORDER && title !== void 0) visit3(title, "title", false);
-  const children2 = node.children;
-  if (children2 !== void 0) visit3(children2, "children", false);
-  const caption2 = captionOf(node);
-  if (caption2 !== void 0) visit3([caption2], "caption", true);
-  visitInlineSlots(node, visit3);
-  if (order === SPEC_ORDER && title !== void 0) visit3(title, "title", false);
-  const fallback = fields["fallback"];
-  if (fallback !== void 0) visit3(fallback, "fallback", false);
-  const slots = fields["slots"];
-  if (slots !== void 0) for (const name in slots) visit3(slots[name], `slots/${pointerKey(name)}`, false);
+var CORE_SLOTS = new Map(
+  [...NODE_SLOTS].map(([type, paths]) => [type, paths.filter((path) => !path.startsWith("metadata."))])
+);
+var NO_SLOTS = 0;
+var CHILDREN_ONLY = 1;
+var MIXED_SLOTS = 2;
+function slotShape(node) {
+  const slots = (node.metadata === void 0 ? CORE_SLOTS : NODE_SLOTS).get(node.type);
+  if (slots === void 0 || slots.length === 0) return NO_SLOTS;
+  return slots.length === 1 && slots[0] === "children" ? CHILDREN_ONLY : MIXED_SLOTS;
 }
-function visitInlineSlots(node, visit3) {
-  if (node.type === "caption" && node.short !== void 0) visit3(node.short, "short", false);
-  if (node.type === "citation") {
-    for (const name of ["prefix", "locator", "suffix"]) {
-      const list3 = node[name];
-      if (list3 !== void 0) visit3(list3, name, false);
-    }
+function forEachSlot(node, visit3, order = SPEC_ORDER) {
+  const slots = (node.metadata === void 0 ? CORE_SLOTS : NODE_SLOTS).get(node.type) ?? [];
+  if (slots.length === 0) return;
+  if (slots.length === 1 && slots[0] === "children") {
+    visit3(childNodes(node), "children", false);
+    return;
   }
-  if (node.type === "ruby") {
-    node.pairs.forEach((pair, at) => {
-      visit3(pair.base, `pairs/${at}/base`, false);
-      visit3(pair.annotation, `pairs/${at}/annotation`, false);
-    });
+  if (order === SOURCE_ORDER && slots.includes("title")) visitSlot(node, "title", visit3);
+  for (const path of slots) {
+    if (order === SOURCE_ORDER && path === "title") continue;
+    visitSlot(node, path, visit3);
   }
+}
+function ownField(value, name) {
+  return isRecord(value) ? value[name] : void 0;
+}
+function slotValue(node, path) {
+  let value = node;
+  for (const name of path.split(".")) value = ownField(value, name);
+  return value;
+}
+function isNode(value) {
+  return isRecord(value) && typeof value["type"] === "string" && NODE_SLOTS.has(value["type"]);
+}
+function visitSlot(node, path, visit3) {
+  if (path.endsWith(".*")) {
+    const slots = slotValue(node, path.slice(0, -2));
+    if (!isRecord(slots)) return;
+    for (const [name, value] of Object.entries(slots)) visitValue(value, `${path.slice(0, -2)}/${pointerKey(name)}`, visit3);
+    return;
+  }
+  visitValue(slotValue(node, path), path.replaceAll(".", "/"), visit3);
+}
+function visitValue(value, step, visit3) {
+  if (isNode(value)) visit3([value], step, true);
+  else if (isNodeList(value)) visit3(value, step, false);
+}
+function isNodeList(value) {
+  return Array.isArray(value) && (value.length === 0 || isNode(value[0]));
 }
 function isNodeOfType(node, type) {
   return node.type === type;
@@ -1208,20 +1868,25 @@ function isLanguage(value) {
   for (let p = 0; p < value.length; p++) if (!isLanguageCharacter(value.charCodeAt(p))) return false;
   return value !== "";
 }
-function isNameList(written) {
-  if (written.length < 2 || written.charCodeAt(0) !== QUOTE_MARK) return false;
-  let length = 0;
+function nameList(written) {
+  if (written.length < 2 || written.charCodeAt(0) !== QUOTE_MARK) return null;
+  const names = [];
+  let name = "";
   for (let p = 1; p < written.length - 1; p++) {
     const code = written.charCodeAt(p);
     if (code === COMMA) {
-      if (length === 0) return false;
-      length = 0;
-      continue;
+      if (name === "") return null;
+      names.push(name);
+      name = "";
+    } else if (code === BACKSLASH && p + 1 < written.length - 1) {
+      name += written[++p];
+    } else {
+      name += written[p];
     }
-    if (code === BACKSLASH) p++;
-    length++;
   }
-  return length > 0;
+  if (name === "") return null;
+  names.push(name);
+  return names;
 }
 var SHAPES = /* @__PURE__ */ new Map([
   ["identifier", isIdentifier],
@@ -1241,36 +1906,60 @@ function optionVerdict(key, written) {
   const shape = SHAPES.get(rule.value);
   return shape === void 0 || shape(valueText(written)) ? "valid" : rule.outsideShape;
 }
-function keptValue(key, written) {
-  if (written === null) return "";
-  return key === "cols" && isNameList(written) ? written : valueText(written);
+function decodedOption(key, written) {
+  if (written === null) return key === "code" ? true : "";
+  if (key === "cols") return nameList(written) ?? valueText(written);
+  const text = valueText(written);
+  return key === "shift" && text !== "auto" ? Number(text) : text;
 }
-function optionPairs(src, shape) {
-  const values = /* @__PURE__ */ new Map();
+function optionValue(options, key) {
+  if (options === void 0) return void 0;
+  switch (key) {
+    case "lines":
+      return options.lines;
+    case "region":
+      return options.region;
+    case "rows":
+      return options.rows;
+    case "cols":
+      return options.cols;
+    case "shift":
+      return options.shift;
+    case "code":
+      return options.code;
+    default:
+      return void 0;
+  }
+}
+function optionValues(src, shape) {
+  const first = /* @__PURE__ */ new Map();
   const options = shape.options;
   for (let at = 0; at < options.length; at += 4) {
     const key = src.slice(options[at], options[at + 1]);
     const written = options[at + 2] === NONE2 ? null : src.slice(options[at + 2], options[at + 3]);
-    const repeated = values.has(key);
+    const repeated = first.has(key);
     const verdict = repeated ? INCLUDE_OPTIONS.get(key)?.repeated : optionVerdict(key, written);
     if (verdict === "paragraph" || verdict === void 0) return null;
-    if (!repeated) values.set(key, keptValue(key, written));
+    if (!repeated) first.set(key, written);
   }
-  const pairs = [];
+  const values = {};
+  const spelling = {};
   for (const key of INCLUDE_OPTIONS.keys()) {
-    const value = values.get(key);
-    if (value !== void 0) pairs.push([key, value]);
+    if (!first.has(key)) continue;
+    const written = first.get(key) ?? null;
+    Object.assign(values, { [key]: decodedOption(key, written) });
+    if (written !== null) spelling[key] = written;
   }
-  return pairs;
+  return { options: values, spelling };
 }
 function readInclude(src, pos, end) {
   const shape = readShape(src, pos, end);
   if (shape === null || shape.twoSections) return null;
-  const options = optionPairs(src, shape);
-  if (options === null) return null;
+  const values = optionValues(src, shape);
+  if (values === null) return null;
   const path = shape.pathQuote === QUOTE_MARK ? unescape(src, shape.pathStart, shape.pathEnd) : src.slice(shape.pathStart, shape.pathEnd);
   const section = shape.sectionStart === NONE2 ? null : src.slice(shape.sectionStart, shape.sectionEnd);
-  return { path, section, options, end: shape.end };
+  return { path, section, options: values.options, optionSpelling: values.spelling, end: shape.end };
 }
 function quoted(value) {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
@@ -1285,23 +1974,28 @@ function isBareValue(value) {
   for (let at = 0; at < value.length; at++) if (endsValue(value.charCodeAt(at))) return false;
   return true;
 }
-function includeOption(name, value) {
-  if (name === "") return value;
-  if (value === "") return `@${name}`;
-  const bare = name === "cols" && value.startsWith('"') || isBareValue(value);
-  return `@${name}:${bare ? value : quoted(value)}`;
+function includeOption(name, value, spelling) {
+  if (value === true) return `@${name}`;
+  if (spelling !== void 0 && JSON.stringify(decodedOption(name, spelling)) === JSON.stringify(value)) {
+    return `@${name}:${spelling}`;
+  }
+  if (Array.isArray(value)) {
+    const names = value.map((part) => part.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll(",", "\\,"));
+    return `@${name}:"${names.join(",")}"`;
+  }
+  const text = String(value);
+  if (text === "") return `@${name}`;
+  return `@${name}:${isBareValue(text) ? text : quoted(text)}`;
 }
 var OPTION_ORDER = [...INCLUDE_OPTIONS.keys()];
-function optionRank(name) {
-  const rank = OPTION_ORDER.indexOf(name);
-  return rank < 0 ? OPTION_ORDER.length : rank;
-}
-function includeSource(node) {
+function includeSource(node, spelling) {
   const path = node.path;
   const parts = [isBarePath(path) ? path : quoted(path)];
   if (node.section !== void 0) parts.push(`#${node.section}`);
-  const options = [...node.options ?? []].sort((a, b) => optionRank(a[0]) - optionRank(b[0]));
-  for (const [name, value] of options) parts.push(includeOption(name, value));
+  for (const name of OPTION_ORDER) {
+    const value = optionValue(node.options, name);
+    if (value !== void 0) parts.push(includeOption(name, value, spelling?.[name]));
+  }
   return `{{ ${parts.join(" ")} }}`;
 }
 
@@ -1437,7 +2131,7 @@ function orderedDelimiter(src, pos, end) {
   return delimiter === PAREN_CLOSE && p > pos ? p : -1;
 }
 function orderedMarkerEnd(src, pos, delimiter, end) {
-  const spaces = src.charCodeAt(delimiter) === DOT && delimiter === pos + 1 && isUpper(src.charCodeAt(pos)) ? 2 : 1;
+  const spaces = src.charCodeAt(delimiter) === DOT && delimiter > pos && isUpper(src.charCodeAt(pos)) ? 2 : 1;
   const content = afterMarkerSpace(src, braceBlocksEnd(src, delimiter + 1, end), end, spaces);
   const ellipsis = content >= 0 && src.charCodeAt(content) === DOT && content + 1 < end && src.charCodeAt(content + 1) === SPACE;
   if (delimiter === pos && ellipsis) return -1;
@@ -2134,7 +2828,7 @@ function markerInterrupts(state, matched, end) {
     return opens && isIndentContainer(containers.kind[matched - 1]) && matched + 2 <= MAX_DEPTH + 1;
   }
   if (kind === ITEM) {
-    return column === containers.column[matched] || isIndentContainer(containers.kind[matched - 2]);
+    return column <= containers.column[matched] || isIndentContainer(containers.kind[matched - 2]);
   }
   return opens && kind === DESCRIPTION && column < containers.column[matched] && isIndentContainer(containers.kind[matched - 2]);
 }
@@ -2214,8 +2908,7 @@ function openBulletItem(state, end) {
   const markerEnd = bulletMarkerEnd(src, pos, end);
   if (markerEnd < 0) return false;
   const boxEnd = taskBoxEnd(src, markerEnd, end);
-  let style = src.charCodeAt(pos) === STAR ? FLAG_STAR : 0;
-  if (boxEnd >= 0) style |= FLAG_TASK;
+  const style = src.charCodeAt(pos) === STAR ? FLAG_STAR : 0;
   const box = boxEnd < 0 ? 0 : src.charCodeAt(markerEnd + 1) === UPPER_X ? LOWER_X : src.charCodeAt(markerEnd + 1);
   if (!openItem(state, BULLET_LIST, style, 0, 0, box, pos + 1)) return false;
   moveTo(state, boxEnd >= 0 ? boxEnd : markerEnd, end);
@@ -4331,7 +5024,6 @@ function pushSlots(stack, frame) {
     if (single) stack.push({ node: nodes[0], above: frame, step });
     else pushList(stack, nodes, frame, step);
   });
-  if (node.type === "table") pushList(stack, node.columns, frame, "columns");
 }
 function pointerOf(frame) {
   const steps = [];
@@ -4490,7 +5182,7 @@ function referenceForm(node) {
 }
 function imageNode(node) {
   if ((node.flags & FLAG_REFERENCE) !== 0) {
-    return { type: "image", key: node.key ?? "", namespace: "link", form: referenceForm(node), alt: node.value };
+    return { type: "image", key: node.key ?? "", namespace: "link", refForm: referenceForm(node), alt: node.value };
   }
   const out = { type: "image", src: node.destination ?? "" };
   if (node.title !== null) out.tooltip = node.title;
@@ -4499,7 +5191,7 @@ function imageNode(node) {
 }
 function linkNode(node, children2) {
   if ((node.flags & FLAG_REFERENCE) !== 0) {
-    return { type: "link", key: node.key ?? "", namespace: "link", form: referenceForm(node), children: children2 };
+    return { type: "link", key: node.key ?? "", namespace: "link", refForm: referenceForm(node), children: children2 };
   }
   const href = node.destination ?? "";
   return node.title === null ? { type: "link", href, children: children2 } : { type: "link", href, tooltip: node.title, children: children2 };
@@ -4835,14 +5527,14 @@ function linkDefinitionFields(src, pos, end, key) {
   const quote3 = p + 1 < end ? src.charCodeAt(p + 1) : 0;
   if (quote3 !== QUOTE_MARK && quote3 !== APOSTROPHE) return out;
   const after2 = quotedEnd(src, p + 1, end, quote3);
-  if (after2 >= 0) out.title = unescape(src, p + 2, after2 - 1);
+  if (after2 >= 0) out.tooltip = unescape(src, p + 2, after2 - 1);
   return out;
 }
 function includeNode(src, start, end) {
   const parts = readInclude(src, start, end);
   const out = { type: "include", path: parts.path };
   if (parts.section !== null) out.section = parts.section;
-  if (parts.options.length > 0) out.options = parts.options;
+  if (Object.keys(parts.options).length > 0) out.options = parts.options;
   return out;
 }
 
@@ -5224,9 +5916,9 @@ function holdsOnly(children2, test) {
 function paragraphNode(ctx, node, flow) {
   const children2 = leafChildren(ctx, node, flow);
   const out = noteLeaf(ctx, { type: "paragraph", children: children2 });
-  if ((node.exitFlags & FLAG_IMAGE) !== 0 && holdsOnly(children2, (child) => child.type === "image")) out.blockImage = true;
+  if ((node.exitFlags & FLAG_IMAGE) !== 0 && holdsOnly(children2, (child) => child.type === "image")) out.role = "image";
   if ((node.exitFlags & FLAG_BLOCK_MATH) !== 0 && holdsOnly(children2, (child) => child.type === "math" && child.display)) {
-    out.blockMath = true;
+    out.role = "math";
   }
   return out;
 }
@@ -5334,7 +6026,7 @@ function itemNode(ctx, node, flow) {
   const out = { type: "list_item", children: blockChildren(ctx, node.children, flow) };
   if (node.aux !== 0) {
     const mark2 = String.fromCharCode(node.aux);
-    out.task = { mark: mark2, status: TASK_STATUS.get(mark2) };
+    out.task = { mark: mark2 };
   }
   setAttributes(out, markerAttributes(ctx, node));
   return out;
@@ -5692,14 +6384,14 @@ var RULES = /* @__PURE__ */ new Map([
   ["block_quote", ["blocks", [], []]],
   ["caption", ["blocks", [], ["short"]]],
   ["caption_number", ["none", [], ["n"]]],
-  ["cell_paragraph", ["inlines", [], ["blockImage"]]],
+  ["cell_paragraph", ["inlines", [], []]],
   ["citation", [
     "none",
-    ["key", "suppressAuthor", "namespace"],
-    ["prefix", "locator", "locatorLabel", "locatorValue", "suffix", "mode", "number", "useIndex"]
+    ["key", "namespace"],
+    ["prefix", "locator", "suffix", "mode", "number", "useIndex"]
   ]],
   ["citation_definition", ["inlines", REFERENCE, []]],
-  ["citation_group", [["citation"], ["raw"], ["mode"]]],
+  ["citation_group", [["citation"], ["raw"], []]],
   ["code", ["none", ["value"], []]],
   ["code_block", ["none", ["value"], ["syntax", "title", "groupLabel"]]],
   ["comment", ["none", ["form", "value"], []]],
@@ -5724,25 +6416,37 @@ var RULES = /* @__PURE__ */ new Map([
   ["hard_break", ["none", [], []]],
   ["heading", ["inlines", ["level"], ["generatedId"]]],
   ["highlight", ["inlines", [], []]],
-  ["image", ["none", [], ["src", "alt", "decorative", "tooltip", "targetKind", "key", "namespace", "resourceId", "form"]]],
+  ["image", ["none", [], [
+    "src",
+    "alt",
+    "decorative",
+    "tooltip",
+    "targetKind",
+    "key",
+    "namespace",
+    "resourceId",
+    "refForm",
+    "longDescription"
+  ]]],
   ["include", ["none", ["path"], ["section", "options"]]],
   ["inline_extension", ["inlines", ["name"], [...EXTENSION, "fallback"]]],
   ["inline_footnote", ["inlines", [], ["number"]]],
   ["insert", ["inlines", [], []]],
   ["line", ["inlines", [], []]],
   ["line_block", [["line"], [], []]],
-  ["link", ["inlines", [], ["href", "tooltip", "targetKind", "key", "namespace", "form"]]],
-  ["link_reference_definition", ["none", ["href", ...REFERENCE], ["title"]]],
+  ["link", ["inlines", [], ["href", "tooltip", "targetKind", "key", "namespace", "refForm"]]],
+  ["link_reference_definition", ["none", ["href", ...REFERENCE], ["tooltip"]]],
   ["list", [["list_item"], ["marker", "spacing"], []]],
   ["list_item", ["blocks", [], ["task"]]],
   ["literal_inline", ["none", ["value"], []]],
   ["math", ["none", ["display", "value"], ["number", "numberPrefix"]]],
   ["mention", ["none", ["target", "kind"], ["label"]]],
   ["non_breaking_space", ["none", [], []]],
-  ["paragraph", ["inlines", [], ["blockImage", "blockMath"]]],
+  ["paragraph", ["inlines", [], ["role"]]],
   ["raw_block", ["none", ["format", "value"], []]],
   ["raw_inline", ["none", ["format", "value"], []]],
   ["ruby", ["none", ["pairs"], []]],
+  ["ruby_pair", ["none", ["base", "annotation"], []]],
   ["section", ["blocks", [], ["level"]]],
   ["small_caps", ["inlines", [], []]],
   ["smart_punctuation", ["none", ["kind", "source"], ["glyph"]]],
@@ -5755,7 +6459,7 @@ var RULES = /* @__PURE__ */ new Map([
   ["symbol", ["none", ["name"], []]],
   ["table", [[...TABLE_GROUPS, "comment"], ["columns"], ["caption"]]],
   ["table_body", [["table_row", "comment"], [], ["headRows", "rowHeadColumns"]]],
-  ["table_cell", [[...BLOCKS, "cell_paragraph"], ["header"], ["span", "colspan", "rowspan", "align", "valign"]]],
+  ["table_cell", [[...BLOCKS, "cell_paragraph"], ["header"], ["span", "colspan", "rowspan", "align", "valign", "scope", "headerIds"]]],
   ["table_column", ["none", [], ["align", "valign", "width", "resolvedAlign", "authored"]]],
   ["table_foot", [["table_row", "comment"], [], []]],
   ["table_head", [["table_row", "comment"], [], []]],
@@ -5764,7 +6468,7 @@ var RULES = /* @__PURE__ */ new Map([
   ["text", ["none", ["value"], []]],
   ["thematic_break", ["none", [], []]],
   ["underline", ["inlines", [], []]],
-  ["xref", ["none", REFERENCE, ["href", "form"]]]
+  ["xref", ["none", REFERENCE, ["href", "display"]]]
 ]);
 var STRINGS = [
   "key",
@@ -5800,28 +6504,35 @@ var STRINGS = [
   "valign",
   "resolvedAlign",
   "mode",
-  "locatorLabel",
-  "locatorValue",
   "value",
   "astVersion",
-  "lang"
+  "lang",
+  "refForm",
+  "role",
+  "scope"
 ];
 var INTEGERS = ["n", "number", "level", "headRows", "rowHeadColumns", "colspan", "rowspan", "srcByteLength"];
-var BOOLEANS = ["display", "header", "decorative", "suppressAuthor", "useIndex"];
-var TRUE_ONLY = ["blockImage", "blockMath", "authored"];
-var INLINE_SLOTS = ["short", "prefix", "locator", "suffix"];
+var BOOLEANS = ["display", "header", "decorative", "useIndex"];
+var TRUE_ONLY = ["authored"];
+var INLINE_SLOTS = ["short", "prefix", "suffix", "base", "annotation"];
 var POSITION_FIELDS = ["startLine", "endLine", "startColumn", "endColumn", "startOffset", "endOffset"];
 var ENUMS = /* @__PURE__ */ new Map([
   ["*.dir", ["ltr", "rtl", "auto"]],
   ["comment.form", ["block", "line", "braced"]],
-  ["link.form", ["full", "collapsed"]],
-  ["image.form", ["full", "collapsed"]],
-  ["xref.form", ["number", "page", "title", "full"]],
+  ["link.refForm", ["full", "collapsed"]],
+  ["image.refForm", ["full", "collapsed"]],
+  ["xref.display", ["number", "page", "title", "full"]],
+  ["paragraph.role", ["image", "math"]],
+  ["citation.mode", ["normal", "author-in-text", "suppress-author"]],
+  ["table_cell.scope", ["row", "col", "rowgroup", "colgroup"]],
   ["list.spacing", ["tight", "loose"]],
   ["table_cell.span", ["rowspan", "colspan"]],
   ["table_cell.align", ["left", "right", "center"]],
   ["table_column.align", ["left", "right", "center"]],
   ["table_column.resolvedAlign", ["left", "right", "center"]],
+  ["table_cell.valign", ["top", "middle", "bottom", "baseline"]],
+  ["table_column.valign", ["top", "middle", "bottom", "baseline"]],
+  ["smart_punctuation.kind", SMART_KIND_NAMES],
   ["link.targetKind", ["url", "wiki", "doc", "xref"]],
   ["image.targetKind", ["url", "wiki", "doc", "xref"]],
   ["directive.tocTarget", ["headings", "figures", "tables", "listings"]],
@@ -5859,6 +6570,20 @@ function checkPairs(value, path) {
     if (!isPair(pair)) fail(`${path}/${index}`, "not a pair of two strings");
   });
 }
+function checkOption(name, item, path) {
+  if (name === "lines" || name === "region" || name === "rows") requireString(item, path);
+  else if (name === "cols") {
+    if (typeof item !== "string") checkStrings(item, path);
+  } else if (name === "shift") {
+    if (item !== "auto" && !Number.isInteger(item)) fail(path, "not an integer or auto");
+  } else if (name === "code") {
+    if (item !== true) requireString(item, path);
+  } else fail(path, "not an include option");
+}
+function checkOptions(value, path) {
+  if (!isRecord(value)) fail(path, "options is not an object");
+  for (const [name, item] of Object.entries(value)) checkOption(name, item, `${path}/${name}`);
+}
 function checkAttrs(value, path) {
   if (!isRecord(value)) fail(path, "attrs is not an object");
   for (const name of Object.keys(value)) {
@@ -5875,15 +6600,32 @@ function checkAttrs(value, path) {
     if (name === "id" || name === "class") fail(`${path}/keyValues`, `the key ${key} folds into the id or the classes`);
   }
 }
-function checkPosition(value, path) {
+function checkPosition(value, path, walk) {
   if (!isRecord(value)) fail(path, "pos is not an object");
+  checkPositionFields(value, path);
+  if (value["file"] !== void 0) requireString(value["file"], `${path}/file`);
+  if (value["startOffset"] > value["endOffset"]) fail(path, "the start lies behind the end");
+  if (walk?.tree.sourcePositions !== void 0 && value["file"] === void 0) {
+    checkPositionSource(value, path, walk.tree.sourcePositions);
+  }
+}
+function checkPositionFields(value, path) {
   for (const name of POSITION_FIELDS) {
     if (!Number.isInteger(value[name])) fail(`${path}/${name}`, "not an integer");
+    const minimum = name.endsWith("Offset") ? 0 : 1;
+    if (value[name] < minimum) fail(`${path}/${name}`, `below ${minimum}`);
   }
   for (const name of Object.keys(value)) {
     if (!POSITION_FIELDS.includes(name) && name !== "file") fail(`${path}/${name}`, "unknown field of pos");
   }
-  if (value["startOffset"] > value["endOffset"]) fail(path, "the start lies behind the end");
+}
+function checkPositionSource(value, path, source) {
+  for (const end of ["start", "end"]) {
+    const position = source.get(value[`${end}Offset`]);
+    if (position === void 0 || position[0] !== value[`${end}Line`] || position[1] !== value[`${end}Column`]) {
+      fail(path, `${end} coordinates disagree with the source`);
+    }
+  }
 }
 function checkMarker(value, path) {
   if (!isRecord(value)) fail(path, "marker is not an object");
@@ -5901,12 +6643,45 @@ function checkOrderedMarker(value, path) {
   const delimiter = value["delimiter"];
   if (delimiter !== void 0 && delimiter !== "." && delimiter !== ")") fail(`${path}/delimiter`, "unknown delimiter");
   if (value["start"] !== void 0 && !Number.isInteger(value["start"])) fail(`${path}/start`, "not an integer");
+  if (value["start"] === 1) fail(`${path}/start`, "a start of 1 is omitted");
 }
 function checkTask(value, path) {
   if (!isRecord(value)) fail(path, "task is not an object");
-  const status = TASK_STATUS.get(value["mark"]);
-  if (status === void 0) fail(`${path}/mark`, "unknown task mark");
-  if (value["status"] !== status) fail(`${path}/status`, "the status does not follow from the mark");
+  for (const name of Object.keys(value)) if (name !== "mark") fail(`${path}/${name}`, "not a field of task");
+  if (typeof value["mark"] !== "string" || !TASK_STATUS.has(value["mark"])) fail(`${path}/mark`, "unknown task mark");
+}
+function checkStrings(value, path) {
+  requireArray(value, path).forEach((item, index) => requireString(item, `${path}/${index}`));
+}
+function checkBibliography(value, path, walk) {
+  if (!isRecord(value)) fail(path, "bibliography is not an object");
+  for (const [name, item] of Object.entries(value)) {
+    const at = `${path}/${name}`;
+    if (name === "title" || name === "containerTitle") checkList(item, at, "inlines", walk);
+    else if (name === "authors") checkStrings(item, at);
+    else if (name === "issued" || name === "doi" || name === "url") requireString(item, at);
+    else fail(at, "not a field of bibliography");
+  }
+}
+function checkMetadata(value, path, walk) {
+  if (!isRecord(value)) fail(path, "metadata is not an object");
+  for (const [name, item] of Object.entries(value)) {
+    const at = `${path}/${name}`;
+    if (name === "title" || name === "subtitle") checkList(item, at, "inlines", walk);
+    else if (name === "authors") checkStrings(item, at);
+    else if (name === "date") requireString(item, at);
+    else if (name === "bibliography") checkBibliography(item, at, walk);
+    else fail(at, "not a field of metadata");
+  }
+}
+function checkLocator(value, path, walk) {
+  if (!isRecord(value)) fail(path, "locator is not an object");
+  for (const name of Object.keys(value)) if (name !== "label" && name !== "children") fail(`${path}/${name}`, "not a field of locator");
+  if (value["label"] !== void 0) requireString(value["label"], `${path}/label`);
+  checkList(value["children"], `${path}/children`, "inlines", walk);
+}
+function checkHeaderIds(value, path) {
+  checkStrings(value, path);
 }
 function checkEnum(type, name, value, path) {
   const values = ENUMS.get(`${type}.${name}`) ?? ENUMS.get(`*.${name}`);
@@ -5916,34 +6691,52 @@ function isWidth(value) {
   return typeof value === "number" && value > 0 && value <= 1;
 }
 function checkScalar(type, name, value, path) {
+  if (type === "xref" && name === "display") {
+    requireString(value, path);
+    checkEnum(type, name, value, path);
+    return true;
+  }
   if (name === "width") return isWidth(value) || fail(path, "not a fraction above 0 and at most 1");
   if (TRUE_ONLY.includes(name)) return value === true || fail(path, "not true");
   if (BOOLEANS.includes(name)) return typeof value === "boolean" || fail(path, "not a boolean");
-  if (INTEGERS.includes(name)) return Number.isInteger(value) && value >= 0 || fail(path, "not a count");
+  if (INTEGERS.includes(name)) return checkCount(name, value, path);
   if (!STRINGS.includes(name) && name !== "dir") return false;
   requireString(value, path);
   checkEnum(type, name, value, path);
   return true;
 }
+function checkCount(name, value, path) {
+  const minimum = name === "level" || name === "colspan" || name === "rowspan" ? 1 : 0;
+  return Number.isInteger(value) && value >= minimum || fail(path, `not a count of at least ${minimum}`);
+}
+function validSegment(value) {
+  if (value.length === 0) return false;
+  const first = value.charCodeAt(0);
+  if (!(first >= 65 && first <= 90 || first >= 97 && first <= 122)) return false;
+  for (let at = 1; at < value.length; at++) {
+    const code = value.charCodeAt(at);
+    const letter = code >= 65 && code <= 90 || code >= 97 && code <= 122;
+    if (!letter && !(code >= 48 && code <= 57) && code !== 45 && code !== 95) return false;
+  }
+  return true;
+}
+function validName(value, qualified) {
+  const parts = value.split(".");
+  return (!qualified || parts.length >= 2) && parts.every(validSegment);
+}
+function declaredNames(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => isRecord(entry) && typeof entry["name"] === "string" ? [entry["name"]] : []);
+}
 function nodeList(content) {
   return (value, path, walk) => checkList(value, path, content, walk);
 }
-function checkTitle(value, path, walk, node) {
-  if (node["type"] === "link_reference_definition") requireString(value, path);
-  else checkList(value, path, "inlines", walk);
+function checkTitle(value, path, walk) {
+  checkList(value, path, "inlines", walk);
 }
 function checkStages(value, path) {
   requireArray(value, path).forEach((stage, index) => {
     if (!STAGES.includes(stage)) fail(`${path}/${index}`, "unknown stage");
-  });
-}
-var RUBY_PAIR_FIELDS = ["type", "base", "annotation"];
-function checkPairsOfRuby(value, path, walk) {
-  requireArray(value, path).forEach((pair, index) => {
-    if (!isRecord(pair) || pair["type"] !== "rubyPair") fail(`${path}/${index}`, "not a rubyPair");
-    for (const name of Object.keys(pair)) if (!RUBY_PAIR_FIELDS.includes(name)) fail(`${path}/${index}/${name}`, "not a field of rubyPair");
-    checkList(pair["base"], `${path}/${index}/base`, "inlines", walk);
-    checkList(pair["annotation"], `${path}/${index}/annotation`, "inlines", walk);
   });
 }
 function checkSlots(value, path, walk, node) {
@@ -5969,9 +6762,16 @@ function checkResources(value, path) {
   const seen = /* @__PURE__ */ new Set();
   requireArray(value, path).forEach((entry, index) => {
     if (!isRecord(entry)) fail(`${path}/${index}`, "not a resource");
+    for (const name of Object.keys(entry)) {
+      if (!["id", "mediaType", "digest", "href", "size"].includes(name)) fail(`${path}/${index}/${name}`, "not a field of resource");
+    }
     const id = requireString(entry["id"], `${path}/${index}/id`);
     requireString(entry["mediaType"], `${path}/${index}/mediaType`);
     const digest = requireString(entry["digest"], `${path}/${index}/digest`);
+    if (entry["href"] !== void 0) requireString(entry["href"], `${path}/${index}/href`);
+    if (entry["size"] !== void 0 && (!Number.isInteger(entry["size"]) || entry["size"] < 0)) {
+      fail(`${path}/${index}/size`, "not a non-negative byte count");
+    }
     if (!/^sha256:[0-9a-f]{64}$/.test(digest)) fail(`${path}/${index}/digest`, "not a sha256 digest");
     if (seen.has(id)) fail(`${path}/${index}/id`, "a duplicate resource id");
     seen.add(id);
@@ -5980,24 +6780,49 @@ function checkResources(value, path) {
 function checkExtensions(value, path) {
   requireArray(value, path).forEach((entry, index) => {
     if (!isRecord(entry)) fail(`${path}/${index}`, "not an extension declaration");
-    requireString(entry["name"], `${path}/${index}/name`);
+    for (const name2 of Object.keys(entry)) {
+      if (!["name", "required", "version"].includes(name2)) fail(`${path}/${index}/${name2}`, "not a field of extension declaration");
+    }
+    const name = requireString(entry["name"], `${path}/${index}/name`);
+    if (!validName(name, true)) fail(`${path}/${index}/name`, "not a qualified name");
     if (typeof entry["required"] !== "boolean") fail(`${path}/${index}/required`, "not a boolean");
+    if (entry["version"] !== void 0) requireString(entry["version"], `${path}/${index}/version`);
     if (entry["required"] === true) fail(`${path}/${index}`, "an unknown required extension");
   });
 }
+function checkData(value, path, walk) {
+  checkObject(value, path);
+  if (!isRecord(value)) return;
+  for (const name of Object.keys(value)) {
+    if (!validName(name, true)) fail(`${path}/${pointerKey(name)}`, "not a qualified data name");
+    if (!walk.tree.declarations.has(name)) fail(`${path}/${pointerKey(name)}`, "an undeclared data name");
+  }
+}
 function checkObject(value, path) {
   if (!isRecord(value)) fail(path, "not an object");
+  const pending = [[value, path]];
+  const seen = /* @__PURE__ */ new WeakSet();
+  while (pending.length > 0) {
+    const [item, at] = pending.pop();
+    if (typeof item !== "object" || item === null || seen.has(item)) continue;
+    seen.add(item);
+    if (isRecord(item) && typeof item["type"] === "string" && RULES.has(item["type"])) fail(at, "a node in an opaque object");
+    for (const [name, child] of Object.entries(item)) pending.push([child, `${at}/${pointerKey(name)}`]);
+  }
 }
 var FIELD_CHECKS = /* @__PURE__ */ new Map([
   ["attrs", checkAttrs],
   ["pos", checkPosition],
-  ["segments", (value, path) => requireArray(value, path).forEach((range, index) => checkPosition(range, `${path}/${index}`))],
-  ["data", checkObject],
-  ["metadata", checkObject],
+  ["segments", (value, path, walk) => requireArray(value, path).forEach((range, index) => checkPosition(range, `${path}/${index}`, walk))],
+  ["data", checkData],
+  ["metadata", checkMetadata],
   ["props", checkObject],
   ["marker", checkMarker],
   ["task", checkTask],
-  ["options", checkPairs],
+  ["options", checkOptions],
+  ["locator", checkLocator],
+  ["longDescription", nodeList("blocks")],
+  ["headerIds", checkHeaderIds],
   ["title", checkTitle],
   ["caption", (value, path, walk) => checkNode(value, path, ["caption"], walk)],
   ["fallback", (value, path, walk, node) => {
@@ -6005,7 +6830,7 @@ var FIELD_CHECKS = /* @__PURE__ */ new Map([
     checkList(value, path, node["type"] === "block_extension" ? "blocks" : "inlines", inner);
   }],
   ["columns", nodeList(["table_column"])],
-  ["pairs", checkPairsOfRuby],
+  ["pairs", nodeList(["ruby_pair"])],
   ["slots", checkSlots],
   ["stages", checkStages],
   ["resources", checkResources],
@@ -6023,15 +6848,71 @@ function checkList(value, path, content, walk) {
   const inner = { ...walk, depth: walk.depth + 1 };
   requireArray(value, path).forEach((child, index) => checkNode(child, `${path}/${index}`, allowed, inner));
 }
-function checkDependencies(node, type, path) {
-  if (type === "link" || type === "image") {
-    const present = ["key", "namespace", "form"].filter((name) => node[name] !== void 0).length;
-    if (present !== 0 && present !== 3) fail(path, "key, namespace and form stand together or not at all");
+function checkDependencies(node, type, path, walk) {
+  if (type === "link" || type === "image") checkLinkFields(node, type, path);
+  if (type === "math" && node["number"] === void 0 !== (node["numberPrefix"] === void 0)) {
+    fail(path, "number and numberPrefix stand together");
   }
-  if (type === "citation_group" && node["mode"] !== void 0) {
-    const items = node["children"];
-    if (items.some((item) => item["mode"] === void 0)) fail(path, "a group mode needs a mode on every citation");
+  if (type === "inline_extension" || type === "block_extension") checkExtensionName(node, type, path, walk);
+}
+function checkLinkFields(node, type, path) {
+  const present = ["key", "namespace", "refForm"].filter((name) => node[name] !== void 0).length;
+  if (present !== 0 && present !== 3) fail(path, "key, namespace and refForm stand together or not at all");
+  if (type === "image" && node["alt"] !== void 0 === (node["decorative"] === true)) {
+    fail(path, "decorative is true exactly when alt is absent");
   }
+}
+function checkExtensionName(node, type, path, walk) {
+  const name = node["name"];
+  if (typeof name !== "string") fail(`${path}/name`, "not an extension name");
+  const qualified = name.includes(".");
+  const unqualifiedSource = type === "inline_extension" && name.startsWith("_") && validSegment(`a${name.slice(1)}`);
+  if (!validName(name, type === "block_extension") && !unqualifiedSource) fail(`${path}/name`, "not an extension name");
+  if (qualified && !walk.tree.declarations.has(name)) fail(`${path}/name`, "an undeclared extension name");
+  if (qualified && node["fallback"] === void 0) fail(`${path}/fallback`, "a required field is missing");
+}
+function members(node, field) {
+  if (!isRecord(node)) return [];
+  const value = node[field];
+  return Array.isArray(value) ? value : [];
+}
+function tableRows(group) {
+  return members(group, "children").flatMap((row, index) => isRecord(row) && row["type"] === "table_row" ? [[row, index]] : []);
+}
+function markRun(cells, index, kind) {
+  let count = 0;
+  for (let at = index + 1; at < cells.length; at++) {
+    const cell = cells[at];
+    if (!isRecord(cell) || cell["span"] !== kind) break;
+    count++;
+  }
+  return count;
+}
+function checkSpanCounts(table3, path) {
+  const groups = members(table3, "children");
+  groups.forEach((group, groupIndex) => {
+    const rows = tableRows(group);
+    rows.forEach(([row, rowIndex], rowOffset) => {
+      const cells = members(row, "children");
+      cells.forEach((cell, cellIndex) => {
+        if (!isRecord(cell) || cell["span"] !== void 0) return;
+        const cellPath = `${path}/children/${groupIndex}/children/${rowIndex}/children/${cellIndex}`;
+        const cols = markRun(cells, cellIndex, "colspan");
+        if (cols > 0 && cell["colspan"] !== void 0 && cell["colspan"] !== cols + 1) {
+          fail(`${cellPath}/colspan`, "a count contradicts its authored span mark");
+        }
+        let rowsBelow = 0;
+        for (let at = rowOffset + 1; at < rows.length; at++) {
+          const below = members(rows[at]?.[0], "children")[cellIndex];
+          if (!isRecord(below) || below["span"] !== "rowspan") break;
+          rowsBelow++;
+        }
+        if (rowsBelow > 0 && cell["rowspan"] !== void 0 && cell["rowspan"] !== rowsBelow + 1) {
+          fail(`${cellPath}/rowspan`, "a count contradicts its authored span mark");
+        }
+      });
+    });
+  });
 }
 function checkField(node, type, rule, name, path, walk) {
   const [, required, optional] = rule;
@@ -6058,7 +6939,15 @@ function checkNode(value, path, allowed, walk) {
   if (rule === void 0) fail(path, `unknown node type ${type}`);
   if (!allowed.includes(type)) fail(path, `${type} does not stand here`);
   checkFields(value, type, rule, path, walk);
-  checkDependencies(value, type, path);
+  checkDependencies(value, type, path, walk);
+  if (type === "table") checkSpanCounts(value, path);
+  if (type === "table_cell") {
+    const attrs = value["attrs"];
+    if (value["header"] === true && isRecord(attrs) && typeof attrs["id"] === "string") walk.tree.headerIds.add(attrs["id"]);
+    if (Array.isArray(value["headerIds"])) {
+      value["headerIds"].forEach((id, index) => walk.tree.headerReferences.push([id, `${path}/headerIds/${index}`]));
+    }
+  }
   checkNodeBounds(value, path, walk);
 }
 function checkVersion(value, path) {
@@ -6092,24 +6981,56 @@ function checkNodeBounds(node, path, walk) {
   if (walk.fallbacks > MAX_FALLBACK_DEPTH) fail(path, "fallbacks are nested deeper than 32 extension nodes");
 }
 function checkReferences(document, tree) {
-  if (tree.references.length === 0) return;
   const ids = new Set((document["resources"] ?? []).map((entry) => entry["id"]));
   for (const [id, path] of tree.references) if (!ids.has(id)) fail(path, `no resource has the id ${JSON.stringify(id)}`);
+  for (const [id, path] of tree.headerReferences) {
+    if (!tree.headerIds.has(id)) fail(path, `no header cell has the id ${JSON.stringify(id)}`);
+  }
 }
 var ENVELOPE_FIELDS = ["astVersion", "document", "vocabulary", "extensions"];
 function validateEnvelope(envelope) {
   for (const name of Object.keys(envelope)) if (!ENVELOPE_FIELDS.includes(name)) fail(`/${name}`, "not a field of the envelope");
   if (envelope["astVersion"] === void 0) fail("/astVersion", "a required field is missing");
   checkVersion(envelope["astVersion"], "/astVersion");
+  const document = envelope["document"];
+  if (isRecord(document) && document["astVersion"] !== envelope["astVersion"]) {
+    fail("/document/astVersion", "the document and envelope versions differ");
+  }
   if (envelope["vocabulary"] !== void 0) checkObject(envelope["vocabulary"], "/vocabulary");
   if (envelope["extensions"] !== void 0) checkExtensions(envelope["extensions"], "/extensions");
 }
-function validateTree(document) {
+function sourcePositions(source) {
+  const positions = /* @__PURE__ */ new Map([[0, [1, 1]]]);
+  let offset = 0;
+  let line2 = 1;
+  let column = 1;
+  for (const char of source) {
+    offset += utf8Length(char);
+    if (char === "\n") {
+      line2++;
+      column = 1;
+    } else column++;
+    positions.set(offset, [line2, column]);
+  }
+  return positions;
+}
+function validateTree(document, envelope, source) {
   if (!isRecord(document)) fail("", "not a tree");
   if (document["type"] !== "document") fail("/type", "the root is not a document");
   if (document["children"] === void 0) fail("/children", "the root has no children");
   checkVersion(document["astVersion"], "/astVersion");
-  const tree = { resourceReferences: 0, references: [] };
+  const declarations = [...declaredNames(document["extensions"]), ...declaredNames(envelope?.["extensions"])];
+  const tree = {
+    resourceReferences: 0,
+    references: [],
+    declarations: new Set(declarations),
+    headerIds: /* @__PURE__ */ new Set(),
+    headerReferences: [],
+    sourcePositions: source === void 0 ? void 0 : sourcePositions(source)
+  };
+  if (source !== void 0 && document["srcByteLength"] !== void 0 && document["srcByteLength"] !== utf8Length(source)) {
+    fail("/srcByteLength", "the byte count disagrees with the source");
+  }
   checkFields(document, "document", RULES.get("document"), "", { depth: 0, fallbacks: 0, tree });
   const children2 = document["children"];
   children2.forEach((child, index) => {
@@ -6197,6 +7118,7 @@ var OPTION_KINDS = /* @__PURE__ */ new Map([
   ["includes", "parse"],
   ["labels", "render"],
   ["mode", "render"],
+  ["normalize", "format"],
   ["platforms", "lint"],
   ["profile", "render"],
   ["rawHtml", "render"],
@@ -6218,6 +7140,7 @@ var OPTION_TYPES = /* @__PURE__ */ new Map([
   ["includes", "structure"],
   ["labels", "map"],
   ["mode", "enum"],
+  ["normalize", "boolean"],
   ["platforms", "list"],
   ["profile", "enum"],
   ["rawHtml", "boolean"],
@@ -6245,6 +7168,7 @@ var ENUM_DEFAULTS = /* @__PURE__ */ new Map([
 ]);
 var BOOLEAN_DEFAULTS = /* @__PURE__ */ new Map([
   ["alignTables", false],
+  ["normalize", false],
   ["rawHtml", false],
   ["roundtrip", false],
   ["sections", true],
@@ -6622,31 +7546,16 @@ var STEPS = new Map([
   on("div", NOTHING, (node, walk) => visitSlots(walk, node))
 ]);
 function visitChildren(walk, node) {
-  const slots = node;
-  if (!SECONDARY_SLOT_TYPES.has(node.type)) {
-    if (slots.children !== void 0) {
-      for (const child of slots.children) if (child.type !== "text") visit(walk, child, node);
-    }
+  const shape = slotShape(node);
+  if (shape === NO_SLOTS) return;
+  if (shape === CHILDREN_ONLY) {
+    for (const child of childNodes(node)) if (child.type !== "text") visit(walk, child, node);
     return;
   }
   forEachSlot(node, (nodes) => {
     for (const child of nodes) if (child.type !== "text") visit(walk, child, node);
   }, SOURCE_ORDER);
 }
-var SECONDARY_SLOT_TYPES = /* @__PURE__ */ new Set([
-  "table",
-  "figure",
-  "figure_group",
-  "caption",
-  "citation",
-  "ruby",
-  "code_block",
-  "admonition",
-  "directive",
-  "div",
-  "inline_extension",
-  "block_extension"
-]);
 function visitSlots(walk, node) {
   const caption2 = "caption" in node ? node.caption : void 0;
   const owns = caption2 !== void 0 && ownsNumber(node, caption2);
@@ -7021,7 +7930,7 @@ function isProbeRemoved(code) {
   for (const [from, to] of PROBE_REMOVED) if (code >= from && code <= to) return true;
   return false;
 }
-function schemeOf(url) {
+function urlScheme(url) {
   let removed = false;
   for (let at = 0, length = 0; at < url.length; at++) {
     const code = url.charCodeAt(at);
@@ -7031,6 +7940,13 @@ function schemeOf(url) {
   }
   return "";
 }
+function isUrlAllowed(url, policy = {}) {
+  const scheme = urlScheme(url);
+  if (scheme === "") return true;
+  if (policy.allow !== void 0) return policy.allow.some((allowed) => allowed.toLowerCase() === scheme);
+  const denied = policy.deny ?? DEFAULT_DENIED_SCHEMES;
+  return !denied.some((item) => item.toLowerCase() === scheme);
+}
 function schemeText(url, colon, removed) {
   if (!removed) return url.slice(0, colon).toLowerCase();
   let scheme = "";
@@ -7038,7 +7954,7 @@ function schemeText(url, colon, removed) {
   return scheme.toLowerCase();
 }
 function schemePasses(r, url) {
-  const scheme = schemeOf(url);
+  const scheme = urlScheme(url);
   if (scheme === "") return true;
   const settings = r.settings;
   return settings.allowed !== null ? settings.allowed.has(scheme) : !settings.denied.has(scheme);
@@ -7153,8 +8069,9 @@ function styleDeclarations(keyValues, parts) {
   }
   return declarations;
 }
-function styleValue(value, declarations) {
+function styleValue(value, declarations, first) {
   const written = keyValue("style", value);
+  if (first && declarations !== "") return written === "" ? declarations : `${declarations}; ${written}`;
   return declarations === "" ? written : withDeclaration(written, declarations);
 }
 function addKeyValue(r, list3, [key, value], parts, style, origin) {
@@ -7163,7 +8080,7 @@ function addKeyValue(r, list3, [key, value], parts, style, origin) {
   if (r.settings.roundtrip && CARRIERS.has(name)) {
     return loss(r, origin, "carrier-attribute-dropped", `the attribute ${key} has the name of a carrier`);
   }
-  if (name === "style") return list3.add(key, styleValue(value, style.declarations));
+  if (name === "style") return list3.add(key, styleValue(value, style.declarations, parts.styleFirst === true));
   if (name !== "align" || parts.alignStyle !== true || !ALIGN_VALUES.includes(value)) return list3.add(key, keyValue(name, value));
   if (!style.hasStyle) list3.add("style", style.declarations);
 }
@@ -7319,12 +8236,12 @@ function withDefinition(node, definition) {
   return lang === void 0 ? { ...node, attrs } : { ...node, attrs, lang };
 }
 function unresolvedLabel(node, key) {
-  return escapeText(`${node.form === "collapsed" ? "[]" : `[${key}]`}${attributeBlockText(node)}`);
+  return escapeText(`${node.refForm === "collapsed" ? "[]" : `[${key}]`}${attributeBlockText(node)}`);
 }
 function referenceCarriers(r, node, key) {
   if (!r.settings.roundtrip || key === void 0) return [];
   const carriers = [["data-carve-ref", key]];
-  if (node.form === "collapsed") carriers.push(["data-carve-ref-collapsed", null]);
+  if (node.refForm === "collapsed") carriers.push(["data-carve-ref-collapsed", null]);
   return carriers;
 }
 function withRel(r, node, structural) {
@@ -7341,7 +8258,7 @@ function link(node, r) {
   const href = node.href;
   if (key !== void 0 && href === void 0) return `[${children(r, node)}]${unresolvedLabel(node, key)}`;
   const definition = key === void 0 ? void 0 : r.resolution.definitions.get(key);
-  const title = node.tooltip ?? definition?.title;
+  const title = node.tooltip ?? definition?.tooltip;
   const structural = [["href", destination(r, href ?? "", node)]];
   if (title !== void 0) structural.push(["title", title]);
   const merged = withRel(r, withDefinition(node, definition), structural);
@@ -7352,12 +8269,13 @@ function link(node, r) {
   return `<a${attributes(r, merged, { structural, origin: node })}>${html}</a>`;
 }
 function image(node, r) {
+  if (node.longDescription !== void 0) r.longDescriptions.push(node.longDescription);
   const key = node.key;
   const src = node.src;
   const alt = node.alt ?? "";
   if (key !== void 0 && src === void 0) return `![${escapeText(alt)}]${unresolvedLabel(node, key)}`;
   const definition = key === void 0 ? void 0 : r.resolution.definitions.get(key);
-  const title = node.tooltip ?? definition?.title;
+  const title = node.tooltip ?? definition?.tooltip;
   const structural = [["src", destination(r, src ?? "", node)], ["alt", alt]];
   if (title !== void 0) structural.push(["title", title]);
   structural.push(...referenceCarriers(r, node, key));
@@ -7547,7 +8465,7 @@ function isVisible(node) {
   return node.type !== "paragraph" || !onlyComments(node.children);
 }
 function isBareImage(node) {
-  if (node.blockImage !== true) return false;
+  if (node.role !== "image") return false;
   for (const child of node.children) if (child.type === "image") return child.key === void 0 || child.src !== void 0;
   return false;
 }
@@ -7555,7 +8473,10 @@ function isTextParagraph(node) {
   return node !== void 0 && node.type === "paragraph" && !isBareImage(node);
 }
 function writeBlock(r, type, node, level) {
+  const start = r.longDescriptions.length;
   BLOCKS2[type]?.(r, node, level);
+  const descriptions = r.longDescriptions.splice(start);
+  for (const blocks of descriptions) writeBlocks(r, blocks, level);
 }
 function writeBlocks(r, nodes, level) {
   for (const node of nodes) writeBlock(r, node.type, node, level);
@@ -7591,7 +8512,7 @@ function staticMathBlock(r, node) {
 }
 function paragraph(r, node, level) {
   if (onlyComments(node.children)) return;
-  if (node.blockMath === true && r.settings.mode === "static") {
+  if (node.role === "math" && r.settings.mode === "static") {
     line(r, level, staticMathBlock(r, node));
     return;
   }
@@ -7651,7 +8572,8 @@ function itemOpen(r, node) {
   const state = TASK_NO_STATE.includes(task.mark) ? [] : [["data-task-state", task.mark]];
   const checked = TASK_CHECKED.includes(task.mark) ? " checked" : "";
   const label = escapeAttribute(blockText(node.children));
-  return `<li${tag(r, node, { structural: state })}><input type="checkbox"${checked} disabled aria-label="${label}"> `;
+  const open = `<li${tag(r, node, { structural: state, base: ["task"], style: "list-style: none", styleFirst: true })}>`;
+  return `${open}<input type="checkbox"${checked} disabled aria-label="${label}"> `;
 }
 function listItem(r, node, level, tight) {
   const blocks = visibleBlocks(node.children);
@@ -7837,7 +8759,9 @@ function cellHtml(r, cell, column, headValign, inHead) {
   if (rowspan !== void 0 && rowspan > 1) structural.push(["rowspan", String(rowspan)]);
   const colspan = cell.colspan;
   if (colspan !== void 0 && colspan > 1) structural.push(["colspan", String(colspan)]);
-  if (cell.header) structural.push(["scope", inHead ? "col" : "row"]);
+  if (cell.header) structural.push(["scope", cell.scope ?? (inHead ? "col" : "row")]);
+  else if (cell.scope !== void 0) structural.push(["scope", cell.scope]);
+  if (cell.headerIds !== void 0) structural.push(["headers", cell.headerIds.join(" ")]);
   return `<${name}${attributes(r, cell, { structural, style: cellStyle(cell, column, headValign) })}>${cellContent(r, cell)}</${name}>`;
 }
 function skipCovered(covered, column) {
@@ -8039,7 +8963,8 @@ function renderDocument(document, settings, resolution, losses, bidi) {
     abbrDepth: 0,
     backlinkHost: null,
     backlinks: "",
-    bidi
+    bidi,
+    longDescriptions: []
   };
   writeDocument(r, document);
   return { html: r.out.slice(1), losses: r.losses };
@@ -8305,14 +9230,18 @@ var MEASURES = /* @__PURE__ */ new Map([
   [THEMATIC_BREAK, breakFacts],
   [COMMENT, commentFacts],
   [LINK_DEFINITION, definitionFacts],
-  [ABBREVIATION, definitionFacts]
+  [ABBREVIATION, definitionFacts],
+  [INCLUDE, (src, _node, origin, _quotes, facts) => {
+    const parts = readInclude(src, origin.start, origin.end);
+    if (parts !== null && Object.keys(parts.optionSpelling).length > 0) facts.optionSpelling = parts.optionSpelling;
+  }]
 ]);
 function measureBlock(src, node, origin, quotes, facts) {
   MEASURES.get(origin.kind)?.(src, node, origin, quotes, facts);
 }
 
 // ../carve-js/v2/src/layout-table.ts
-function tableRows(table3) {
+function tableRows2(table3) {
   const rows = table3.children.filter((child) => child.kind === ROW);
   const index = /* @__PURE__ */ new Map();
   rows.forEach((row, at) => index.set(row, at));
@@ -8494,7 +9423,7 @@ function visitBlock(walk, node, path, origin, frame) {
     quotes: frame.quotes + (quote3 ? 1 : 0),
     open: quote3,
     spans: origin.spans,
-    table: origin.kind === TABLE ? tableRows(origin) : null,
+    table: origin.kind === TABLE ? tableRows2(origin) : null,
     row: -1
   };
 }
@@ -8523,11 +9452,10 @@ function visit2(walk, node, path, frame) {
   if (origin !== void 0) inner = visitBlock(walk, node, path, origin, frame);
   else if (node.type === "figure") inner = visitFigure(walk, node, path, frame);
   else visitInline(walk, node, path, frame);
-  const title = titleOf(node);
-  if (title !== void 0) visitList(walk, title, `${path}/title`, inner);
-  if ("children" in node) visitList(walk, node.children, `${path}/children`, inner);
-  const caption2 = captionOf(node);
-  if (caption2 !== void 0) visit2(walk, caption2, `${path}/caption`, inner);
+  forEachSlot(node, (nodes, step, single) => {
+    if (single) visit2(walk, nodes[0], `${path}/${step}`, inner);
+    else visitList(walk, nodes, `${path}/${step}`, inner);
+  }, SOURCE_ORDER);
 }
 function visitList(walk, nodes, base, frame) {
   for (let index = 0; index < nodes.length; index++) visit2(walk, nodes[index], `${base}/${index}`, frame);
@@ -8604,7 +9532,7 @@ var MARKED_TEXT = {
   code_block: (node) => withoutLineEnd(node.value),
   raw_block: (node) => withoutLineEnd(node.value),
   table_row: rowText,
-  include: includeSource,
+  include: (node) => includeSource(node),
   // A degraded admonition or directive keeps its title, as a div does.
   div: containerText,
   admonition: containerText,
@@ -8699,8 +9627,10 @@ function filterNode(filter, node, depth2) {
     const list3 = nodes;
     if (step === "children") filterChildren(filter, node, depth2);
     else if (single) filterNode(filter, list3[0], depth2 + 1);
-    else if (blocks && step !== "title") filterList(filter, list3, true, depth2, degradedBlocks);
-    else filterList(filter, list3, false, depth2, degradedInline);
+    else if (step === "pairs" || step === "columns") for (const child of list3) filterNode(filter, child, depth2 + 1);
+    else if (step === "longDescription" || blocks && (step === "fallback" || step.startsWith("slots/"))) {
+      filterList(filter, list3, true, depth2, degradedBlocks);
+    } else filterList(filter, list3, false, depth2, degradedInline);
   });
 }
 function applyProfile(document, name, rule, findings) {
@@ -8819,7 +9749,7 @@ function cleanString(_key, value) {
 function envelopeOf(value) {
   return isRecord(value) && value["type"] === void 0 && value["document"] !== void 0 ? value : null;
 }
-function decodeTree(json) {
+function decodeTree(json, source) {
   let value;
   try {
     value = JSON.parse(json, cleanString);
@@ -8830,29 +9760,28 @@ function decodeTree(json) {
   if (envelope !== null) validateEnvelope(envelope);
   const document = envelope === null ? value : envelope["document"];
   try {
-    validateTree(document);
+    validateTree(document, envelope ?? void 0, source);
   } catch (error) {
     if (envelope !== null && error instanceof CarveTreeError) throw new CarveTreeError(`/document${error.path}`, error.reason);
     throw error;
   }
   return document;
 }
-var SKIPPED = ["pos", "segments", "srcByteLength", "stages", "generatedId", "resolvedAlign", "n"];
-var SPAN_COUNTS = ["colspan", "rowspan"];
-function isReferenceUse(node) {
-  return node["key"] !== void 0 && (node["type"] === "link" || node["type"] === "image" || node["type"] === "xref");
-}
-function isNumbered(node) {
-  return node["type"] === "footnote_ref" || node["type"] === "inline_footnote";
+function skippedResult(node, name, spanMarks) {
+  const type = node["type"];
+  if (typeof type !== "string") return false;
+  const result = AST_RESULTS.get(type)?.find((entry) => entry.field === name);
+  if (result === void 0) return false;
+  if (result.when === "reference use") return node["key"] !== void 0;
+  if (result.when === "derived from authored span mark") return spanMarks;
+  return true;
 }
 function comparedFields(node, spanMarks) {
-  const reference = isReferenceUse(node);
-  const counts = !spanMarks || node["type"] !== "table_cell";
+  const typed = typeof node["type"] === "string" && AST_RESULTS.has(node["type"]);
   return Object.keys(node).filter((name) => {
-    if (SKIPPED.includes(name) || node[name] === void 0) return false;
-    if (reference && (name === "href" || name === "src")) return false;
-    if (name === "number" && isNumbered(node)) return false;
-    return counts || !SPAN_COUNTS.includes(name);
+    if (node[name] === void 0) return false;
+    if (typed && (name === "pos" || name === "segments" || name === "srcByteLength")) return false;
+    return !skippedResult(node, name, spanMarks);
   }).sort();
 }
 function coalesced(list3) {
@@ -8884,20 +9813,11 @@ function equalObjects(a, b, spanMarks) {
   const names = comparedFields(a, inner);
   const others = comparedFields(b, inner);
   if (names.length !== others.length || names.some((name, index) => name !== others[index])) return false;
-  return names.every((name) => equalField(name, a[name], b[name], inner));
-}
-function equalField(name, a, b, spanMarks) {
-  if (name !== "marker") return equalValues(a, b, spanMarks);
-  const normal = (marker) => {
-    const fields = { ...marker };
-    if (fields["start"] === 1) delete fields["start"];
-    return fields;
-  };
-  return equalValues(normal(a), normal(b), spanMarks);
+  return names.every((name) => equalValues(a[name], b[name], inner));
 }
 function equalValues(a, b, spanMarks) {
   if (Array.isArray(a)) return Array.isArray(b) && equalLists(a, b, spanMarks);
-  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null || Array.isArray(b)) return a === b;
+  if (!isRecord(a) || !isRecord(b)) return a === b;
   return equalObjects(a, b, spanMarks);
 }
 function treesEqual(a, b) {
@@ -8927,7 +9847,7 @@ var checkBoolean = (value, path) => {
 var checkString = (value, path) => {
   if (typeof value !== "string") fail2(path, "is not a string");
 };
-function checkCount(value, path, minimum = 0) {
+function checkCount2(value, path, minimum = 0) {
   if (typeof value !== "number" || !Number.isInteger(value) || value < minimum) fail2(path, `is not an integer of at least ${minimum}`);
   return value;
 }
@@ -8950,28 +9870,36 @@ var checkWraps = (value, path) => {
     const at = `${path}/${index}`;
     if (!isRecord(wrap)) fail2(at, "is not an object");
     for (const key of Object.keys(wrap)) if (!WRAP_FIELDS.includes(key)) fail2(`${at}/${key}`, "is not a field of a wrap");
-    const own = checkCount(wrap["line"], `${at}/line`, 1);
+    const own = checkCount2(wrap["line"], `${at}/line`, 1);
     if (own < line2) fail2(`${at}/line`, "is not sorted by line");
     line2 = own;
     checkPointer(wrap["path"], `${at}/path`);
-    checkCount(wrap["offset"], `${at}/offset`);
-    if (wrap["row"] !== void 0) checkCount(wrap["row"], `${at}/row`);
+    checkCount2(wrap["offset"], `${at}/offset`);
+    if (wrap["row"] !== void 0) checkCount2(wrap["row"], `${at}/row`);
   });
+};
+var checkOptionSpelling = (value, path) => {
+  if (!isRecord(value)) fail2(path, "is not an object");
+  for (const [name, written] of Object.entries(value)) {
+    if (!INCLUDE_OPTIONS.has(name)) fail2(`${path}/${name}`, "is not an include option");
+    checkString(written, `${path}/${name}`);
+  }
 };
 var FACTS = /* @__PURE__ */ new Map([
   ["bare", checkBoolean],
   ["fenced", checkBoolean],
   ["hardBreakOpener", checkBoolean],
   ["wraps", checkWraps],
-  ["continuationLines", (value, path) => void checkCount(value, path)],
+  ["continuationLines", (value, path) => void checkCount2(value, path)],
   ["rawRef", checkString],
+  ["optionSpelling", checkOptionSpelling],
   ["sourceFormat", oneOf(["pipe", "csv", "tsv"])],
   ["markerRaw", checkString],
-  ["markerColumn", (value, path) => void checkCount(value, path)],
-  ["contentColumn", (value, path) => void checkCount(value, path)],
+  ["markerColumn", (value, path) => void checkCount2(value, path)],
+  ["contentColumn", (value, path) => void checkCount2(value, path)],
   ["continuationStyle", oneOf(["lazy", "indent", "marker_line", "none"])],
-  ["blankLinesBefore", (value, path) => void checkCount(value, path)],
-  ["blankLinesAfter", (value, path) => void checkCount(value, path)],
+  ["blankLinesBefore", (value, path) => void checkCount2(value, path)],
+  ["blankLinesAfter", (value, path) => void checkCount2(value, path)],
   ["openerRaw", checkString],
   ["closerRaw", checkString],
   ["metadataSeparatorRaw", checkString],
@@ -8985,8 +9913,8 @@ function checkFence(entry, path) {
 function checkEntry(entry, path, length) {
   if (!isRecord(entry)) fail2(path, "is not an object");
   checkPointer(entry["path"], `${path}/path`);
-  const start = checkCount(entry["startByte"], `${path}/startByte`);
-  const end = checkCount(entry["endByte"], `${path}/endByte`);
+  const start = checkCount2(entry["startByte"], `${path}/startByte`);
+  const end = checkCount2(entry["endByte"], `${path}/endByte`);
   if (start > end) fail2(`${path}/startByte`, "is behind endByte");
   if (end > length) fail2(`${path}/endByte`, "is past the end of the source");
   for (const key of Object.keys(entry)) {
@@ -9306,7 +10234,7 @@ function destination2(value) {
   return out;
 }
 function referenceLabel2(node, key) {
-  if (node.form === "collapsed") return "[]";
+  if (node.refForm === "collapsed") return "[]";
   return key.startsWith("^") || key.startsWith("@") ? `[ ${labelText(key)}]` : `[${labelText(key)}]`;
 }
 function labelText(key) {
@@ -9595,11 +10523,7 @@ function sameOrderedKind(a, b) {
 function sameListKind(a, b) {
   if (a.type === "definition_list") return b.type === "definition_list";
   if (a.type !== "list" || b.type !== "list" || a.marker.kind !== b.marker.kind) return false;
-  return sameTaskKind(a, b) && (a.marker.kind === "ordered" ? sameOrderedKind(a, b) : a.marker.char === b.marker.char);
-}
-function sameTaskKind(a, b) {
-  const last = a.children[a.children.length - 1];
-  return last?.task === void 0 === (b.children[0]?.task === void 0);
+  return a.marker.kind === "ordered" ? sameOrderedKind(a, b) : a.marker.char === b.marker.char;
 }
 
 // ../carve-js/v2/src/width-data.ts
@@ -16902,13 +17826,13 @@ function heading(w, node, prefix, flags) {
 function include2(w, node, prefix) {
   attributeLine(w, node, prefix);
   if (node.path === "" || node.path.includes("\n")) lose(w, node, "path");
-  emit(w, prefix, includeSource(node));
+  emit(w, prefix, includeSource(node, w.facts?.get(node)?.optionSpelling));
 }
 function linkDefinition(w, node, prefix) {
   attributeLine(w, node, prefix);
   const href = node.href;
   if (href === "") lose(w, node, "href");
-  const authored = node.title;
+  const authored = node.tooltip;
   const title = authored === void 0 ? "" : ` ${quoted2(authored)}`;
   emit(w, prefix, `[${node.key}]:${href === "" && title === "" ? "" : " "}${href}${title}`);
 }
@@ -16925,7 +17849,7 @@ function footnote(w, node, prefix, flags) {
 }
 function markerGap(marker) {
   const code = marker.charCodeAt(0);
-  return marker.length === 2 && marker[1] === "." && code >= 65 && code <= 90 ? "  " : " ";
+  return marker.length >= 2 && marker.endsWith(".") && code >= 65 && code <= 90 ? "  " : " ";
 }
 function listItem2(w, node, prefix, flags, marker, tight) {
   const head = marker + braceBlock(node);
@@ -17205,44 +18129,38 @@ function createCheck(w) {
 function changes(c) {
   return c.escapes.length + c.forms.length + c.retracted.length;
 }
-var SKIPPED2 = ["pos", "segments", "srcByteLength", "stages", "generatedId", "resolvedAlign", "n"];
-var NODE_SLOTS = ["children", "caption"];
-var NUMBERED = ["footnote_ref", "inline_footnote"];
+var NODE_SLOTS2 = ["children", "caption"];
 function sameList(a, b) {
   return Array.isArray(b) && a.length === b.length && a.every((item, at) => sameValue(item, b[at]));
 }
 function sameFields(left, right) {
-  for (const name in left) if (!SKIPPED2.includes(name) && left[name] !== void 0 && !sameValue(left[name], right[name])) return false;
-  for (const name in right) if (!SKIPPED2.includes(name) && right[name] !== void 0 && left[name] === void 0) return false;
+  for (const name in left) if (!skipped(left, name, false) && left[name] !== void 0 && !sameValue(left[name], right[name])) return false;
+  for (const name in right) if (!skipped(right, name, false) && right[name] !== void 0 && left[name] === void 0) return false;
   return true;
 }
 function sameValue(a, b) {
   if (Array.isArray(a)) return sameList(a, b);
   return isRecord(a) && isRecord(b) ? sameFields(a, b) : a === b;
 }
-function isReference(node) {
-  return (node.type === "link" || node.type === "image" || node.type === "xref") && node.key !== void 0;
+function skipped(node, name, spanMarks) {
+  const type = node["type"];
+  if (typeof type !== "string" || !AST_RESULTS.has(type)) return false;
+  if (name === "pos" || name === "segments" || name === "srcByteLength") return true;
+  const result = AST_RESULTS.get(type)?.find((entry) => entry.field === name);
+  if (result === void 0) return false;
+  if (result.when === "reference use") return node["key"] !== void 0;
+  if (result.when === "derived from authored span mark") return spanMarks;
+  return true;
 }
 function isCompared(c, node, name) {
-  if (SKIPPED2.includes(name) || NODE_SLOTS.includes(name)) return false;
+  if (NODE_SLOTS2.includes(name)) return false;
   if (name === "title") return titleOf(node) === void 0;
-  if ((name === "href" || name === "src") && isReference(node)) return false;
-  if (name === "number" && NUMBERED.includes(node.type)) return false;
-  return !(c.spanMarks && node.type === "table_cell" && (name === "colspan" || name === "rowspan"));
-}
-function sameField(name, a, b) {
-  if (name !== "marker" || a === void 0 || b === void 0) return sameValue(a, b);
-  const normal = (marker) => {
-    const fields = isRecord(marker) ? { ...marker } : {};
-    if (fields["start"] === 1) delete fields["start"];
-    return fields;
-  };
-  return sameValue(normal(a), normal(b));
+  return !isRecord(node) || !skipped(node, name, c.spanMarks);
 }
 function differingField(c, e, a) {
   if (!isRecord(e) || !isRecord(a)) return null;
   for (const name in e) {
-    if (e[name] !== void 0 && isCompared(c, e, name) && !sameField(name, e[name], a[name])) return name;
+    if (e[name] !== void 0 && isCompared(c, e, name) && !sameValue(e[name], a[name])) return name;
   }
   for (const name in a) {
     if (a[name] !== void 0 && e[name] === void 0 && isCompared(c, a, name)) return name;
@@ -17555,7 +18473,7 @@ function escapeOpener(c, e, at, a) {
 function isChainOpener(a) {
   if (a.type === "footnote_ref") return true;
   if (a.type !== "link" && a.type !== "image" && a.type !== "span" && a.type !== "inline_footnote") return false;
-  return !("key" in a && a.key !== void 0) || "form" in a && (a.form === "full" || a.form === "collapsed");
+  return !("key" in a && a.key !== void 0) || "refForm" in a && (a.refForm === "full" || a.refForm === "collapsed");
 }
 function holdsCloser(node) {
   if (node.type === "image" && node.alt?.includes("]") === true) return true;
@@ -17975,7 +18893,7 @@ function compareBlocks(c, es, as, owner) {
 }
 
 // ../carve-js/v2/src/write.ts
-function isNode(value) {
+function isNode2(value) {
   return isRecord(value) && typeof value["type"] === "string";
 }
 function nodeAt(document, path) {
@@ -17984,7 +18902,7 @@ function nodeAt(document, path) {
     if (typeof at !== "object" || at === null) return null;
     at = Reflect.get(at, pointerToken(part));
   }
-  return isNode(at) ? at : null;
+  return isNode2(at) ? at : null;
 }
 function seek2(cursor, value, offset) {
   if (offset < cursor.bytes) return false;
@@ -18220,10 +19138,30 @@ function writeGroup(w, document, from, first) {
     w.starts.clear();
     writeBlocks2(w, group, "", 0, false);
     if (w.lines.length === 0) return end;
+    if (beyondSourceDepth(group)) {
+      const host = group[0];
+      if (host !== void 0) lose(w, host, null);
+      return end;
+    }
     if (!settle(w, document, group, first && !w.blankFirst)) {
       if (w.losses.entries.length === reported) reportUnread(w, group);
       return end;
     }
+  }
+}
+function beyondSourceDepth(group) {
+  const pending = group.map((node) => ({ node, depth: 0 }));
+  for (; ; ) {
+    const item = pending.pop();
+    if (item === void 0) return false;
+    let hasChild = false;
+    forEachSlot(item.node, (children2) => {
+      for (const node of children2) {
+        hasChild = true;
+        pending.push({ node, depth: item.depth + 1 });
+      }
+    });
+    if (hasChild && item.depth > MAX_DEPTH) return true;
   }
 }
 function reportUnread(w, group) {
@@ -18299,12 +19237,12 @@ function readFormatOptions(options) {
   for (const name of Object.keys(given)) {
     if (OPTION_KINDS.get(name) !== "format") throw new CarveOptionError(name, "not an option of format");
   }
-  return given["alignTables"] === true;
+  return { alignTables: given["alignTables"] === true, normalize: given["normalize"] === true };
 }
 function formatWithDiagnostics(source, options) {
-  const alignTables = readFormatOptions(options);
+  const { alignTables, normalize } = readFormatOptions(options);
   const parsed = parseWithLayout(source);
-  const written = writeTree(parsed.document, { layout: parsed.layout, alignTables });
+  const written = writeTree(parsed.document, normalize ? { alignTables } : { layout: parsed.layout, alignTables });
   return { source: written.source, diagnostics: [...parsed.diagnostics, ...written.diagnostics] };
 }
 function format(source, options) {
@@ -18341,6 +19279,7 @@ export {
   CarveOptionError,
   CarveRenderError,
   CarveTreeError,
+  DEFAULT_DENIED_SCHEMES,
   DELETE,
   DESCRIPTION,
   DESCRIPTION_LIST,
@@ -18380,7 +19319,6 @@ export {
   FLAG_SPAN_LEFT,
   FLAG_SPAN_UP,
   FLAG_STAR,
-  FLAG_TASK,
   FLAG_TIGHT,
   FLAG_UNCLOSED,
   FLAG_UPPER,
@@ -18483,6 +19421,7 @@ export {
   isList,
   isOpaqueLeaf,
   isTextLeaf,
+  isUrlAllowed,
   lineAt,
   lineEndAt,
   parse,
@@ -18502,6 +19441,7 @@ export {
   scanInline,
   stringOffsetOfByte,
   treesEqual,
+  urlScheme,
   utf8Length,
   validateLayout,
   validateTree,

@@ -41,7 +41,7 @@ export declare const SMART_RIGHT_SINGLE_QUOTE = 14;
 export declare const SMART_RIGHTWARDS_ARROW = 15;
 export declare const SMART_RIGHTWARDS_DOUBLE_ARROW = 16;
 export declare const SMART_TRADEMARK = 17;
-export declare const SMART_KIND_NAMES: readonly string[];
+export declare const SMART_KIND_NAMES: readonly ["ellipsis", "em_dash", "en_dash", "greater_than_or_equal", "left_double_quote", "left_right_arrow", "left_right_double_arrow", "left_single_quote", "leftwards_arrow", "leftwards_double_arrow", "less_than_or_equal", "not_equal", "plus_minus", "right_double_quote", "right_single_quote", "rightwards_arrow", "rightwards_double_arrow", "trademark"];
 export declare const SMART_GLYPHS: readonly string[];
 /** The replaced runs, the longest first, as [source, kind]. */
 export declare const SMART_RUNS: readonly (readonly [string, number])[];

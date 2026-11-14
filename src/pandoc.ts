@@ -4,6 +4,7 @@
  * Shapes follow pandoc-types 1.23 (pandoc 3.x): every node is `{t, c?}`,
  * verified against `pandoc -t json` output of pandoc 3.5.
  */
+import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
 
 export const PANDOC_API_VERSION = [1, 23, 1] as const;
 
@@ -28,7 +29,7 @@ export interface PandocDoc {
 export const emptyAttr: Attr = ['', [], []];
 
 export function attr(id?: string, classes?: string[], kvs?: [string, string][]): Attr {
-    return [id ?? '', classes ?? [], kvs ?? []];
+    return [id ?? '', classes ?? [], (kvs ?? []).filter(([key]) => !isDangerousAttrName(key)).map(([key, value]) => [key, renderedAttrValue(key, value)])];
 }
 
 function node(t: string, c?: unknown): PandocNode {
@@ -133,7 +134,8 @@ export type ListNumberStyle =
     | 'LowerAlpha'
     | 'UpperAlpha'
     | 'LowerRoman'
-    | 'UpperRoman';
+    | 'UpperRoman'
+    | 'Example';
 
 export type ListNumberDelim = 'DefaultDelim' | 'Period' | 'OneParen' | 'TwoParens';
 

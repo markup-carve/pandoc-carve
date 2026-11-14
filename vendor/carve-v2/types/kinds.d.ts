@@ -34,7 +34,6 @@ export declare function isTextLeaf(kind: number): boolean;
 /** The leaves whose body is not read and that end at a closer (C2-B-114, C2-B-123, C2-B-162). */
 export declare function isOpaqueLeaf(kind: number): boolean;
 export declare const FLAG_STAR = 1;
-export declare const FLAG_TASK = 2;
 export declare const FLAG_PAREN = 4;
 export declare const FLAG_ALPHA = 8;
 export declare const FLAG_ROMAN = 16;
