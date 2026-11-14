@@ -220,8 +220,8 @@ function importItem(item: P.PandocNode[], warnings: string[]): Extract<Node, { t
   let attrs: Attrs | undefined;
   if ((first?.t === 'Para' || first?.t === 'Plain') && Array.isArray(first.c)) {
     const inlines = first.c as P.PandocNode[];
-    const ballot = inlines[0]?.t === 'Str' && (inlines[0].c === '☒' || inlines[0].c === '☐') && inlines[1]?.t === 'Space';
-    const markerIndex = ballot ? 2 : 0;
+    const ballot = inlines[0]?.t === 'Str' && (inlines[0].c === '☒' || inlines[0].c === '☐') && (inlines[1]?.t === 'Space' || inlines.length === 1);
+    const markerIndex = ballot ? (inlines[1]?.t === 'Space' ? 2 : 1) : 0;
     const head = inlines[markerIndex];
     if (head?.t === 'Span') {
       const a = (head.c as [P.Attr, unknown])[0];
@@ -233,7 +233,7 @@ function importItem(item: P.PandocNode[], warnings: string[]): Extract<Node, { t
         first.c = inlines.slice(markerIndex + 1);
       }
     }
-    if (mark === undefined && ballot) { mark = inlines[0]!.c === '☒' ? 'x' : ' '; first.c = inlines.slice(2); }
+    if (mark === undefined && ballot) { mark = inlines[0]!.c === '☒' ? 'x' : ' '; first.c = inlines.slice(markerIndex); }
     if (Array.isArray(first.c) && first.c.length === 0) copy.shift();
   }
   return { type: 'list_item', children: blockList(copy, warnings), ...(mark === undefined ? {} : { task: { mark } }), ...(attrs ? { attrs } : {}) };
@@ -341,7 +341,19 @@ export function pandocToCarveAst(input: P.PandocDoc | string): { ast: DocumentNo
 }
 export function pandocToCarve(input: P.PandocDoc | string): { carve: string; warnings: string[] } {
   const { ast, warnings } = pandocToCarveAst(input);
-  const output = writeWithDiagnostics(ast);
+  const spelled = structuredClone(ast);
+  const addEmptyItemComments = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) { value.forEach(addEmptyItemComments); return; }
+    const node = value as Record<string, unknown>;
+    if (node.type === 'list_item' && Array.isArray(node.children) && node.children.length === 0) {
+      node.children.push({ type: 'comment', form: 'line', value: '' });
+      warnings.push('empty-list-item-spelled: an empty item uses a nonrendering comment in Carve source');
+    }
+    for (const child of Object.values(node)) addEmptyItemComments(child);
+  };
+  addEmptyItemComments(spelled);
+  const output = writeWithDiagnostics(spelled);
   warnings.push(...output.diagnostics.map(d => `${d.code}: ${d.message}`));
   return { carve: output.source, warnings };
 }
