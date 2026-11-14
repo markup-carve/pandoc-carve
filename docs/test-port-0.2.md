@@ -33,7 +33,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | includes.test.mjs | 9 | 0 | 0 | 0 | 9 |
 | inline-literal.test.mjs | 5 | 3 | 2: 0.1 unclosed literal crossed a line boundary | 0 | 0 |
 | loss-audit.test.mjs | 7 | 0 | 0 | 0 | 7 |
-| metadata-yaml12.test.mjs | 1 | 0 | 0 | 0 | 1 |
+| metadata-yaml12.test.mjs | 1 | 0 | 0 | 1: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
 | metadata.test.mjs | 26 | 0 | 1: 0.1 malformed-frontmatter line diagnostic; 1: 0.1 nested-YAML recovery diagnostic; 1: 0.1 TOML frontmatter rejection | 23: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
 | model-limits.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | new-ast-nodes.test.mjs | 17 | 17 | 0 | 0 | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
 
-| Total | 730 | 399 | 62 | 23 | 246 |
+| Total | 730 | 399 | 62 | 24 | 245 |
 
-The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrite adds two checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 23 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
