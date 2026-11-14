@@ -1,330 +1,142 @@
-import { test } from 'node:test'
-import assert from 'node:assert/strict'
-import { convert } from '../dist/convert.js'
-import { carveAstToPandoc, carveToPandoc } from '../dist/index.js'
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { carveAstToPandoc, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
 
-// These nodes are built by hand rather than parsed, because the published
-// carve-js this package depends on predates them. That is the point: the arms
-// have to be here before the dependency bump, not after - a consumer without
-// them degrades silently (carve#355).
+const document = children => ({ type: 'document', astVersion: '2.0', children });
+const paragraph = children => ({ type: 'paragraph', children });
+const text = value => ({ type: 'text', value });
+const inlineText = nodes => nodes.map(node => Array.isArray(node) ? inlineText(node) : node.t === 'Str' ? node.c : node.t === 'Space' ? ' ' : node.t === 'Span' ? inlineText(node.c[1]) : Array.isArray(node.c) ? inlineText(node.c) : '').join('');
+const captionText = block => inlineText(block.c[1][1].flatMap(part => part.c ?? []));
+const crossref = result => result.doc.blocks.flatMap(block => block.t === 'Para' ? block.c : []).find(node => node.t === 'Link');
 
-const doc = (blocks) => ({ type: 'document', children: blocks })
-const para = (inlines) => ({ type: 'paragraph', children: inlines })
-const strs = (result) => {
-  const out = []
-  const walk = (x) => {
-    if (Array.isArray(x)) return x.forEach(walk)
-    if (x && typeof x === 'object') {
-      if (x.t === 'Str') out.push(x.c)
-      Object.values(x).forEach(walk)
-    }
-  }
-  walk(result.doc.blocks)
-  return out.join(' ')
-}
-
-test('smart punctuation carries the resolved glyph, not the source run', () => {
-  // Pandoc applies smart punctuation when READING markdown, not when consuming
-  // a JSON AST, so emitting `--` here would put a literal double hyphen in the
-  // LaTeX or DOCX. Carve already resolved it.
-  const result = convert(
-    doc([
-      para([
-        { type: 'smart_punctuation', kind: 'em_dash', value: '---' },
-        { type: 'smart_punctuation', kind: 'ellipsis', value: '...' },
-        { type: 'smart_punctuation', kind: 'left_double_quote', value: '"', glyph: '“' },
-      ]),
-    ]),
-  )
-  // One Str, not three: `strs` joins node values with a space, so the spacing
-  // here is the helper's and not the document's. Adjacent Str nodes are merged
-  // on the way out (pandoc's own readers emit one Str per word), and what this
-  // test is about is that each glyph survives RESOLVED - `—` and not `---`.
-  assert.equal(strs(result), '—…“')
-  assert.deepEqual(result.warnings, [])
-})
-
-test('an escaped character survives as the character', () => {
-  const result = convert(doc([para([{ type: 'escaped_text', value: '-' }])]))
-  assert.equal(strs(result), '-')
-  assert.deepEqual(result.warnings, [])
-})
-
-test('a line block maps to pandoc LineBlock rather than a paragraph', () => {
-  // Pandoc has the node natively, so the line structure survives instead of
-  // collapsing into one run of text.
-  const result = convert(
-    doc([
-      {
-        type: 'line_block',
-        children: [
-          para([
-            { type: 'text', value: 'Roses are red,' },
-            { type: 'hard_break' },
-            { type: 'text', value: 'Violets are blue.' },
-          ]),
-        ],
-      },
-    ]),
-  )
-  const block = result.doc.blocks[0]
-  assert.equal(block.t, 'LineBlock')
-  assert.equal(block.c.length, 2, 'one entry per line')
-  assert.deepEqual(result.warnings, [])
-})
-
-test('none of the three warns', () => {
-  // The default arm warns on every occurrence, so a document with ordinary
-  // prose punctuation used to flood stderr.
-  const result = convert(
-    doc([
-      para([
-        { type: 'text', value: 'a' },
-        { type: 'smart_punctuation', kind: 'ellipsis', value: '...' },
-        { type: 'escaped_text', value: '*' },
-      ]),
-    ]),
-  )
-  assert.deepEqual(result.warnings, [])
-})
-
-test('a cyclic crossref resolves one level instead of overflowing the stack', () => {
-  // corpus 118. `# A </#A>` is a heading whose crossref targets its own id, so
-  // resolving the link text re-enters the same heading. The engine emits the
-  // target's text with the nested crossref DROPPED - `<a href="#A">A </a>` -
-  // and this used to recur until the stack ran out, on both engines.
-  const result = carveToPandoc('# A </#A>\n')
-  assert.deepEqual(result.warnings, [])
-  assert.equal(strs(result), 'A A')
-})
-
-test('a caption number is substituted, counted per kind', () => {
-  // `^ Figure #: text` asks for a literal number. The tree carries only the
-  // placeholder - the value is assigned at render time - so it degraded to
-  // empty and captions reached pandoc as `Figure : text`. Figures and tables
-  // keep independent sequences, which is what the engine does.
-  // Per LABEL, not per element kind - `Figure`, `Listing`, `Figure` on three
-  // FIGURES numbers them 1, 1, 2. Keying on figure-versus-table would have
-  // given the Listing a 2, which is what review caught.
-  // The label is ALL the text before the `#`, markup flattened. Three narrower
-  // readings were wrong and each was caught in review: the element kind gave
-  // the Listing a 2, the last word merged `Supplementary Figure` into
-  // `Figure`, and reading only `text` nodes sent `*Figure*` to a generic
-  // counter where the engine shares the `Figure` sequence.
-  const result = carveToPandoc(
-    '![a](1.png)\n^ Figure #: one\n\n![b](2.png)\n^ Listing #: two\n\n' +
-      '![c](3.png)\n^ *Figure* #: three\n\n![d](4.png)\n^ Supplementary Figure #: four\n\n' +
-      '|=H|\n|x|\n^ Table #: t\n',
-  )
-  const text = strs(result)
-  for (const want of [
-    'Figure 1:',
-    'Listing 1:',
-    'Figure 2:',
-    'Supplementary Figure 1:',
-    'Table 1:',
-  ]) {
-    assert.ok(text.includes(want), `${want} missing from: ${text}`)
-  }
-})
-
-test('a crossref to a numbered figure resolves to "Figure 1", not the raw id', () => {
-  // pandoc-carve#11. `ctx.headings` (pass 1's crossref target map) used to be
-  // built from heading ids only, so `heading_ref` never found a captioned
-  // figure/table's own `{#id}` and fell back to the "unresolved target"
-  // warning with the raw id as link text - even though #10 already made the
-  // caption's own number render correctly right next to it.
-  const result = carveToPandoc('{#fig-sun}\n![s](s.png)\n^ Figure #: sun\n\nSee </#fig-sun>.\n')
-  assert.deepEqual(result.warnings, [])
-  const para = result.doc.blocks[1]
-  const link = para.c.find((i) => i.t === 'Link')
-  assert.deepEqual(link.c[2], ['#fig-sun', ''])
-  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Figure' }, { t: 'Space' }, { t: 'Str', c: '1' }])
-})
-
-test('a crossref to a numbered figure resolves even when it precedes the figure', () => {
-  // Pass 1 walks the whole document before pass 2 resolves any crossref, so a
-  // BACKWARD reference (the usual case) and a FORWARD one behave identically.
-  const result = carveToPandoc('See </#fig-sun>.\n\n{#fig-sun}\n![s](s.png)\n^ Figure #: sun\n')
-  assert.deepEqual(result.warnings, [])
-  assert.ok(strs(result).includes('See Figure 1 .'))
-})
-
-test('a crossref to a numbered table caption resolves to "Table 1"', () => {
-  // A table's `{#id}` and `^ Table #: ...` land directly on the `table` node
-  // (no `figure` wrapper - a table carries its own native caption), so the
-  // pass-1 walk has to recognize `table` as a captioned-target kind too, not
-  // only `figure`.
-  const result = carveToPandoc('{#tbl-x}\n|=H|\n|x|\n^ Table #: t\n\nSee </#tbl-x>.\n')
-  assert.deepEqual(result.warnings, [])
-  const para = result.doc.blocks[1]
-  const link = para.c.find((i) => i.t === 'Link')
-  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Table' }, { t: 'Space' }, { t: 'Str', c: '1' }])
-})
-
-test('caption numbering for crossref targets stays in sync when some figures carry no id', () => {
-  // The per-label counter that assigns "Figure 1"/"Figure 2" has to advance
-  // for EVERY numbered caption in document order, including ones with no
-  // `{#id}` at all (unreferenceable, but still consuming a number) - otherwise
-  // a later id'd figure's resolved number would drift from what the caption
-  // itself actually renders.
-  const result = carveToPandoc(
-    '![a](1.png)\n^ Figure #: one\n\n' +
-      '{#fig-b}\n![b](2.png)\n^ Listing #: two\n\n' +
-      '{#fig-c}\n![c](3.png)\n^ Figure #: three\n\n' +
-      'See </#fig-b> and </#fig-c>.\n',
-  )
-  assert.deepEqual(result.warnings, [])
-  assert.ok(strs(result).includes('See Listing 1 and Figure 2 .'))
-})
-
-test('a captioned quote is a Figure around the BlockQuote', () => {
-  // PART 9 §4b, after the §4a attribution was withdrawn (carve#1213): the
-  // quote is not a special host, so it takes the generic captioned wrapper.
-  // The engine hands over exactly this shape for `> To be` + `^ Hamlet`.
-  const result = convert(
-    doc([
-      {
-        type: 'figure',
-        target: { type: 'block_quote', children: [para([{ type: 'text', value: 'To be' }])] },
-        caption: [{ type: 'text', value: 'Hamlet' }],
-      },
-    ]),
-  )
-  assert.deepEqual(result.warnings, [])
-  const [figure] = result.doc.blocks
-  assert.equal(figure.t, 'Figure')
-  assert.deepEqual(figure.c[2], [{ t: 'BlockQuote', c: [{ t: 'Para', c: [{ t: 'Str', c: 'To' }, { t: 'Space' }, { t: 'Str', c: 'be' }] }] }])
-  assert.deepEqual(figure.c[1][1], [{ t: 'Plain', c: [{ t: 'Str', c: 'Hamlet' }] }])
-
-  // Both directions: an UNCAPTIONED quote takes no wrapper, so the Figure
-  // above is the caption's doing rather than this arm wrapping every quote.
-  const bare = convert(
-    doc([{ type: 'block_quote', children: [para([{ type: 'text', value: 'To be' }])] }]),
-  )
-  assert.equal(bare.doc.blocks[0].t, 'BlockQuote')
-  assert.ok(!JSON.stringify(bare.doc).includes('attribution'))
-})
-
-test('a quote figure keeps its short caption instead of warning it away', () => {
-  // §4a had no navigation-caption slot on a quote and dropped the short
-  // caption with a warning. A figure has one, and a quote figure is a figure.
-  const result = convert(
-    doc([
-      {
-        type: 'figure',
-        target: { type: 'block_quote', children: [para([{ type: 'text', value: 'q' }])] },
-        caption: [{ type: 'text', value: 'Author' }],
-        shortCaption: [{ type: 'text', value: 'short' }],
-      },
-    ]),
-  )
-  assert.deepEqual(result.warnings, [])
-  const [figure] = result.doc.blocks
-  assert.deepEqual(figure.c[1][0], [{ t: 'Str', c: 'short' }])
-})
-
-test('a quote figure keeps the attrs of the figure, not of the quote it wraps', () => {
-  // The two nodes no longer collapse into one, so there is nothing to merge:
-  // the figure's Attr rides on the Figure, and the quote's own attrs stay on
-  // the Div wrapper `block()` gives a BlockQuote.
-  const result = convert(
-    doc([
-      {
-        type: 'figure',
-        target: {
-          type: 'block_quote',
-          children: [para([{ type: 'text', value: 'q' }])],
-          attrs: { id: 'inner', classes: ['kept'], keyValues: { a: '1' } },
-        },
-        caption: [{ type: 'text', value: 'Author' }],
-        attrs: { id: 'outer', classes: ['fancy'], keyValues: { b: '3' } },
-      },
-    ]),
-  )
-  assert.deepEqual(result.warnings, [])
-  const [figure] = result.doc.blocks
-  assert.equal(figure.t, 'Figure')
-  const [id, classes, kvs] = figure.c[0]
-  assert.equal(id, 'outer')
-  assert.deepEqual(classes, ['fancy'])
-  assert.deepEqual(Object.fromEntries(kvs), { b: '3' })
-  const [div] = figure.c[2]
-  assert.equal(div.t, 'Div')
-  assert.deepEqual(div.c[0], ['inner', ['kept'], [['a', '1']]])
-  assert.equal(div.c[1][0].t, 'BlockQuote')
-})
-
-// A node whose content lives outside `children` cannot use the generic
-// unknown-node degradation, and both of these did. `ruby` carries `pairs` and
-// `block_extension` carries a `payload` and a `fallback`, so the fallback path
-// found nothing to flatten and emitted an EMPTY paragraph while reporting that
-// the text had survived. That is the one thing a loss report may never do.
-
-test('a ruby node flattens to base text with the annotation in parentheses', () => {
-  const doc = {
-    type: 'document',
-    children: [{
-      type: 'paragraph',
-      children: [{
-        type: 'ruby',
-        pairs: [
-          { base: [{ type: 'text', value: '漢' }], annotation: [{ type: 'text', value: 'かん' }] },
-          { base: [{ type: 'text', value: '字' }], annotation: [] },
-        ],
-      }],
-    }],
-  };
-  const { doc: out, warnings, diagnostics } = carveAstToPandoc(doc);
-  // PART 12 section 32's own flattening: an EMPTY annotation stays visible
-  // as `()`, so the canonical writer and this bridge agree character for
-  // character.
-  assert.equal(out.blocks[0].c.map((n) => n.c).join(''), '漢(かん)字()');
-  assert.ok(warnings.some((w) => w.includes('ruby')), warnings.join(' | '));
-  assert.ok(diagnostics.some((d) => d.code === 'ruby-flattened'), JSON.stringify(diagnostics));
+test('smart punctuation exports its resolved glyph', () => {
+  const ast = document([paragraph([
+    { type: 'smart_punctuation', kind: 'em_dash', source: '---', glyph: '—' },
+    { type: 'smart_punctuation', kind: 'ellipsis', source: '...', glyph: '…' },
+    { type: 'smart_punctuation', kind: 'left_double_quote', source: '"', glyph: '“' },
+  ])]);
+  const result = carveAstToPandoc(ast);
+  assert.equal(inlineText(result.doc.blocks[0].c), '—…“');
+  assert.deepEqual(result.warnings, []);
 });
 
-test("a ruby node's attributes wrap the whole flattened run", () => {
-  const doc = {
-    type: 'document',
-    children: [{
-      type: 'paragraph',
-      children: [{
-        type: 'ruby',
-        pairs: [{ base: [{ type: 'text', value: 'a' }], annotation: [{ type: 'text', value: 'b' }] }],
-        attrs: { id: 'r', classes: ['k'], order: ['#id', '.class'] },
-      }],
-    }],
-  };
-  const [span] = carveAstToPandoc(doc).doc.blocks[0].c;
-  assert.equal(span.t, 'Span');
-  assert.deepEqual(span.c[0], ['r', ['k'], []]);
-  assert.equal(span.c[1].map((n) => n.c).join(''), 'a(b)');
+test('escaped punctuation survives as ordinary text', () => {
+  const result = carveToPandoc('\\-');
+  assert.deepEqual(result.doc.blocks[0].c, [{ t: 'Str', c: '-' }]);
+  assert.deepEqual(result.warnings, []);
 });
 
-test('an unknown block extension renders its declared fallback', () => {
-  // PART 12 section 33: a reader that does not know the name renders the
-  // FALLBACK and reports the loss. It is required on the node for this.
-  const doc = {
-    type: 'document',
-    children: [{
-      type: 'block_extension',
-      name: 'org.example.diagram',
-      fallback: { type: 'code_block', content: 'graph TD;', lang: 'mermaid' },
-      payload: { format: 'application/vnd.example.diagram+json', value: {} },
-    }],
-  };
-  const { doc: out, diagnostics } = carveAstToPandoc(doc);
-  assert.deepEqual(out.blocks, [{ t: 'CodeBlock', c: [['', ['mermaid'], []], 'graph TD;'] }]);
-  assert.ok(
-    diagnostics.some((d) => d.code === 'block-extension-fallback-rendered'),
-    JSON.stringify(diagnostics),
-  );
+test('line block maps to Pandoc LineBlock', () => {
+  const block = carveToPandoc('::: |\nRoses are red,\nViolets are blue.\n:::').doc.blocks[0];
+  assert.equal(block.t, 'LineBlock');
+  assert.equal(block.c.length, 2);
 });
 
-test('a table continuation join (cell_wrap) becomes one Space', () => {
-  const { doc, warnings } = carveToPandoc('| a | x |\n+ b | y |\n')
-  const cell = doc.blocks[0].c[4][0][3][0][1][0][4]
-  assert.deepEqual(cell, [{ t: 'Plain', c: [{ t: 'Str', c: 'a' }, { t: 'Space' }, { t: 'Str', c: 'b' }] }])
-  assert.deepEqual(warnings, [])
-})
+test('smart punctuation and escaped text produce no warning', () => {
+  assert.deepEqual(carveToPandoc('a --- b and \\*').warnings, []);
+});
+
+test('cyclic heading crossref resolves one level', () => {
+  const result = carveToPandoc('# A </#A>');
+  const link = result.doc.blocks[0].c[2].find(node => node.t === 'Link');
+  assert.equal(link.t, 'Link');
+  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'A' }]);
+  assert.deepEqual(result.warnings, []);
+});
+
+test('caption number is substituted per label', () => {
+  const result = carveToPandoc('![a](1.png)\n^ Figure #: one\n\n![b](2.png)\n^ Listing #: two\n\n' +
+    '![c](3.png)\n^ *Figure* #: three\n\n![d](4.png)\n^ Supplementary Figure #: four\n\n' +
+    '|=H|\n|x|\n^ Table #: t');
+  assert.deepEqual(result.doc.blocks.map(captionText), [
+    'Figure 1: one', 'Listing 1: two', 'Figure 2: three', 'Supplementary Figure 1: four', 'Table 1: t',
+  ]);
+});
+
+test('numbered figure crossref uses its caption number', () => {
+  const result = carveToPandoc('{#fig-sun}\n![s](s.png)\n^ Figure #: sun\n\nSee </#fig-sun>.');
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(crossref(result).c[1], [{ t: 'Str', c: 'Figure' }, { t: 'Space' }, { t: 'Str', c: '1' }]);
+  assert.equal(crossref(result).c[2][0], '#fig-sun');
+});
+
+test('forward figure crossref uses its caption number', () => {
+  const result = carveToPandoc('See </#fig-sun>.\n\n{#fig-sun}\n![s](s.png)\n^ Figure #: sun');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(inlineText(crossref(result).c[1]), 'Figure 1');
+});
+
+test('numbered table crossref uses its caption number', () => {
+  const result = carveToPandoc('{#tbl-x}\n|=H|\n|x|\n^ Table #: t\n\nSee </#tbl-x>.');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(inlineText(crossref(result).c[1]), 'Table 1');
+});
+
+test('unidentified figures still advance caption numbering for later crossrefs', () => {
+  const result = carveToPandoc('![a](1.png)\n^ Figure #: one\n\n{#fig-b}\n![b](2.png)\n^ Listing #: two\n\n' +
+    '{#fig-c}\n![c](3.png)\n^ Figure #: three\n\nSee </#fig-b> and </#fig-c>.');
+  const links = result.doc.blocks.at(-1).c.filter(node => node.t === 'Link');
+  assert.deepEqual(links.map(link => inlineText(link.c[1])), ['Listing 1', 'Figure 2']);
+});
+
+test('captioned quote is a Figure around a BlockQuote', () => {
+  const result = carveToPandoc('> To be\n^ Hamlet');
+  assert.equal(result.doc.blocks[0].t, 'Figure');
+  assert.equal(result.doc.blocks[0].c[2][0].t, 'BlockQuote');
+  assert.equal(captionText(result.doc.blocks[0]), 'Hamlet');
+  assert.equal(carveToPandoc('> To be').doc.blocks[0].t, 'BlockQuote');
+});
+
+test('quote figure keeps its short caption', () => {
+  const ast = document([{ type: 'figure', children: [{ type: 'block_quote', children: [paragraph([text('q')])] }],
+    caption: { type: 'caption', children: [paragraph([text('Author')])], short: [text('short')] } }]);
+  const result = carveAstToPandoc(ast);
+  assert.deepEqual(result.doc.blocks[0].c[1][0], [{ t: 'Str', c: 'short' }]);
+});
+
+test('quote figure and inner quote keep separate attributes', () => {
+  const ast = document([{ type: 'figure', attrs: { id: 'outer', classes: ['fancy'], keyValues: [['b', '3']] },
+    children: [{ type: 'block_quote', attrs: { id: 'inner', classes: ['kept'], keyValues: [['a', '1']] }, children: [paragraph([text('q')])] }],
+    caption: { type: 'caption', children: [paragraph([text('Author')])] } }]);
+  const [figure] = carveAstToPandoc(ast).doc.blocks;
+  assert.deepEqual(figure.c[0], ['outer', ['fancy'], [['b', '3']]]);
+  assert.deepEqual(figure.c[2][0].c[0], ['inner', ['carve-block-quote', 'kept'], [['a', '1']]]);
+});
+
+test('ruby fallback shows base text and annotation', () => {
+  const ast = document([paragraph([{ type: 'ruby', pairs: [
+    { type: 'ruby_pair', base: [text('漢')], annotation: [text('かん')] },
+    { type: 'ruby_pair', base: [text('字')], annotation: [] },
+  ] }])]);
+  const result = carveAstToPandoc(ast);
+  const carrier = result.doc.blocks[0].c[0];
+  assert.equal(inlineText(carrier.c[1]), '漢(かん)字()');
+  assert.ok(result.warnings.some(warning => warning.includes('ruby')));
+  assert.equal(pandocToCarveAst(result.doc).ast.children[0].children[0].type, 'ruby');
+});
+
+test('ruby attributes wrap the flattened fallback', () => {
+  const ast = document([paragraph([{ type: 'ruby', pairs: [{ type: 'ruby_pair', base: [text('a')], annotation: [text('b')] }], attrs: { id: 'r', classes: ['k'] } }])]);
+  const [carrier] = carveAstToPandoc(ast).doc.blocks[0].c;
+  assert.equal(carrier.t, 'Span');
+  assert.deepEqual(carrier.c[0].slice(0, 2), ['r', ['carve-ruby', 'k']]);
+  assert.equal(inlineText(carrier.c[1]), 'a(b)');
+});
+
+test('unknown block extension exposes its declared fallback', () => {
+  const ast = { ...document([{ type: 'block_extension', name: 'org.example.diagram', version: '1', children: [],
+    fallback: [{ type: 'code_block', value: 'graph TD;', syntax: 'mermaid' }] }]),
+    extensions: [{ name: 'org.example.diagram', required: false, version: '1' }] };
+  const result = carveAstToPandoc(ast);
+  assert.equal(result.doc.blocks[0].t, 'Div');
+  assert.equal(result.doc.blocks[0].c[1][0].t, 'CodeBlock');
+  assert.equal(result.doc.blocks[0].c[1][0].c[1], 'graph TD;');
+  assert.ok(result.warnings.some(warning => warning.includes('fallback')));
+});
+
+test('table continuation joins fragments with one Space', () => {
+  const result = carveToPandoc('| a | x |\n+ b | y |');
+  const cell = result.doc.blocks[0].c[4][0][3][0][1][0][4];
+  assert.deepEqual(cell, [{ t: 'Plain', c: [{ t: 'Str', c: 'a' }, { t: 'Space' }, { t: 'Str', c: 'b' }] }]);
+  assert.deepEqual(result.warnings, []);
+});

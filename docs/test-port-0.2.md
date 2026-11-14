@@ -36,7 +36,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | metadata-yaml12.test.mjs | 1 | 0 | 0 | 1 |
 | metadata.test.mjs | 26 | 0 | 0 | 26 |
 | model-limits.test.mjs | 4 | 0 | 0 | 4 |
-| new-ast-nodes.test.mjs | 17 | 0 | 0 | 17 |
+| new-ast-nodes.test.mjs | 17 | 17 | 0 | 0 |
 | new-task-states.test.mjs | 6 | 3 | 3: 0.1 provenance-envelope diagnostic | 0 |
 | no-git-dependencies.test.mjs | 66 | 66 | 0 | 0 |
 | packaging.test.mjs | 4 | 4 | 0 | 0 |
@@ -63,8 +63,8 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 237 | 23 | 470 |
+| Total | 730 | 254 | 23 | 453 |
 
-The 237 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 254 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
