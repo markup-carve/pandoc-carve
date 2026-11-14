@@ -50,7 +50,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | roundtrip-corpus.test.mjs | 5 | 0 | 0 | 5 |
 | roundtrip-fidelity.test.mjs | 13 | 0 | 0 | 13 |
 | roundtrip.test.mjs | 9 | 0 | 0 | 9 |
-| row-groups.test.mjs | 44 | 0 | 0 | 44 |
+| row-groups.test.mjs | 44 | 28 | 1: 0.1 implicit rowGroups run split; 3: 0.1 flat rowGroups count validation; 1: 0.1 source writer's full positional partition spelling; 2: 0.1 row-head column inference from marked cells; 2: 0.1 declared-partition row-header inference; 2: 0.1 body-header-cols source key under a foot; 1: 0.1 single-body row-head count disagreement warning; 1: 0.1 leading body-header-cols source guard; 1: 0.1 derived count collapse; 2: 0.1 listTable extension | 0 |
 | smart-punctuation.test.mjs | 2 | 2 | 0 | 0 |
 | spec-citations.test.mjs | 5 | 0 | 0 | 5 |
 | spec-corpus.test.mjs | 6 | 0 | 0 | 6 |
@@ -63,8 +63,27 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 305 | 25 | 400 |
+| Total | 730 | 333 | 41 | 356 |
 
-The 305 ported cases are in the current `npm test` gate. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 333 ported cases are in the current `npm test` gate. The row-groups rewrite also adds three 0.2-specific checks for explicit zero head rows, body header cell flags, and source diagnostics. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+
+The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
+
+- “control: without the field the implicit split follows the rows themselves”: 0.1 inferred body groups from a missing flat `rowGroups` count object.
+- “a partition whose counts do not sum is refused, with the numbers said out loud”: 0.1 flat `rowGroups` could have an inconsistent count sum.
+- “a partition that over-counts is refused the same way”: 0.1 flat `rowGroups` could over-count rows.
+- “a count that is not a count is refused before the sum is reached”: 0.1 flat `rowGroups` had scalar count fields.
+- “the source writer states the whole partition, so it reports no loss”: 0.1 positional `body-rows` and `body-header-rows` source keys spelled a full partition.
+- “row-head columns are marked on the cells and stay a pipe table”: 0.1 source writer inferred `RowHeadColumns` from marked cells.
+- “and pandoc gets its RowHeadColumns back from those cells”: 0.1 reader inferred `RowHeadColumns` from marked source cells.
+- “a stated partition does not swallow the row headers under it”: 0.1 declared positional partitions inferred row-head counts from cell markers.
+- “a stray row header under a stated partition is reported, not dropped quietly”: 0.1 declared positional partitions reported stray row-head markers.
+- “a foot over disagreeing row-head runs keeps both counts and reports nothing”: 0.1 `body-header-cols` source key spelled each body's count under a foot.
+- “control: runs that agree under a foot are not reported and are not lost”: 0.1 foot partition reader derived a body count from cell markers.
+- “and a body whose rows disagree reports it instead of picking a count”: 0.1 one-body count inference reported disagreement among marked rows.
+- “a leading row-head run that fills the row is stated, or it becomes the head”: 0.1 `body-header-cols` source key overrode leading header-row inference.
+- “control: counts that alternate over more than one column still collapse”: 0.1 source writer collapsed body count runs inferred from marked cells.
+- “a forced list-table reports the row headers the disagreement invents”: 0.1 `listTable` extension had one table-wide `header-cols` count.
+- “the AST path says the same thing, because the warning names where it survives”: 0.1 `listTable` extension emitted a source-only row-head widening warning.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.

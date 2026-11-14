@@ -62,6 +62,13 @@ function table(x: TableNode, c: Context): P.Block {
   const heads = x.children.filter(n => n.type === 'table_head');
   const bodies = x.children.filter(n => n.type === 'table_body');
   const feet = x.children.filter(n => n.type === 'table_foot');
+  for (const section of x.children) {
+    if (section.type !== 'table_head' && section.type !== 'table_body' && section.type !== 'table_foot') continue;
+    const sectionRows = section.children.filter(n => n.type === 'table_row');
+    sectionRows.forEach((row, rowIndex) => row.children.forEach((cell, colIndex) => {
+      if ((cell.rowspan ?? 1) > sectionRows.length - rowIndex) c.warnings.push(`table_cell: rowspan crosses ${section.type} boundary at row ${rowIndex + 1}, col ${colIndex + 1}`);
+    }));
+  }
   const columnFacts = x.columns.some(n => n.resolvedAlign !== undefined || n.valign !== undefined) ? [['carve-columns', JSON.stringify(x.columns.map(n => ({ align: n.align, width: n.width, valign: n.valign, authored: n.authored })))] as [string, string]] : [];
   return P.Table(P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...columnFacts]), cap(x.caption, c), x.columns.map(n => alignment(n.resolvedAlign ?? n.align)), heads.flatMap(n => rows(n.children, c, true)), bodies.map(n => ({ attr: P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.headRows === 0 ? [['carve-head-rows', '0'] as [string, string]] : [])]), rowHeadColumns: n.rowHeadColumns, headRows: n.headRows === undefined ? [] : rows(n.children.filter(y => y.type === 'table_row').slice(0, n.headRows), c), bodyRows: rows(n.children.filter(y => y.type === 'table_row').slice(n.headRows ?? 0), c) })), feet.flatMap(n => rows(n.children, c)), x.caption?.short ? il(x.caption.short, c) : null, x.columns.map(n => n.width ?? null));
 }
@@ -297,7 +304,9 @@ function importTable(c: any[], warnings: string[]): TableNode {
   const columnFacts = (c[0] as P.Attr)[2].find(([k]) => k === 'carve-columns')?.[1];
   if (columnFacts) { try { const saved = JSON.parse(columnFacts) as Omit<TableNode['columns'][number], 'type'>[]; if (Array.isArray(saved) && saved.length === columns.length) columns = saved.map(x => ({ type: 'table_column', ...x })); } catch { warnings.push('Table: invalid carve-columns carrier'); } }
   const caption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
-  return withAttr({ type: 'table', columns, children, ...(caption ? { caption } : {}) }, [(c[0] as P.Attr)[0], (c[0] as P.Attr)[1], (c[0] as P.Attr)[2].filter(([k]) => k !== 'carve-columns')]);
+  // Source control keys describe rows; a stale Pandoc Attr must not override them.
+  const partitionKeys = new Set(['header-rows', 'footer-rows', 'body-rows', 'body-header-rows', 'body-header-cols']);
+  return withAttr({ type: 'table', columns, children, ...(caption ? { caption } : {}) }, [(c[0] as P.Attr)[0], (c[0] as P.Attr)[1], (c[0] as P.Attr)[2].filter(([k]) => k !== 'carve-columns' && !partitionKeys.has(k))]);
 }
 
 function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
