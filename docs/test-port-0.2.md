@@ -10,7 +10,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | attribute-sanitize.test.mjs | 5 | 5 | 0 | 0 |
 | bidi-controls.test.mjs | 3 | 3 | 0 | 0 |
 | block-cells.test.mjs | 14 | 10 | 1: 0.1 listTable source round trip for block cells; 1: 0.1 listTable local header-row syntax; 1: 0.1 listTable list tightness encoding; 1: 0.1 listTable header-cols source key | 0 |
-| caption-blocks.test.mjs | 4 | 0 | 0 | 4 |
+| caption-blocks.test.mjs | 4 | 4 | 0 | 0 |
 | cell-attrs.test.mjs | 11 | 11 | 0 | 0 |
 | citations.test.mjs | 27 | 0 | 0 | 27 |
 | cli.test.mjs | 24 | 0 | 0 | 24 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 367 | 52 | 311 |
+| Total | 730 | 371 | 52 | 307 |
 
-The 367 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, and the table-body rewrite adds two checks for 0.2 section nodes and ordinary body-key attributes. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 371 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, and the table-body rewrite adds two checks for 0.2 section nodes and ordinary body-key attributes. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
