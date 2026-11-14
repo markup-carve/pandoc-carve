@@ -8,7 +8,7 @@ import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js'
 export { treesEqual };
 export type { DocumentNode, Node };
 type Result = { doc: P.PandocDoc; warnings: string[] };
-type Context = { warnings: string[]; notes: Map<string, Block[]>; links: Map<string, [string, string]>; targets: Map<string, P.Inline[]> };
+type Context = { warnings: string[]; notes: Map<string, Block[]>; links: Map<string, [string, string]>; targets: Map<string, P.Inline[]>; noteCount: number };
 const impossible = (node: never): never => { throw new Error(`unhandled node ${JSON.stringify(node)}`); };
 const attr = (a?: Attrs): P.Attr => P.attr(a?.id, a?.classes, a?.keyValues);
 const BIDI_CONTROL_RE = /[\u202a-\u202e\u2066-\u2069]/gu;
@@ -113,15 +113,21 @@ function emit(n: Node, c: Context): P.PandocNode[] {
     case 'image': { const target = n.src ?? (n.key ? c.links.get(n.key)?.[0] : undefined); if (target === undefined) c.warnings.push('image: unresolved reference'); return [P.Image(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.key ? [['carve-key', n.key], ['carve-form', n.refForm ?? 'full']] as [string, string][] : []), ...(n.longDescription ? [['carve-long-description', JSON.stringify(n.longDescription)] as [string, string]] : []), ...(n.src === undefined ? [['carve-unresolved', '1'] as [string, string]] : [])]), words(n.alt ?? ''), [safeTarget(target ?? '', c), n.tooltip ?? ''])]; }
     case 'autolink': return [P.Link(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ['carve-autolink', '1']]), words(n.text ?? n.href), [safeTarget(n.href, c), ''])];
     case 'xref': { const label = c.targets.get(n.key); if (!label) c.warnings.push(`xref: unresolved target ${n.key}`); return [P.Link(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ['carve-xref', '1'], ['carve-key', n.key], ['carve-namespace', n.namespace], ...(n.display ? [['carve-display-form', n.display] as [string, string]] : [])]), label ?? words(n.key), [n.href ?? `#${n.key}`, ''])]; }
-    case 'footnote_ref': return [P.Span(P.attr(n.attrs?.id, ['carve-footnote-ref', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['key', n.key]]), [P.Note(bl(c.notes.get(n.key) ?? [], c))])];
-    case 'inline_footnote': return [inlineAttr(n, P.Note([P.Para(il(n.children, c))]))];
+    case 'footnote_ref': { const note = P.Note(bl(c.notes.get(n.key) ?? [], c)); c.noteCount++; return [P.Span(P.attr(n.attrs?.id, ['carve-footnote-ref', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['key', n.key]]), [note])]; }
+    case 'inline_footnote': { const note = P.Note([P.Para(il(n.children, c))]); c.noteCount++; return [inlineAttr(n, note)]; }
     case 'abbreviation': return [P.Span(P.attr('', ['carve-abbreviation'], [['key', n.key], ['expansion', n.expansion ?? '']]), words(n.key))];
     case 'mention': return [P.Span(P.attr('', ['carve-mention'], [['target', n.target], ['kind', n.kind]]), words(n.label ?? `@${n.target}`))];
     case 'tag': return [P.Span(P.attr('', ['carve-tag'], [['name', n.name]]), words(`#${n.name}`))];
     case 'symbol': c.warnings.push('symbol: no Pandoc equivalent'); return [P.Span(P.attr(n.attrs?.id, ['carve-symbol', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['name', n.name]]), words(`:${n.name}:`))];
     case 'ruby_pair': return [...il(n.base, c), ...il(n.annotation, c)];
     case 'ruby': c.warnings.push('ruby: no Pandoc equivalent'); return [P.Span(P.attr(n.attrs?.id, ['carve-ruby', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['carve-pairs', JSON.stringify(n.pairs, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)]]), n.pairs.flatMap(p => words(`${p.base.map(x => x.type === 'text' ? x.value : '').join('')}(${p.annotation.map(x => x.type === 'text' ? x.value : '').join('')})`)))];
-    case 'citation_group': return [P.Cite(n.children.map(x => P.citation(x.key, x.mode === 'suppress-author' ? 'SuppressAuthor' : x.mode === 'author-in-text' ? 'AuthorInText' : 'NormalCitation', il(x.prefix ?? [], c), il([...(x.locator?.children ?? []), ...(x.suffix ?? [])], c))), words(n.raw))];
+    case 'citation_group': return [P.Cite(n.children.map(x => {
+      const label = x.locator?.label;
+      if (label) c.warnings.push(`citation @${x.key}: typed locator (${label}) is flattened into the Pandoc suffix`);
+      const shortLabel = label === 'page' ? 'p.' : label === 'pages' ? 'pp.' : label === 'chapter' ? 'chap.' : label;
+      const locator = x.locator ? [P.Str(','), P.Space, ...(shortLabel ? words(`${shortLabel} `) : []), ...il(x.locator.children, c)] : [];
+      return P.citation(x.key, x.mode === 'suppress-author' ? 'SuppressAuthor' : x.mode === 'author-in-text' ? 'AuthorInText' : 'NormalCitation', il(x.prefix ?? [], c), [...locator, ...il(x.suffix ?? [], c)], c.noteCount + 1);
+    }), words(n.raw))];
     case 'inline_extension': c.warnings.push(`inline_extension: ${n.name} uses fallback`); return [P.Span(P.attr('', ['carve-extension'], [['name', n.name]]), il(n.fallback ?? n.children, c))];
     case 'critic_comment': return [P.RawInline('carve-critic-comment', n.value)];
     case 'comment': return n.form === 'braced' ? [P.RawInline('carve-comment', n.value)] : [P.RawBlock(`carve-comment-${n.form}`, n.value)];
@@ -185,7 +191,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
 export function carveAstToPandoc(input: DocumentNode | string): Result {
   const ast: unknown = typeof input === 'string' ? JSON.parse(input) : input;
   validateTree(ast);
-  const c: Context = { warnings: [], notes: new Map(), links: new Map(), targets: new Map() };
+  const c: Context = { warnings: [], notes: new Map(), links: new Map(), targets: new Map(), noteCount: 0 };
   for (const x of ast.children) { if (x.type === 'footnote') c.notes.set(x.key, x.children); if (x.type === 'link_reference_definition') c.links.set(x.key, [x.href, x.tooltip ?? '']); }
   for (const x of ast.children) {
     if (x.type === 'heading') { const id = x.attrs?.id ?? x.generatedId; if (id) { const label = il(x.children.filter(node => node.type !== 'xref' || node.key !== id), c); while (label.at(-1)?.t === 'Space') label.pop(); c.targets.set(id, label); } }
@@ -268,7 +274,31 @@ function importInline(node: P.PandocNode, warnings: string[]): Inline[] {
     case 'Span': { const a = c[0] as P.Attr; const children = inlineList(c[1], warnings); const fields = Object.fromEntries(a[2]); if (a[1].includes('carve-literal')) { const clean: P.Attr = [a[0], a[1].filter(x => x !== 'carve-literal'), a[2].filter(([k]) => k !== 'value')]; try { return [withAttr({ type: 'literal_inline', value: JSON.parse(fields['value'] ?? '""') }, clean)]; } catch { warnings.push('Literal: invalid value carrier'); return [withAttr({ type: 'literal_inline', value: '' }, clean)]; } } if (a[1].includes('carve-ruby')) { try { const pairs = JSON.parse(fields['carve-pairs'] ?? '[]') as Extract<Inline, {type: 'ruby'}>['pairs']; return [withAttr({ type: 'ruby', pairs }, [a[0], a[1].filter(x => x !== 'carve-ruby'), a[2].filter(([key]) => key !== 'carve-pairs')])]; } catch { warnings.push('Ruby: invalid pairs carrier'); } } if (a[1].includes('carve-footnote-ref')) return [withAttr({ type: 'footnote_ref', namespace: 'footnote', key: fields['key'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-footnote-ref'), a[2].filter(([key]) => key !== 'key')])]; if (a[1].includes('carve-smart')) return [{ type: 'smart_punctuation', kind: (fields['kind'] ?? 'em_dash') as Extract<Inline, {type: 'smart_punctuation'}>['kind'], source: fields['source'] ?? '', ...(fields['glyph'] ? { glyph: fields['glyph'] } : {}) }]; if (a[1].includes('carve-delete')) return [withAttr({ type: 'delete', children }, [a[0], a[1].filter(x => x !== 'carve-delete'), a[2]])]; if (a[1].includes('carve-insert')) return [withAttr({ type: 'insert', children }, [a[0], a[1].filter(x => x !== 'carve-insert'), a[2]])]; if (a[1].includes('carve-mention')) return [{ type: 'mention', target: fields['target'] ?? '', kind: fields['kind'] ?? 'user' }]; if (a[1].includes('carve-tag')) return [{ type: 'tag', name: fields['name'] ?? '' }]; if (a[1].includes('carve-symbol')) return [withAttr({ type: 'symbol', name: fields['name'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-symbol'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-abbreviation')) return [{ type: 'abbreviation', namespace: 'abbr', key: fields['key'] ?? '', ...(fields['expansion'] ? { expansion: fields['expansion'] } : {}) }]; if (a[1].includes('carve-inline-attrs') && children.length === 1 && children[0]?.type === fields['carve-inline-type']) return [withAttr(children[0]!, [a[0], a[1].filter(x => x !== 'carve-inline-attrs'), a[2].filter(([k]) => k !== 'carve-inline-type')]) as Inline]; return a[1].includes('mark') ? [withAttr({ type: 'highlight', children }, [a[0], a[1].filter(x => x !== 'mark'), a[2]])]: [withAttr({ type: 'span', children }, a)]; }
     case 'Note': { const children = blockList(c, warnings).flatMap(x => x.type === 'paragraph' ? x.children : []); if (children.length === 0) warnings.push('Note: block content cannot be represented by inline_footnote'); return [{ type: 'inline_footnote', children }]; }
     case 'Quoted': return [{ type: 'smart_punctuation', kind: c[0].t === 'SingleQuote' ? 'left_single_quote' : 'left_double_quote', glyph: c[0].t === 'SingleQuote' ? '‘' : '“', source: c[0].t === 'SingleQuote' ? "'" : '"' }, ...inlineList(c[1], warnings), { type: 'smart_punctuation', kind: c[0].t === 'SingleQuote' ? 'right_single_quote' : 'right_double_quote', glyph: c[0].t === 'SingleQuote' ? '’' : '”', source: c[0].t === 'SingleQuote' ? "'" : '"' }];
-    case 'Cite': return [{ type: 'citation_group', raw: c[1].map((x: P.PandocNode) => x.t === 'Str' ? x.c : '').join('') || `[${c[0].map((x: P.Citation) => '@' + x.citationId).join('; ')}]`, children: c[0].map((x: P.Citation) => ({ type: 'citation', key: x.citationId, namespace: 'citation', mode: x.citationMode.t === 'SuppressAuthor' ? 'suppress-author' as const : x.citationMode.t === 'AuthorInText' ? 'author-in-text' as const : 'normal' as const })) }];
+    case 'Cite': {
+      const records = c[0] as P.Citation[];
+      const display = (nodes: P.PandocNode[]): string => nodes.map(node => node.t === 'Str' ? String(node.c) : node.t === 'Space' || node.t === 'SoftBreak' ? ' ' : Array.isArray(node.c) ? display(node.c as P.PandocNode[]) : '').join('');
+      const source = display(c[1] as P.PandocNode[]);
+      const children = records.map(record => {
+        const suffixText = display(record.citationSuffix ?? []);
+        const locatorMatch = /^,\s*(p\.|pp\.|chap\.)\s+(.+)$/u.exec(suffixText);
+        const label = locatorMatch?.[1] === 'p.' ? 'page' : locatorMatch?.[1] === 'pp.' ? 'pages' : locatorMatch?.[1] === 'chap.' ? 'chapter' : undefined;
+        const integralPrefix = record.citationMode.t === 'NormalCitation' && display(record.citationPrefix ?? []) === '+' && source.includes(`+@${record.citationId}`);
+        return { type: 'citation' as const, key: record.citationId, namespace: 'citation' as const,
+          ...(record.citationMode.t === 'NormalCitation' && !integralPrefix ? {} : { mode: record.citationMode.t === 'SuppressAuthor' ? 'suppress-author' as const : 'author-in-text' as const }),
+          ...(record.citationPrefix?.length && !integralPrefix ? { prefix: inlineList(record.citationPrefix, warnings) } : {}),
+          ...(locatorMatch ? { locator: { ...(label ? { label } : {}), children: [{ type: 'text' as const, value: locatorMatch[2]! }] } } : record.citationSuffix?.length ? { suffix: inlineList(record.citationSuffix, warnings) } : {}),
+        };
+      });
+      const keys = [...source.matchAll(/(?<!\\)@([\w:-]+)/gu)].map(match => match[1]);
+      const sourceMatches = source.startsWith('[') && source.endsWith(']') && keys.length === records.length && keys.every((key, index) => key === records[index]?.citationId);
+      const raw = sourceMatches ? source : `[${records.map(record => {
+        const prefix = display(record.citationPrefix ?? []);
+        const marker = record.citationMode.t === 'AuthorInText' ? '+@' : record.citationMode.t === 'SuppressAuthor' ? '-@' : '@';
+        const suffix = display(record.citationSuffix ?? []);
+        return `${prefix ? `${prefix} ` : ''}${marker}${record.citationId}${suffix}`;
+      }).join('; ')}]`;
+      return [{ type: 'citation_group', raw, children }];
+    }
     default: warnings.push(`${node.t}: unsupported Pandoc inline`); return [{ type: 'text', value: String(node.c ?? '') }];
   }
 }

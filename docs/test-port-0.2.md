@@ -12,7 +12,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | block-cells.test.mjs | 14 | 10 | 1: 0.1 listTable source round trip for block cells; 1: 0.1 listTable local header-row syntax; 1: 0.1 listTable list tightness encoding; 1: 0.1 listTable header-cols source key | 0 |
 | caption-blocks.test.mjs | 4 | 4 | 0 | 0 |
 | cell-attrs.test.mjs | 11 | 11 | 0 | 0 |
-| citations.test.mjs | 27 | 0 | 0 | 27 |
+| citations.test.mjs | 27 | 25 | 1: 0.1 citeproc bibliography metadata diagnostic; 1: 0.1 CSL-entry Div mapping for citation definitions | 0 |
 | cli.test.mjs | 24 | 0 | 0 | 24 |
 | conversion-correctness.test.mjs | 4 | 4 | 0 | 0 |
 | corpus-census.test.mjs | 1 | 0 | 0 | 1 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 9 |
 
-| Total | 730 | 374 | 52 | 304 |
+| Total | 730 | 399 | 54 | 277 |
 
-The 374 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, and the table-body rewrite adds two checks for 0.2 section nodes and ordinary body-key attributes. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 399 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, and the table-body rewrite adds two checks for 0.2 section nodes and ordinary body-key attributes. The stated drop reasons are the only intentional removals. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -103,5 +103,10 @@ The six removed `table-body-structure.test.mjs` cases, each with its 0.1 feature
 - “the waiver is keyed to the engine pin and expires with it”: the 0.1.17 engine-lag waiver is obsolete for the vendored 0.2 engine.
 - “the waiver holds no document that already matches”: the 0.1.17 engine-lag waiver is obsolete for the vendored 0.2 engine.
 - “every waiver entry names a document the corpus still has”: the 0.1.17 engine-lag waiver is obsolete for the vendored 0.2 engine.
+
+The two removed `citations.test.mjs` cases, each with its 0.1 feature reason:
+
+- “citations: the bibliography diagnostic fires once per document”: the 0.1 bridge imported CSL bibliography entries from Pandoc metadata; the 0.2 citation definition uses a typed tree field and a raw JSON carrier.
+- “citations: the entry survives pandoc's own writer and reader”: the 0.1 bridge represented citation definitions as `csl-entry` Divs; the 0.2 bridge carries the definition tree in a raw Pandoc block.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
