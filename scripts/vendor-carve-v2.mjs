@@ -23,6 +23,7 @@ try {
   rmSync(types, { recursive: true, force: true });
   cpSync(scratch, types, { recursive: true });
   cpSync(join(checkout, 'v2/data/node-slots.json'), join(dest, 'node-slots.json'));
+  cpSync(join(checkout, 'v2/data/examples.json'), join(dest, 'examples.json'));
   const rewrite = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const file = join(dir, entry.name);

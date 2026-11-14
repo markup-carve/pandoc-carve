@@ -16,7 +16,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | cli.test.mjs | 24 | 0 | 0 | 0 | 24 |
 | conversion-correctness.test.mjs | 4 | 4 | 0 | 0 | 0 |
 | corpus-census.test.mjs | 1 | 0 | 0 | 0 | 1 |
-| corpus-link-targets.test.mjs | 9 | 0 | 0 | 0 | 9 |
+| corpus-link-targets.test.mjs | 9 | 7 | 2: 0.1 spec-corpus divergent allowlist | 0 | 0 |
 | corpus.test.mjs | 10 | 10 | 0 | 0 | 0 |
 | diagnostic-code-coverage.test.mjs | 22 | 0 | 0 | 0 | 22 |
 | diagnostics-v2.test.mjs | 1 | 0 | 0 | 0 | 1 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 537 | 78 | 24 | 91 |
+| Total | 730 | 544 | 80 | 24 | 82 |
 
-The 537 ported cases are in the current `npm test` gate. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 544 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -150,5 +150,10 @@ The three removed `provenance.test.mjs` cases, each with its 0.1 feature reason:
 - “unknown inline and block nodes survive as versioned opaque data”: the 0.1 opaque provenance envelope for unknown node types is gone; the 0.2 tree validates its node types.
 - “normal unknown nodes remain readable and diagnosed”: the 0.1 unknown-node fallback and diagnostic are gone; the 0.2 tree rejects unknown node types.
 - “every emitted warning has a structured counterpart”: the 0.1 bridge's structured diagnostic object API is gone.
+
+The two removed `corpus-link-targets.test.mjs` cases, each with its 0.1 feature reason:
+
+- “the ledger holds no document that already agrees”: the 0.1 spec-corpus divergent allowlist is replaced by the vendored 0.2 example oracle.
+- “every ledger entry names a document the corpus still has”: the 0.1 spec-corpus divergent allowlist is replaced by the vendored 0.2 example oracle.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
