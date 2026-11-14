@@ -53,7 +53,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | row-groups.test.mjs | 44 | 28 | 1: 0.1 implicit rowGroups run split; 3: 0.1 flat rowGroups count validation; 1: 0.1 source writer's full positional partition spelling; 2: 0.1 row-head column inference from marked cells; 2: 0.1 declared-partition row-header inference; 2: 0.1 body-header-cols source key under a foot; 1: 0.1 single-body row-head count disagreement warning; 1: 0.1 leading body-header-cols source guard; 1: 0.1 derived count collapse; 2: 0.1 listTable extension | 0 | 0 |
 | smart-punctuation.test.mjs | 2 | 2 | 0 | 0 | 0 |
 | spec-citations.test.mjs | 5 | 0 | 5: 0.1 PART/section grammar citation system | 0 | 0 |
-| spec-corpus.test.mjs | 6 | 0 | 0 | 0 | 6 |
+| spec-corpus.test.mjs | 6 | 6 | 0 | 0 | 0 |
 | substitution.test.mjs | 3 | 0 | 0 | 0 | 3 |
 | table-body-structure.test.mjs | 6 | 0 | 2: 0.1 positional body-key corpus contract; 3: 0.1.17 engine-lag waiver; 1: 0.1 corpus submodule fixture | 0 | 0 |
 | table-reader-regressions.test.mjs | 14 | 13 | 1: 0.1 Figure/Div wrapper attributes collapsed into a table | 0 | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 544 | 80 | 24 | 82 |
+| Total | 730 | 550 | 80 | 24 | 76 |
 
-The 544 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 550 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 

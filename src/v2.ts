@@ -236,7 +236,10 @@ const importAttr = (a: unknown): Attrs | undefined => {
 const readTitle = (value: string | undefined): Inline[] | undefined => { if (value === undefined) return undefined; try { const parsed: unknown = JSON.parse(value); return Array.isArray(parsed) ? parsed as Inline[] : undefined; } catch { return undefined; } };
 const readCaption = (value: string | undefined): CaptionNode | undefined => { if (value === undefined) return undefined; try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === 'object' && 'type' in parsed && parsed.type === 'caption' ? parsed as CaptionNode : undefined; } catch { return undefined; } };
 const withAttr = <T extends Node>(node: T, a: unknown): T => { const attrs = importAttr(a); return attrs ? { ...node, attrs } : node; };
-const MAX_PANDOC_NODE_DEPTH = 200;
+// The 0.2 example corpus contains 200 nested superscripts. Each inline adds
+// two Pandoc object levels, so allow that valid source while still bounding
+// malformed imports before recursive conversion.
+const MAX_PANDOC_NODE_DEPTH = 512;
 const MAX_PANDOC_LIST_DEPTH = 100;
 function checkPandocJsonDepth(source: string): void {
   let depth = 0;
