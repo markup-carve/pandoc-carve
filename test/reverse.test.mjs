@@ -100,7 +100,7 @@ test('reverse: links, autolinks, images, crossrefs', () => {
   const out = roundtrip('{#sec}\n= S\n\n[t](https://e.com "Ti") <https://e.com> <hi@e.com> ![alt](i.png) </#sec>');
   assert.ok(out.includes('[t](https://e.com "Ti")'));
   assert.ok(out.includes('<https://e.com>'));
-  assert.ok(out.includes('<mailto:hi@e.com>'));
+  assert.ok(out.includes('<hi@e.com>'));
   assert.ok(out.includes('![alt](i.png)'));
   assert.ok(out.includes('</#sec>'));
 });
