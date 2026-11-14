@@ -76,6 +76,12 @@ for (const [name, source] of [
   ['heading and direct link', '# H\n\n[x](/u)'],
   ['link reference definition', '[r]: /u\n\n[x][r]'],
   ['frontmatter', '---\ntitle: T\n---\n\nText.'],
+  ['star bullet character', '* a\n* b'],
+  ['task mark', '- [x] done'],
+  ['footnote reference', '[^n]: Note.\n\nSee[^n].'],
+  ['cross-reference', '# H\n\nSee </#H>.'],
+  ['autolink', '<https://x.org>'],
+  ['figure group with captions', '::: figure\n![a](a.png)\n^ (a) First\n\n![b](b.png)\n^ (b) Second\n:::\n^ Figure #: Both'],
 ]) test(`${name} preserves tree equality through Pandoc JSON`, () => {
   const original = parse(source);
   const exported = carveAstToPandoc(original);
