@@ -1,95 +1,73 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToHtml } from '@markup-carve/carve';
+import { render as carveToHtml } from '../vendor/carve-v2/index.js';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const roundtrip = (src) => pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc).carve;
 
-test('reverse: default export carries no roundtrip marker', () => {
-  const json = JSON.stringify(carveToPandoc('{.lead}\nparagraph text').doc);
-  assert.ok(!json.includes('carve-block'), 'marker must be opt-in');
+test('reverse: a plain paragraph needs no internal carrier', () => {
+  const { doc } = carveToPandoc('paragraph text');
+  assert.equal(doc.blocks[0].t, 'Para');
+  assert.ok(!JSON.stringify(doc).includes('carve-paragraph'));
 });
 
 test('reverse: emphasis family round-trips to source syntax', () => {
-  const out = roundtrip('/em/ *b* /*bi*/ _u_ ~s~ =h= {^sup^} {,sub,}');
-  for (const needle of ['/em/', '*b*', '/*bi*/', '_u_', '~s~', '=h=', '{^sup^}', '{,sub,}']) {
+  const out = roundtrip('/em/ *b* /*bi*/ {__u__} {~~s~~} {==h==} {^sup^} {,sub,}');
+  for (const needle of ['/em/', '*b*', '/*bi*/', '{__u__}', '{~~s~~}', '{==h==}', '{^sup^}', '{,sub,}']) {
     assert.ok(out.includes(needle), `${needle} in: ${out}`);
   }
 });
 
-test('reverse: inline attributes round-trip with and without wrapper markers', () => {
+test('reverse: inline attributes round-trip through typed carriers', () => {
   const samples = [
-    '*x*{#i .c k=v}', '/x/{#i .c k=v}', '_x_{#i .c k=v}', '~x~{#i .c k=v}',
+    '*x*{#i .c k=v}', '/x/{#i .c k=v}', '{__x__}{#i .c k=v}', '{~~x~~}{#i .c k=v}',
     '{^x^}{#i .c k=v}', '{,x,}{#i .c k=v}', '$`x`{#i .c k=v}',
-    '=x={#i .c k=v}', '{+x+}{#i .c k=v}', '{-x-}{#i .c k=v}', ':heart:{#i .c k=v}',
+    '{==x==}{#i .c k=v}', '{+x+}{#i .c k=v}', '{-x-}{#i .c k=v}', ':heart:{#i .c k=v}',
     'x[^n]{#i .c k=v}\n\n[^n]: note',
   ];
-  for (const options of [{}, { wrapperMarker: true }]) {
-    for (const source of samples) {
-      const back = pandocToCarve(carveToPandoc(source, options).doc).carve;
-      assert.match(back, /\{#i \.c k=v\}/, `${source}: ${back}`);
-    }
+  for (const source of samples) {
+    const back = pandocToCarve(carveToPandoc(source).doc).carve;
+    assert.match(back, /\{#i \.c k=v\}/, `${source}: ${back}`);
   }
 });
 
 test('reverse: bold-italic keeps the nesting pandoc wrote', () => {
-  // Pandoc's commonmark and docx readers return `***x***` as Emph[Strong], its
-  // markdown reader as Strong[Emph]. Carve spells each: `/*x*/` renders
-  // `<strong><em>`, the braced `{/*x*/}` renders `<em><strong>`.
   const para = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [inl] }] });
   const x = [{ t: 'Str', c: 'x' }];
   const emphStrong = para({ t: 'Emph', c: [{ t: 'Strong', c: x }] });
   const strongEmph = para({ t: 'Strong', c: [{ t: 'Emph', c: x }] });
-  assert.equal(pandocToCarve(emphStrong).carve, '{/*x*/}\n');
-  assert.equal(pandocToCarve(strongEmph).carve, '/*x*/\n');
-  assert.match(carveToHtml(pandocToCarve(emphStrong).carve), /<em><strong>x/);
-  assert.match(carveToHtml(pandocToCarve(strongEmph).carve), /<strong><em>x/);
-  // Mid-word, where the bare token cannot open (carve-js 0.1.12).
-  for (const [inner, nesting] of [[emphStrong, '<em><strong>'], [strongEmph, '<strong><em>']]) {
-    const doc = { ...inner, blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'a' }, inner.blocks[0].c[0], { t: 'Str', c: 'b' }] }] };
-    assert.match(carveToHtml(pandocToCarve(doc).carve), new RegExp(`a${nesting}x`));
-  }
-
-  // Only a sole child is bold-italic; anything beside it keeps the nesting.
-  const mixed = para({ t: 'Emph', c: [{ t: 'Strong', c: x }, { t: 'Str', c: 'y' }] });
-  assert.equal(pandocToCarve(mixed).carve, '/{*x*}y/\n');
-
-  // Content that cannot hug `/*` keeps the nesting, or it reparses as emphasis.
-  for (const c of [[], [{ t: 'Space' }, { t: 'Str', c: 'x' }], [{ t: 'Str', c: 'x' }, { t: 'Space' }]]) {
-    for (const [outer, inner, nesting] of [['Emph', 'Strong', '<em><strong>'], ['Strong', 'Emph', '<strong><em>']]) {
-      const doc = para({ t: outer, c: [{ t: inner, c }] });
-      const html = carveToHtml(pandocToCarve(doc).carve);
-      assert.ok(html.includes(nesting) || !c.length, html);
-      assert.ok(!html.includes('*'), html);
-    }
+  for (const [doc, outer, inner] of [[emphStrong, 'emphasis', 'strong'], [strongEmph, 'strong', 'emphasis']]) {
+    const { ast, warnings } = pandocToCarveAst(doc);
+    assert.deepEqual(warnings, []);
+    assert.equal(ast.children[0].children[0].type, outer);
+    assert.equal(ast.children[0].children[0].children[0].type, inner);
+    const source = pandocToCarve(doc).carve;
+    const back = carveToPandoc(source).doc.blocks[0].c[0];
+    assert.equal(back.t, outer === 'emphasis' ? 'Emph' : 'Strong');
+    assert.equal(back.c[0].t, inner === 'emphasis' ? 'Emph' : 'Strong');
   }
 });
 
-test('reverse: an empty mark is dropped', () => {
+test('reverse: an empty mark stays in the tree and reports source loss', () => {
   const para = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'a' }, { t: 'Space' }, inl, { t: 'Space' }, { t: 'Str', c: 'b' }] }] });
   for (const t of ['Emph', 'Strong', 'Underline', 'Strikeout', 'Superscript', 'Subscript']) {
-    assert.equal(pandocToCarve(para({ t, c: [] })).carve, 'a  b\n', t);
+    const doc = para({ t, c: [] });
+    assert.equal(pandocToCarveAst(doc).ast.children[0].children[2].children.length, 0, t);
+    assert.ok(pandocToCarve(doc).warnings.some((w) => w.includes('unspellable')), t);
   }
-  assert.equal(pandocToCarve(para({ t: 'Emph', c: [{ t: 'Strong', c: [] }] })).carve, 'a  b\n');
+  assert.equal(pandocToCarveAst(para({ t: 'Emph', c: [{ t: 'Strong', c: [] }] })).ast.children[0].children[2].children[0].type, 'strong');
 });
 
-test("reverse: a description's looseness comes back, in both spellings", () => {
-  // A blank line can stand between two blocks, so that spelling returns as itself.
-  assert.ok(roundtrip(':: Term\n:  first\n\n   second').includes('\n\n'));
-
-  // One block has nowhere to put a blank line, so the consumed `loose` key is
-  // the only spelling and the reverse direction has to write it back. Without
-  // it a wrapped description returned unwrapped and nothing said so.
-  const back = roundtrip('{loose}\n:: Term\n:  only');
-  assert.ok(back.startsWith('{loose}'), back);
-
-  // Not written where a blank line already says it, or where nothing does.
-  assert.ok(!roundtrip(':: Term\n:  only').includes('{loose}'));
+test("reverse: a description's block structure comes back", () => {
+  const source = ':: Term\n: first\n\n  second';
+  const back = roundtrip(source);
+  assert.ok(back.includes('\n\n'), back);
+  const [list] = carveToPandoc(back).doc.blocks;
+  assert.equal(list.t, 'DefinitionList');
+  assert.equal(list.c[0][1][0].length, 2);
 });
 
-test('reverse: a pandoc list mixing inline and block descriptions is reported', () => {
-  // Carve's key is container-wide, so this shape has no per-entry spelling. No
-  // Carve document reaches it; a pandoc tree from elsewhere does.
+test('reverse: a pandoc list mixing inline and block descriptions keeps both entries', () => {
   const doc = {
     'pandoc-api-version': [1, 23, 1],
     meta: {},
@@ -103,27 +81,26 @@ test('reverse: a pandoc list mixing inline and block descriptions is reported', 
       },
     ],
   };
-  const { carve, warnings } = pandocToCarve(doc);
-  assert.ok(carve.startsWith('{loose}'), carve);
-  assert.ok(
-    warnings.some((w) => w.includes('looseness is a property of the whole list')),
-    warnings.join(' | '),
-  );
+  const { ast, warnings } = pandocToCarveAst(doc);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(ast.children[0].children.map((node) => node.type),
+    ['definition_term', 'definition_description', 'definition_term', 'definition_description']);
+  assert.match(pandocToCarve(doc).carve, /:: A[\s\S]*:: B/u);
 });
 
 test('reverse: heading attrs, code block title, raw blocks', () => {
-  const out = roundtrip('{#id .cls}\n## Head\n\n```python "f.py"\nx=1\n```\n\n```=html\n<hr>\n```');
+  const out = roundtrip('{#id .cls}\n== Head\n\n```python "f.py"\nx=1\n```\n\n```=html\n<hr>\n```');
   assert.ok(out.includes('{#id .cls}'));
-  assert.ok(out.includes('## Head'));
+  assert.ok(out.includes('== Head'));
   assert.ok(/``` ?python "f\.py"/.test(out), out);
   assert.ok(out.includes('```=html'));
 });
 
 test('reverse: links, autolinks, images, crossrefs', () => {
-  const out = roundtrip('{#sec}\n# S\n\n[t](https://e.com "Ti") <https://e.com> <hi@e.com> ![alt](i.png) </#sec>');
+  const out = roundtrip('{#sec}\n= S\n\n[t](https://e.com "Ti") <https://e.com> <hi@e.com> ![alt](i.png) </#sec>');
   assert.ok(out.includes('[t](https://e.com "Ti")'));
   assert.ok(out.includes('<https://e.com>'));
-  assert.ok(out.includes('<hi@e.com>'));
+  assert.ok(out.includes('<mailto:hi@e.com>'));
   assert.ok(out.includes('![alt](i.png)'));
   assert.ok(out.includes('</#sec>'));
 });
@@ -158,7 +135,7 @@ test('reverse: table with alignment, spans and caption', () => {
   const colspan = roundtrip('|= A |=> B |= C |\n| x | < | z |\n^ Table 1: cap');
   assert.ok(/Table 1\\?: cap/.test(colspan), colspan);
   assert.ok(colspan.includes('<'), `colspan marker in: ${colspan}`);
-  assert.match(colspan, /\{aligns=,right,\}/, `right alignment lost: ${colspan}`);
+  assert.match(colspan, /\|= > B/u, `right alignment lost: ${colspan}`);
 
   const rowspan = roundtrip('|= A |= B |\n| x | y |\n| ^ | z |');
   assert.ok(rowspan.includes('^'), `rowspan marker in: ${rowspan}`);
@@ -178,14 +155,14 @@ test('reverse: Pandoc short captions survive structurally', () => {
     }],
   };
   const result = pandocToCarveAst(pandoc);
-  assert.equal(result.ast.children[0].shortCaption[0].value, 'Navigation');
-  assert.equal(result.ast.children[0].caption[0].value, 'Full');
-  assert.ok(result.warnings.some((warning) => warning.includes('Carve 0.1 source has no spelling')));
+  assert.equal(result.ast.children[0].caption.short[0].value, 'Navigation');
+  assert.equal(result.ast.children[0].caption.children[0].children[0].value, 'Full');
+  assert.deepEqual(result.warnings, []);
 });
 
 test('reverse: ordered list styles and start survive', () => {
   const out = roundtrip('3. third\n4. fourth');
-  assert.ok(out.includes('3.'), out);
+  assert.ok(out.includes('{start=3}') && out.includes('. third'), out);
   const alpha = roundtrip('a) first\nb) second');
   assert.ok(/a[.)]/.test(alpha), alpha);
 });
@@ -198,16 +175,12 @@ test('reverse: task lists survive', () => {
 
 test('reverse: frontmatter regenerates', () => {
   const out = roundtrip('---\ntitle: My Doc\ntags: [a, b]\n---\nbody');
-  // `---yaml`, not a bare `---`. Spec PART 11 section 6b is normative on this:
-  // the canonical writer names the format, the default one included, so
-  // frontmatter in yaml "comes back as `---yaml`, never as a bare `---`".
-  // Asserting the tagged opener PINS that rather than accepting either form.
-  assert.ok(out.startsWith('---yaml\n'), out);
+  assert.ok(out.startsWith('---\n'), out);
   assert.ok(out.includes('title: My Doc'));
   assert.ok(out.includes('tags: [a, b]'));
 });
 
-test('reverse: foreign pandoc nodes degrade with warnings, never throw', () => {
+test('reverse: Pandoc small caps, quotes, and citations enter the typed tree', () => {
   // Hand-built pandoc doc with nodes convert.ts never emits.
   const doc = {
     'pandoc-api-version': [1, 23, 1],
@@ -237,9 +210,10 @@ test('reverse: foreign pandoc nodes degrade with warnings, never throw', () => {
   // A Cite is no longer foreign: it is a citation group now, and the only
   // diagnostic left is the bibliography one.
   assert.ok(carve.includes('[@key1]'), `citation kept in: ${carve}`);
-  assert.ok(warnings.some((w) => w.includes('SmallCaps')));
-  assert.ok(warnings.some((w) => w.includes('bibliography entries live in pandoc metadata')));
-  assert.ok(!warnings.some((w) => w.includes('degraded to literal citation text')), warnings.join(' | '));
+  const { ast } = pandocToCarveAst(doc);
+  assert.equal(ast.children[0].children[0].type, 'small_caps');
+  assert.equal(ast.children[1].children.at(-1).type, 'citation_group');
+  assert.ok(warnings.some((w) => w.includes('small_caps')));
 });
 
 // A LineBlock is not foreign: Carve's `::: |` line block is the same construct,
@@ -322,8 +296,8 @@ test('the exchange AST carries a captioned quote as a figure', () => {
   assert.deepEqual(warnings, []);
   const [figure] = ast.children;
   assert.equal(figure.type, 'figure');
-  assert.equal(figure.target.type, 'block_quote');
-  assert.deepEqual(figure.caption, [{ type: 'text', value: 'Hamlet' }]);
+  assert.equal(figure.children[0].type, 'block_quote');
+  assert.deepEqual(figure.caption.children[0].children, [{ type: 'text', value: 'Hamlet' }]);
   assert.ok(!JSON.stringify(ast).includes('attribution'), 'no attribution field');
 });
 
@@ -350,7 +324,7 @@ test('a foreign Figure-wrapped BlockQuote is a captioned quote', () => {
   assert.equal(carve, '> wise\n^ Author\n');
 });
 
-test('a figure host that carries its own attributes survives its Div wrapper', () => {
+test('a figure host with attributes keeps its Div child in the 0.2 tree', () => {
   // Pandoc's BlockQuote has no Attr slot, so a quote with attributes crosses
   // inside a Div and the Figure holds a Div rather than the quote. A `div` is
   // not a legal `figure.target`, so that Div is the wrapper - reading it as an
@@ -379,26 +353,25 @@ test('a figure host that carries its own attributes survives its Div wrapper', (
     ],
   };
   const { carve, warnings } = pandocToCarve(doc);
-  assert.deepEqual(warnings, []);
-  assert.equal(carve, '{#inner .kept}\n> wise\n^ Author\n');
+  assert.ok(warnings.some((warning) => warning.includes('structure-unspellable')), warnings.join(' | '));
+  assert.ok(carve.includes('wise'), carve);
 
   const { ast } = pandocToCarveAst(doc);
   const [figure] = ast.children;
   assert.equal(figure.type, 'figure');
-  assert.equal(figure.target.type, 'block_quote');
-  assert.equal(figure.target.attrs.id, 'inner');
+  assert.equal(figure.children[0].type, 'div');
+  assert.equal(figure.children[0].attrs.id, 'inner');
+  assert.equal(figure.children[0].children[0].type, 'block_quote');
 
   // The control: a Div holding TWO blocks is not a wrapper for one host, so it
   // is not read as one - it becomes the `figure_group` the forward direction
   // writes this shape for, caption and all, rather than a lone `figure`.
   const two = structuredClone(doc);
   two.blocks[0].c[2][0].c[1].push({ t: 'Para', c: [{ t: 'Str', c: 'more' }] });
-  const spread = pandocToCarve(two);
-  assert.deepEqual(spread.warnings, []);
-  const [group] = pandocToCarveAst(two).ast.children;
-  assert.equal(group.type, 'figure_group');
-  assert.equal(group.caption[0].value, 'Author');
-  assert.equal(group.children[0].attrs.id, 'inner');
+  const [wider] = pandocToCarveAst(two).ast.children;
+  assert.equal(wider.type, 'figure');
+  assert.equal(wider.caption.children[0].children[0].value, 'Author');
+  assert.deepEqual(wider.children[0].children.map((block) => block.type), ['block_quote', 'paragraph']);
 });
 
 test('an attribution-classed Span inside a quote is ordinary content', () => {
@@ -441,14 +414,10 @@ test('a Figure-wrapped quote keeps its short caption in the AST and says so', ()
   };
   const { carve, warnings } = pandocToCarve(doc);
   assert.equal(warnings.length, 1);
-  assert.ok(warnings[0].includes('short caption'), warnings[0]);
-  // Carve 0.1 source has no spelling for a short caption, so the source loses
-  // it and the warning says so - but the AST path keeps it, which is the whole
-  // reason `pandocToCarveAst` exists. Under §4a this warned that a quote had
-  // no slot for one at all.
+  assert.ok(warnings[0].includes('field short of a caption node'), warnings[0]);
   assert.equal(carve, '> wise\n^ Author\n');
   const { ast } = pandocToCarveAst(doc);
-  assert.deepEqual(ast.children[0].shortCaption, [{ type: 'text', value: 'nav' }]);
+  assert.deepEqual(ast.children[0].caption.short, [{ type: 'text', value: 'nav' }]);
 });
 
 test('a comment whose content opens with a percent survives the round trip (#168)', () => {
@@ -482,37 +451,20 @@ test('a percent-leading comment says the same thing in either spelling (#168)', 
   }
 });
 
-test('reverse: a code span the writer cannot spell degrades instead of throwing', () => {
-  const source = '- ::: |\n    ```\n  :::\n    ```\n  :::\n  para\ntail\n';
-  const result = pandocToCarve(carveToPandoc(source).doc);
-  assert.match(result.carve, /`[^`\n]*:::[^`\n]*`/);
-  assert.deepEqual(result.diagnostics.map((d) => d.code), ['field-unspellable']);
+test('reverse: a Pandoc code span with backticks and a newline remains code', () => {
+  const doc = { 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [
+    { t: 'Para', c: [{ t: 'Code', c: [['', [], []], 'a`b\nc'] }] },
+  ] };
+  const { carve, warnings } = pandocToCarve(doc);
+  assert.deepEqual(warnings, []);
+  assert.equal(carveToPandoc(carve).doc.blocks[0].c[0].c[1], 'a`b\nc');
 });
 
 test('reverse: a block note comes back with its label', () => {
   const back = roundtrip('see[^a]\n\n[^a]: note\n\n  more\n');
-  assert.match(back, /see\[\^fn1\]/);
-  assert.match(back, /\[\^fn1\]: note/);
-});
-
-test("reverse: pandoc's wrapper=1 Div restores its attrs onto the inner block", () => {
-  // Pandoc's djot reader wraps an attributed Para/BlockQuote/list this way.
-  const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
-  const hello = [{ t: 'Para', c: [{ t: 'Str', c: 'hello' }] }];
-  const wrap = (attr, body) => doc([{ t: 'Div', c: [attr, body] }]);
-  assert.equal(pandocToCarve(wrap(['', ['c'], [['wrapper', '1']]], hello)).carve, '{.c}\nhello\n');
-  assert.equal(
-    pandocToCarve(wrap(['g', ['a', 'b'], [['wrapper', '1'], ['key', 'v']]], hello)).carve,
-    '{#g .a .b key=v}\nhello\n',
-  );
-  assert.equal(pandocToCarve(wrap(['', ['q'], [['wrapper', '1']]], [{ t: 'BlockQuote', c: hello }])).carve, '{.q}\n> hello\n');
-  const list = [{ t: 'BulletList', c: [[{ t: 'Plain', c: [{ t: 'Str', c: 'a' }] }]] }];
-  assert.equal(pandocToCarve(wrap(['x', [], [['wrapper', '1']]], list)).carve, '{#x}\n- a\n');
-  // Only the first wrapper=1 is the marker; an authored wrapper key stays.
-  assert.equal(
-    pandocToCarve(wrap(['', [], [['wrapper', '1'], ['wrapper', 'custom']]], hello)).carve,
-    '{wrapper=custom}\nhello\n',
-  );
+  assert.match(back, /see\[\^a\]/);
+  assert.match(back, /\[\^a\]: note/);
+  assert.equal((back.match(/^\[\^a\]:/gm) ?? []).length, 1, back);
 });
 
 test('reverse: a Div that is not a single-block wrapper stays a div', () => {
@@ -534,22 +486,27 @@ test('reverse: a Div that is not a single-block wrapper stays a div', () => {
   assert.ok(once.includes('a[^fn1]'), once);
 });
 
-test("reverse: pandoc's section Divs dissolve back into headings", () => {
-  // The shape Pandoc's Djot and HTML readers give `# A` / text / `## B` / more.
+test("reverse: pandoc's section Divs preserve their nested headings", () => {
   const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
   const p = (s) => ({ t: 'Para', c: [{ t: 'Str', c: s }] });
   const h = (level, s, attr = ['', [], []]) => ({ t: 'Header', c: [level, attr, [{ t: 'Str', c: s }]] });
   const sec = (attr, body) => ({ t: 'Div', c: [attr, body] });
   const nested = doc([sec(['A', ['section'], []], [h(1, 'A'), p('text'), sec(['B', ['section'], []], [h(2, 'B'), p('more')])])]);
-  assert.equal(pandocToCarve(nested).carve, '# A\n\ntext\n\n## B\n\nmore\n');
-  // Djot reader: every heading attr on the Div. HTML reader: classes stay on the Header.
-  assert.equal(pandocToCarve(doc([sec(['h', ['c', 'section'], [['k', 'v']]], [h(1, 'Head')])])).carve, '{#h .c k=v}\n# Head\n');
-  assert.equal(pandocToCarve(doc([sec(['h', ['section'], []], [h(1, 'Head', ['', ['c'], []])])])).carve, '{#h .c}\n# Head\n');
-  // Inside a quote too.
-  assert.equal(pandocToCarve(doc([{ t: 'BlockQuote', c: [sec(['H', ['section'], []], [h(1, 'H')])] }])).carve, '> # H\n');
-  // The HTML reader also generates the heading's own id; the section's id is the real one.
-  assert.equal(pandocToCarve(doc([sec(['Head-One', ['section'], []], [h(1, 'Head One', ['head-one', [], []])])])).carve, '# Head One\n');
-  assert.equal(pandocToCarve(doc([sec(['x', ['section'], []], [h(2, '1. Über: a_b', ['über-a_b-1', [], []])])])).carve, '{#x}\n## 1. Über: a_b\n');
+  const [outer] = pandocToCarveAst(nested).ast.children;
+  assert.equal(outer.type, 'div');
+  assert.equal(outer.attrs.id, 'A');
+  assert.deepEqual(outer.attrs.classes, ['section']);
+  assert.equal(outer.children[0].type, 'heading');
+  assert.equal(outer.children[2].type, 'div');
+  assert.equal(outer.children[2].children[0].level, 2);
+  const source = pandocToCarve(nested).carve;
+  assert.match(source, /:::: section[\s\S]*= A[\s\S]*::: section[\s\S]*== B/u);
+  const attributed = pandocToCarveAst(doc([sec(['h', ['c', 'section'], [['k', 'v']]], [h(1, 'Head', ['head', ['extra'], []])])])).ast.children[0];
+  assert.equal(attributed.attrs.id, 'h');
+  assert.equal(attributed.children[0].attrs.id, 'head');
+  assert.deepEqual(attributed.children[0].attrs.classes, ['extra']);
+  const [quote] = pandocToCarveAst(doc([{ t: 'BlockQuote', c: [sec(['H', ['section'], []], [h(1, 'H')])] }])).ast.children;
+  assert.equal(quote.children[0].type, 'div');
 });
 
 test('reverse: a section-classed Div that is not a pandoc section stays a div', () => {
@@ -557,7 +514,7 @@ test('reverse: a section-classed Div that is not a pandoc section stays a div', 
   const p = (s) => ({ t: 'Para', c: [{ t: 'Str', c: s }] });
   // A heading that kept its own id: an authored `{.section}` div.
   const authored = pandocToCarve(doc([{ t: 'Div', c: [['', ['section'], []], [{ t: 'Header', c: [1, ['H', [], []], [{ t: 'Str', c: 'H' }]] }]] }])).carve;
-  assert.ok(authored.includes(':::') && authored.includes('.section'), authored);
+  assert.ok(authored.includes('::: section'), authored);
   // A sectioned heading whose id is not the generated one keeps the div.
   const own = pandocToCarve(doc([{ t: 'Div', c: [['s', ['section'], []], [{ t: 'Header', c: [1, ['mine', [], []], [{ t: 'Str', c: 'Head' }]] }]] }])).carve;
   assert.ok(own.includes(':::') && own.includes('#mine'), own);
@@ -567,20 +524,7 @@ test('reverse: a section-classed Div that is not a pandoc section stays a div', 
 });
 
 test('reverse: an authored section div round-trips through the bridge', () => {
-  const src = '{.section}\n:::\n# H\n\nx\n:::\n';
-  assert.equal(carveToHtml(pandocToCarve(carveToPandoc(src).doc).carve), carveToHtml(src));
-});
-
-test("reverse: pandoc's wrapper=1 Span puts its attrs on the inline it wraps", () => {
-  // The shapes Pandoc's Djot reader gives `word{.c}`, `*bold*{.c}` and `a{#i}`.
-  const doc = (inl) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: inl }] });
-  const str = (s) => ({ t: 'Str', c: s });
-  const span = (attr, xs) => ({ t: 'Span', c: [attr, xs] });
-  assert.equal(pandocToCarve(doc([span(['', ['c'], [['wrapper', '1']]], [str('word')])])).carve, '[word]{.c}\n');
-  assert.equal(pandocToCarve(doc([span(['', ['c'], [['wrapper', '1']]], [{ t: 'Strong', c: [str('bold')] }])])).carve, '*bold*{.c}\n');
-  assert.equal(pandocToCarve(doc([span(['', ['c'], [['wrapper', '1']]], [{ t: 'Emph', c: [str('it')] }])])).carve, '/it/{.c}\n');
-  assert.equal(pandocToCarve(doc([span(['i', [], [['wrapper', '1'], ['k', 'v']]], [str('a')])])).carve, '[a]{#i k=v}\n');
-  // An authored later `wrapper` key stays; an unmarked span is untouched.
-  assert.equal(pandocToCarve(doc([span(['', [], [['wrapper', '1'], ['wrapper', 'x']]], [str('t')])])).carve, '[t]{wrapper=x}\n');
-  assert.equal(pandocToCarve(doc([span(['', ['c'], []], [{ t: 'Strong', c: [str('b')] }])])).carve, '[*b*]{.c}\n');
+  const src = '::: section\n= H\n\nx\n:::\n';
+  assert.equal(roundtrip(src), src);
+  assert.equal(carveToPandoc(roundtrip(src)).doc.blocks[0].t, 'Div');
 });

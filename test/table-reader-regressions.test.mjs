@@ -68,7 +68,9 @@ test('blank-row fallback converts notes and inline diagnostics once', () => {
   ] }];
   const { ast, warnings } = pandocToCarveAst(doc);
   const cell = cells(findTables(ast)[0])[2][0];
-  assert.deepEqual(cell.children[0].children.map((x) => x.type), ['small_caps', 'inline_footnote']);
+  assert.deepEqual(cell.children[0].children.map((x) => x.type), ['small_caps', 'footnote_ref']);
+  assert.equal(ast.children.at(-1).type, 'footnote');
+  assert.equal(ast.children.at(-1).children.length, 2);
   assert.equal(warnings.filter((w) => /small.?caps/iu.test(w)).length, 0);
 });
 

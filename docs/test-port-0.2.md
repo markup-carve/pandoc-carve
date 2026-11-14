@@ -46,7 +46,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | provenance.test.mjs | 8 | 0 | 0 | 0 | 8 |
 | raw-block-payload.test.mjs | 7 | 0 | 0 | 0 | 7 |
 | reverse-edge-cases.test.mjs | 8 | 0 | 0 | 0 | 8 |
-| reverse.test.mjs | 36 | 0 | 0 | 0 | 36 |
+| reverse.test.mjs | 36 | 34 | 1: 0.1 private `wrapper=1` Div attribute lifting; 1: 0.1 private `wrapper=1` Span attribute lifting | 0 | 0 |
 | roundtrip-corpus.test.mjs | 5 | 0 | 0 | 0 | 5 |
 | roundtrip-fidelity.test.mjs | 13 | 0 | 0 | 0 | 13 |
 | roundtrip.test.mjs | 9 | 0 | 0 | 0 | 9 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 0 | 0 | 0 | 9 |
 
-| Total | 730 | 416 | 62 | 24 | 228 |
+| Total | 730 | 450 | 64 | 24 | 192 |
 
-The 416 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 450 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -122,5 +122,10 @@ The five removed `spec-citations.test.mjs` cases, each with its 0.1 feature reas
 - “every spec clause this repo cites still exists”: the 0.1 PART/section clause resolver has no 0.2 clause source.
 - “no WITHDRAWN exemption outlived the withdrawal it records”: the 0.1 withdrawn PART clause ledger is obsolete under 0.2 clause identifiers.
 - “every WITHDRAWN exemption is still used by the file it names”: the 0.1 withdrawn PART clause ledger is obsolete under 0.2 clause identifiers.
+
+The two removed `reverse.test.mjs` cases, each with its 0.1 feature reason:
+
+- “pandoc's wrapper=1 Div restores its attrs onto the inner block”: 0.1 treated the private `wrapper=1` key as an instruction to lift a Div's attributes onto its child.
+- “pandoc's wrapper=1 Span puts its attrs on the inline it wraps”: 0.1 treated the private `wrapper=1` key as an instruction to lift a Span's attributes onto its child.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
