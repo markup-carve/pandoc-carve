@@ -3,6 +3,7 @@ import { type LayoutTrace } from './ast-inline.js';
 import { type Findings } from './diagnostics.js';
 /** What a parse knows of the tree it built, which resolution reads beside the tree. */
 export interface ParseFacts {
+    sourceNames: ReadonlyMap<Node, string> | null;
     /** C2-I-084: the folded source of the text of a heading of the tree, or undefined for a node that is none. */
     headingSource: (heading: Node) => string | undefined;
     /** The leaves with inline content that holds an id, a reference, a note or a cross-reference. */
@@ -25,4 +26,4 @@ export interface ParsedTree {
  * inline pass of each content. `abbreviations` replaces the terms the source defines, for a source
  * that is one block of a larger document (C2-W-089). `trace` takes what the source-layout record reads (C2-L-001).
  */
-export declare function buildSource(src: string, positions: boolean, abbreviations?: Map<string, string> | null, trace?: LayoutTrace | null): ParsedTree;
+export declare function buildSource(src: string, positions: boolean, abbreviations?: Map<string, string> | null, trace?: LayoutTrace | null, collectSourceNames?: boolean): ParsedTree;

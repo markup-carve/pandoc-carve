@@ -759,6 +759,336 @@ function unescape(text, start, end) {
   return value + text.slice(from, end);
 }
 
+// ../carve-js/v2/src/option-tables.ts
+var OPTION_KINDS = /* @__PURE__ */ new Map([
+  ["alignTables", "format"],
+  ["extensions", "parse"],
+  ["headingIds", "resolution"],
+  ["includes", "parse"],
+  ["labels", "render"],
+  ["mode", "render"],
+  ["normalize", "format"],
+  ["platforms", "lint"],
+  ["profile", "render"],
+  ["rawHtml", "render"],
+  ["renderers", "render"],
+  ["roundtrip", "render"],
+  ["rules", "lint"],
+  ["sections", "render"],
+  ["smartTypography", "render"],
+  ["social", "render"],
+  ["sourceLines", "render"],
+  ["strictLosses", "render"],
+  ["symbols", "render"],
+  ["urlPolicy", "render"]
+]);
+var OPTION_TYPES = /* @__PURE__ */ new Map([
+  ["alignTables", "boolean"],
+  ["extensions", "list"],
+  ["headingIds", "enum"],
+  ["includes", "structure"],
+  ["labels", "map"],
+  ["mode", "enum"],
+  ["normalize", "boolean"],
+  ["platforms", "list"],
+  ["profile", "enum"],
+  ["rawHtml", "boolean"],
+  ["renderers", "map"],
+  ["roundtrip", "boolean"],
+  ["rules", "map"],
+  ["sections", "boolean"],
+  ["smartTypography", "boolean"],
+  ["social", "structure"],
+  ["sourceLines", "boolean"],
+  ["strictLosses", "boolean"],
+  ["symbols", "map"],
+  ["urlPolicy", "structure"]
+]);
+var NULL_DEFAULTS = ["includes", "social"];
+var ENUM_VALUES = /* @__PURE__ */ new Map([
+  ["headingIds", ["off", "keep-case", "lower", "ascii"]],
+  ["mode", ["interactive", "static"]],
+  ["profile", ["full", "article", "comment", "minimal"]]
+]);
+var ENUM_DEFAULTS = /* @__PURE__ */ new Map([
+  ["headingIds", "keep-case"],
+  ["mode", "interactive"],
+  ["profile", "full"]
+]);
+var BOOLEAN_DEFAULTS = /* @__PURE__ */ new Map([
+  ["alignTables", false],
+  ["normalize", false],
+  ["rawHtml", false],
+  ["roundtrip", false],
+  ["sections", true],
+  ["smartTypography", true],
+  ["sourceLines", false],
+  ["strictLosses", false]
+]);
+var DEFAULT_LABELS = {
+  "footnoteBacklink": "Back to reference",
+  "indexBackref": "Back to",
+  "tabsGroup": "Tabs",
+  "codeGroup": "Code examples",
+  "endnotes": "Footnotes",
+  "tocNav": "Table of contents",
+  "admonitionNote": "Note",
+  "admonitionTip": "Tip",
+  "admonitionWarning": "Warning",
+  "admonitionDanger": "Danger",
+  "admonitionInfo": "Info",
+  "admonitionSuccess": "Success",
+  "admonitionExample": "Example",
+  "admonitionQuote": "Quote"
+};
+var DEFAULT_DENIED_SCHEMES = [
+  "javascript",
+  "vbscript",
+  "data",
+  "file",
+  "ms-msdt",
+  "ms-office",
+  "ms-word",
+  "ms-excel",
+  "ms-powerpoint",
+  "ms-access",
+  "ms-visio",
+  "ms-project",
+  "ms-publisher",
+  "ms-infopath",
+  "ms-spd",
+  "ms-search",
+  "search-ms",
+  "ms-cxh",
+  "ms-cxh-full",
+  "shell",
+  "vscode",
+  "vscode-insiders",
+  "jar"
+];
+
+// ../carve-js/v2/src/options.ts
+var CarveOptionError = class extends Error {
+  option;
+  constructor(option, message) {
+    super(`option ${option}: ${message}`);
+    this.name = "CarveOptionError";
+    this.option = option;
+  }
+};
+function isEmpty(value) {
+  if (value === void 0 || value === null) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return isPlainObject(value) && Object.keys(value).length === 0;
+}
+function enumValue(options, name) {
+  const value = options[name];
+  if (value === void 0) return ENUM_DEFAULTS.get(name);
+  if (typeof value !== "string" || !ENUM_VALUES.get(name).includes(value)) {
+    throw new CarveOptionError(name, `unknown value ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+function booleanValue(options, name) {
+  const value = options[name];
+  if (value === void 0) return BOOLEAN_DEFAULTS.get(name);
+  if (typeof value !== "boolean") throw new CarveOptionError(name, "not a boolean");
+  return value;
+}
+function schemeSet(policy, field) {
+  const list3 = policy[field];
+  return list3 === void 0 ? null : new Set(list3.map((scheme) => scheme.toLowerCase()));
+}
+function isPlainObject(value) {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+var ITEM_TYPES = /* @__PURE__ */ new Map([["labels", "string"], ["symbols", "string"], ["rules", "boolean"], ["platforms", "string"]]);
+var STRUCTURE_NAMES = /* @__PURE__ */ new Map([
+  ["includes", "an include root or resolver"],
+  ["social", "an object"],
+  ["urlPolicy", "an object with a deny list or an allow list"]
+]);
+function checkItems(name, items, what) {
+  const type = ITEM_TYPES.get(name);
+  if (type !== void 0 && !items.every((item) => typeof item === type)) throw new CarveOptionError(name, `not ${what} of ${type}s`);
+}
+var TYPE_CHECKS = /* @__PURE__ */ new Map([
+  ["boolean", (_name, value) => typeof value === "boolean" ? null : "not a boolean"],
+  ["enum", (name, value) => {
+    if (typeof value === "string" && ENUM_VALUES.get(name).includes(value)) return null;
+    return `unknown value ${JSON.stringify(value) ?? typeof value}`;
+  }],
+  ["list", (name, value) => {
+    if (!Array.isArray(value)) return "not a list";
+    checkItems(name, value, "a list");
+    return null;
+  }],
+  ["map", (name, value) => {
+    if (!isPlainObject(value)) return "not a map";
+    checkItems(name, Object.values(value), "a map");
+    return null;
+  }],
+  ["structure", (name, value) => {
+    const resolver = name === "includes" && (typeof value === "string" || typeof value === "function");
+    return isPlainObject(value) || resolver ? null : `not ${STRUCTURE_NAMES.get(name)}`;
+  }]
+]);
+function checkType(name, value) {
+  if (value === void 0 || value === null && NULL_DEFAULTS.includes(name)) return;
+  const reason = TYPE_CHECKS.get(OPTION_TYPES.get(name))(name, value);
+  if (reason !== null) throw new CarveOptionError(name, reason);
+}
+function urlPolicyValue(options) {
+  const value = options["urlPolicy"];
+  if (value === void 0) return {};
+  if (!isPlainObject(value)) throw new CarveOptionError("urlPolicy", "not an object with a deny list or an allow list");
+  for (const name of Object.keys(value)) {
+    if (name !== "deny" && name !== "allow") throw new CarveOptionError("urlPolicy", `unknown field ${name}`);
+    const list3 = value[name];
+    if (!Array.isArray(list3) || !list3.every((scheme) => typeof scheme === "string")) {
+      throw new CarveOptionError("urlPolicy", `${name} is not a list of strings`);
+    }
+  }
+  if (value["deny"] !== void 0 && value["allow"] !== void 0) {
+    throw new CarveOptionError("urlPolicy", "both a deny list and an allow list");
+  }
+  return value;
+}
+function stringMap(options, name) {
+  const value = options[name];
+  if (value === void 0 || value === null) return void 0;
+  if (!isPlainObject(value) || !Object.values(value).every((text) => typeof text === "string")) {
+    throw new CarveOptionError(name, "not a map of strings");
+  }
+  return value;
+}
+var SOCIAL_FIELDS = /* @__PURE__ */ new Map([["mentionUrl", "string"], ["tagUrl", "string"], ["resolveMention", "function"], ["resolveTag", "function"]]);
+function socialValue(options) {
+  const value = options["social"];
+  if (value === void 0 || value === null) return null;
+  if (!isPlainObject(value)) throw new CarveOptionError("social", "not an object");
+  for (const [name, field] of Object.entries(value)) {
+    const kind = SOCIAL_FIELDS.get(name);
+    if (kind === void 0) throw new CarveOptionError("social", `unknown field ${name}`);
+    if (field !== void 0 && typeof field !== kind) throw new CarveOptionError("social", `${name} is not a ${kind}`);
+  }
+  return value;
+}
+function checkValues(given, names, stage) {
+  for (const name of names) {
+    if (name === "positions" && stage === "parse") {
+      if (given[name] !== void 0 && typeof given[name] !== "boolean") throw new CarveOptionError(name, "not a boolean");
+    } else if (OPTION_KINDS.has(name)) checkType(name, given[name]);
+    else throw new CarveOptionError(name, "unknown option");
+  }
+}
+function checkNames(given, stage) {
+  const names = Object.keys(given);
+  checkValues(given, names, stage);
+  for (const name of names) {
+    const kind = OPTION_KINDS.get(name);
+    if (kind === "format" || kind === "lint" || stage === "parse" && kind === "render") {
+      throw new CarveOptionError(name, `not an option of ${stage}`);
+    }
+  }
+  for (const name of ["includes"]) {
+    if (!isEmpty(given[name])) throw new CarveOptionError(name, "not offered by this engine");
+  }
+}
+function extensionsValue(value) {
+  if (value === void 0) return [];
+  if (!Array.isArray(value)) throw new CarveOptionError("extensions", "not a list");
+  const names = /* @__PURE__ */ new Set();
+  const claims = /* @__PURE__ */ new Set();
+  for (const entry of value) {
+    if (!isPlainObject(entry) || typeof entry["name"] !== "string" || typeof entry["version"] !== "string" || !isPlainObject(entry["props"]) || !isPlainObject(entry["slots"])) {
+      throw new CarveOptionError("extensions", "an invalid extension registration");
+    }
+    if (!validQualifiedName(entry["name"]) || entry["version"] === "") {
+      throw new CarveOptionError("extensions", "an invalid extension name or version");
+    }
+    checkRegistrationFields(entry);
+    if (names.has(entry["name"])) throw new CarveOptionError("extensions", `duplicate name ${entry["name"]}`);
+    names.add(entry["name"]);
+    const key = matcherKey(entry);
+    if (key === null) continue;
+    if (claims.has(key)) throw new CarveOptionError("extensions", `duplicate claim ${key}`);
+    claims.add(key);
+  }
+  return value;
+}
+function matcherKey(entry) {
+  const matcher = entry["matcher"];
+  if (matcher === void 0) return null;
+  if (!isPlainObject(matcher) || !["inline", "div", "fence"].includes(matcher["form"]) || typeof matcher["name"] !== "string" || matcher["name"] === "" || typeof entry["transform"] !== "function") throw new CarveOptionError("extensions", "an invalid matcher");
+  return `${matcher["form"]}:${matcher["name"]}`;
+}
+function validQualifiedName(name) {
+  const parts = name.split(".");
+  if (parts.length < 2) return false;
+  return parts.every((part) => {
+    const first = part.charCodeAt(0) | 32;
+    if (first < 97 || first > 122) return false;
+    for (let at = 1; at < part.length; at++) {
+      const code = part.charCodeAt(at) | 32;
+      if ((code < 97 || code > 122) && (code < 48 || code > 57) && code !== 45 && code !== 95) return false;
+    }
+    return true;
+  });
+}
+function checkRegistrationFields(entry) {
+  const props = entry["props"];
+  const slots = entry["slots"];
+  if (!isPlainObject(props) || !isPlainObject(slots)) return;
+  for (const kind of Object.values(props)) {
+    if (!["string", "number", "boolean", "object", "array"].includes(kind)) {
+      throw new CarveOptionError("extensions", "an invalid prop schema");
+    }
+  }
+  for (const rule of Object.values(slots)) {
+    if (!isPlainObject(rule) || !["block", "inline", "block_extension", "inline_extension"].includes(rule["kind"])) {
+      throw new CarveOptionError("extensions", "an invalid slot schema");
+    }
+  }
+}
+function renderersValue(value) {
+  if (value === void 0) return {};
+  if (!isPlainObject(value)) throw new CarveOptionError("renderers", "not a map");
+  for (const [name, entry] of Object.entries(value)) {
+    if (!isPlainObject(entry) || typeof entry["version"] !== "string" || typeof entry["render"] !== "function") {
+      throw new CarveOptionError("renderers", `invalid renderer ${name}`);
+    }
+  }
+  return value;
+}
+function readOptions(options, stage) {
+  const given = options ?? {};
+  checkNames(given, stage);
+  const policy = urlPolicyValue(given);
+  const allowed = schemeSet(policy, "allow");
+  return {
+    extensions: extensionsValue(given["extensions"]),
+    renderers: renderersValue(given["renderers"]),
+    urlPolicy: policy,
+    headingIds: enumValue(given, "headingIds"),
+    mode: enumValue(given, "mode"),
+    symbols: stringMap(given, "symbols") ?? {},
+    labels: { ...DEFAULT_LABELS, ...stringMap(given, "labels") },
+    social: socialValue(given),
+    sourceLines: booleanValue(given, "sourceLines"),
+    sections: booleanValue(given, "sections"),
+    smartTypography: booleanValue(given, "smartTypography"),
+    roundtrip: booleanValue(given, "roundtrip"),
+    rawHtml: booleanValue(given, "rawHtml"),
+    denied: allowed === null ? schemeSet(policy, "deny") ?? new Set(DEFAULT_DENIED_SCHEMES) : null,
+    allowed,
+    profile: enumValue(given, "profile"),
+    strictLosses: booleanValue(given, "strictLosses")
+  };
+}
+
 // ../carve-js/v2/src/ast-nodes.ts
 var FIELD_VALUES = {
   "*.dir": ["ltr", "rtl", "auto"],
@@ -952,8 +1282,8 @@ var NODE_SLOTS = /* @__PURE__ */ new Map([
   ]],
   ["block_extension", [
     "children",
-    "fallback",
     "slots.*",
+    "fallback",
     "metadata.title",
     "metadata.subtitle",
     "metadata.bibliography.title",
@@ -1084,7 +1414,9 @@ var NODE_SLOTS = /* @__PURE__ */ new Map([
     "metadata.title",
     "metadata.subtitle",
     "metadata.bibliography.title",
-    "metadata.bibliography.containerTitle"
+    "metadata.bibliography.containerTitle",
+    "metadata.headers.*.children",
+    "metadata.footers.*.children"
   ]],
   ["emphasis", [
     "children",
@@ -1163,8 +1495,8 @@ var NODE_SLOTS = /* @__PURE__ */ new Map([
   ]],
   ["inline_extension", [
     "children",
-    "fallback",
     "slots.*",
+    "fallback",
     "metadata.title",
     "metadata.subtitle",
     "metadata.bibliography.title",
@@ -1432,6 +1764,10 @@ var NODE_SLOTS = /* @__PURE__ */ new Map([
     "metadata.bibliography.containerTitle"
   ]]
 ]);
+var EXTENSION_SLOT_ORDER = /* @__PURE__ */ new Map([
+  ["carve.tab", ["title", "body"]],
+  ["carve.tabs", ["tabs"]]
+]);
 
 // ../carve-js/v2/src/ast.ts
 var AST_VERSION = "2.0";
@@ -1528,13 +1864,39 @@ function isNode(value) {
   return isRecord(value) && typeof value["type"] === "string" && NODE_SLOTS.has(value["type"]);
 }
 function visitSlot(node, path, visit3) {
+  if (path === "slots.*" && (node.type === "block_extension" || node.type === "inline_extension")) {
+    visitExtensionSlots(node, visit3);
+    return;
+  }
+  if (path.includes(".*.")) {
+    visitNestedWildcard(node, path, visit3);
+    return;
+  }
   if (path.endsWith(".*")) {
-    const slots = slotValue(node, path.slice(0, -2));
-    if (!isRecord(slots)) return;
-    for (const [name, value] of Object.entries(slots)) visitValue(value, `${path.slice(0, -2)}/${pointerKey(name)}`, visit3);
+    visitWildcard(node, path, visit3);
     return;
   }
   visitValue(slotValue(node, path), path.replaceAll(".", "/"), visit3);
+}
+function visitExtensionSlots(node, visit3) {
+  const slots = node.slots;
+  if (slots === void 0) return;
+  for (const name of EXTENSION_SLOT_ORDER.get(node.name) ?? Object.keys(slots)) {
+    visitValue(slots[name], `slots/${pointerKey(name)}`, visit3);
+  }
+}
+function visitNestedWildcard(node, path, visit3) {
+  const [before2, after2] = path.split(".*.");
+  if (before2 === void 0 || after2 === void 0) return;
+  const entries = slotValue(node, before2);
+  if (!Array.isArray(entries)) return;
+  entries.forEach((entry, index) => visitValue(ownField(entry, after2), `${before2.replaceAll(".", "/")}/${index}/${after2}`, visit3));
+}
+function visitWildcard(node, path, visit3) {
+  const stem = path.slice(0, -2);
+  const slots = slotValue(node, stem);
+  if (!isRecord(slots)) return;
+  for (const [name, value] of Object.entries(slots)) visitValue(value, `${stem}/${pointerKey(name)}`, visit3);
 }
 function visitValue(value, step, visit3) {
   if (isNode(value)) visit3([value], step, true);
@@ -5956,6 +6318,7 @@ function codeNode(ctx, node) {
   if (word !== "") out.syntax = word;
   if (info.titleStart >= 0) out.title = [{ type: "text", value: openerTitle(src, info.titleStart, info.titleEnd) }];
   if (info.labelStart >= 0) out.groupLabel = src.slice(info.labelStart, info.labelEnd);
+  if (word !== "") ctx.sourceNames?.set(out, word);
   return out;
 }
 function lineBlockNode(ctx, node) {
@@ -6061,6 +6424,7 @@ function namedDiv(ctx, node, flow, attributes2) {
     out = { type: "div", ...head, children: blockChildren(ctx, node.children, inner) };
   }
   if (info.extra) ctx.notes.push({ what: TITLE_SYNTAX, node: out, block: node, from: info.extraStart });
+  if (name !== "") ctx.sourceNames?.set(out, name);
   return out;
 }
 function divNode(ctx, node, flow, taken) {
@@ -6260,6 +6624,7 @@ function buildDocument(ctx, root, source) {
     finishPositions(document, source);
   }
   const facts = {
+    sourceNames: ctx.sourceNames,
     headingSource: (heading2) => headingSource(src, ctx.headingSpans.get(heading2)),
     resolvableLeaves: ctx.resolvableLeaves,
     bidi: ctx.inline.bidi,
@@ -6271,7 +6636,7 @@ function buildDocument(ctx, root, source) {
   };
   return { document, facts };
 }
-function buildSource(src, positions, abbreviations = null, trace = null) {
+function buildSource(src, positions, abbreviations = null, trace = null, collectSourceNames = false) {
   const text = src.includes("\0") ? src.replaceAll("\0", "\uFFFD") : src;
   const blocks = acquireState();
   const inline = acquireInlineState();
@@ -6291,7 +6656,8 @@ function buildSource(src, positions, abbreviations = null, trace = null) {
       resolvableLeaves: /* @__PURE__ */ new Set(),
       trace,
       notes: [],
-      footnoteBlocks: /* @__PURE__ */ new Map()
+      footnoteBlocks: /* @__PURE__ */ new Map(),
+      sourceNames: collectSourceNames ? /* @__PURE__ */ new Map() : null
     };
     return buildDocument(ctx, root, src);
   } finally {
@@ -6374,13 +6740,13 @@ var INLINES = [
 var TABLE_GROUPS = ["table_head", "table_body", "table_foot"];
 var COMMON = ["type", "attrs", "data", "pos", "segments", "metadata", "dir", "lang"];
 var REFERENCE = ["key", "namespace"];
-var EXTENSION = ["version", "props", "slots", "payload", "resourceIds"];
+var EXTENSION = ["props", "slots", "payload", "resourceIds", "source"];
 var RULES = /* @__PURE__ */ new Map([
   ["abbreviation", ["none", REFERENCE, ["expansion"]]],
   ["abbreviation_def", ["none", ["expansion", ...REFERENCE], []]],
   ["admonition", ["blocks", ["kind"], ["title", "groupLabel"]]],
   ["autolink", ["none", ["href"], ["text"]]],
-  ["block_extension", ["blocks", ["name", "fallback"], EXTENSION]],
+  ["block_extension", ["blocks", ["name", "version", "fallback"], EXTENSION]],
   ["block_quote", ["blocks", [], []]],
   ["caption", ["blocks", [], ["short"]]],
   ["caption_number", ["none", [], ["n"]]],
@@ -6429,7 +6795,7 @@ var RULES = /* @__PURE__ */ new Map([
     "longDescription"
   ]]],
   ["include", ["none", ["path"], ["section", "options"]]],
-  ["inline_extension", ["inlines", ["name"], [...EXTENSION, "fallback"]]],
+  ["inline_extension", ["inlines", ["name"], [...EXTENSION, "version", "fallback"]]],
   ["inline_footnote", ["inlines", [], ["number"]]],
   ["insert", ["inlines", [], []]],
   ["line", ["inlines", [], []]],
@@ -6553,6 +6919,7 @@ var ENUMS = /* @__PURE__ */ new Map([
 ]);
 var STAGES = ["referenceResolution", "tableAlignment"];
 var ORDERED_STYLES = ["1", "a", "A", "i", "I"];
+var NODE_TABLE = { BLOCKS, INLINES, RULES, STRINGS, INTEGERS, BOOLEANS, TRUE_ONLY, INLINE_SLOTS, ENUMS, STAGES };
 function fail(path, reason) {
   throw new CarveTreeError(path, reason);
 }
@@ -6671,7 +7038,15 @@ function checkMetadata(value, path, walk) {
     else if (name === "authors") checkStrings(item, at);
     else if (name === "date") requireString(item, at);
     else if (name === "bibliography") checkBibliography(item, at, walk);
-    else fail(at, "not a field of metadata");
+    else if ((name === "headers" || name === "footers") && path === "/metadata") {
+      requireArray(item, at).forEach((entry, index) => {
+        const place2 = `${at}/${index}`;
+        if (!isRecord(entry)) fail(place2, "not a header or footer");
+        for (const key of Object.keys(entry)) if (key !== "placement" && key !== "children") fail(`${place2}/${key}`, "unknown field");
+        if (!["default", "first", "even"].includes(entry["placement"])) fail(`${place2}/placement`, "invalid placement");
+        checkList(entry["children"], `${place2}/children`, "blocks", walk);
+      });
+    } else fail(at, "not a field of metadata");
   }
 }
 function checkLocator(value, path, walk) {
@@ -6700,7 +7075,7 @@ function checkScalar(type, name, value, path) {
   if (TRUE_ONLY.includes(name)) return value === true || fail(path, "not true");
   if (BOOLEANS.includes(name)) return typeof value === "boolean" || fail(path, "not a boolean");
   if (INTEGERS.includes(name)) return checkCount(name, value, path);
-  if (!STRINGS.includes(name) && name !== "dir") return false;
+  if (name === "source" && type !== "smart_punctuation" || !STRINGS.includes(name) && name !== "dir") return false;
   requireString(value, path);
   checkEnum(type, name, value, path);
   return true;
@@ -6726,7 +7101,7 @@ function validName(value, qualified) {
 }
 function declaredNames(value) {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => isRecord(entry) && typeof entry["name"] === "string" ? [entry["name"]] : []);
+  return value.flatMap((entry) => isRecord(entry) && typeof entry["name"] === "string" && typeof entry["version"] === "string" ? [[entry["name"], entry["version"]]] : []);
 }
 function nodeList(content) {
   return (value, path, walk) => checkList(value, path, content, walk);
@@ -6741,8 +7116,45 @@ function checkStages(value, path) {
 }
 function checkSlots(value, path, walk, node) {
   if (!isRecord(value)) fail(path, "slots is not an object");
-  const content = node["type"] === "block_extension" ? "blocks" : "inlines";
-  for (const [name, slot] of Object.entries(value)) checkList(slot, `${path}/${pointerKey(name)}`, content, walk);
+  const name = String(node["name"]);
+  const definition = walk.tree.registry.get(name);
+  for (const [slotName, slot] of Object.entries(value)) checkSlot(slotName, slot, path, walk, node, definition);
+  if (definition !== void 0) checkRequiredSlots(value, path, definition);
+}
+function checkSlot(name, slot, path, walk, node, definition) {
+  const at = `${path}/${pointerKey(name)}`;
+  if (!validSlotName(name)) fail(at, "not a lowercase slot name");
+  const rule = definition?.slots[name];
+  if (definition !== void 0 && rule === void 0) fail(at, "unknown extension slot");
+  const content = rule === void 0 ? unknownSlotContent(node) : slotContent(rule);
+  checkList(slot, at, content, walk, { name: String(node["name"]), slot: name });
+  if (rule?.minItems !== void 0 && Array.isArray(slot) && slot.length < rule.minItems) fail(at, "too few slot items");
+  if (rule?.name !== void 0 && Array.isArray(slot) && slot.some((item) => !isRecord(item) || item["name"] !== rule.name)) {
+    fail(at, "wrong extension in slot");
+  }
+}
+function unknownSlotContent(node) {
+  if (String(node["name"]).includes(".")) return [...BLOCKS, ...INLINES];
+  return node["type"] === "block_extension" ? "blocks" : "inlines";
+}
+function checkRequiredSlots(value, path, definition) {
+  for (const [name, rule] of Object.entries(definition.slots)) {
+    if (!rule.optional && value[name] === void 0) fail(`${path}/${name}`, "a required slot is missing");
+  }
+}
+function validSlotName(value) {
+  const first = value.charCodeAt(0);
+  if (first < 97 || first > 122) return false;
+  for (let at = 1; at < value.length; at++) {
+    const code = value.charCodeAt(at);
+    if ((code < 97 || code > 122) && (code < 48 || code > 57) && code !== 95) return false;
+  }
+  return true;
+}
+function slotContent(rule) {
+  if (rule.kind === "block") return "blocks";
+  if (rule.kind === "inline") return "inlines";
+  return [rule.kind];
 }
 function checkPayload(value, path) {
   requireArray(value, path).forEach((entry, index) => {
@@ -6752,7 +7164,8 @@ function checkPayload(value, path) {
       if (name !== "format" && name !== "value") fail(`${at}/${name}`, "not a field of a payload alternative");
     }
     if (requireString(entry["format"], `${at}/format`) === "") fail(`${at}/format`, "an empty media type");
-    if (entry["value"] === null) fail(`${at}/value`, "a field without a value");
+    if (entry["value"] === null || entry["value"] === void 0) fail(`${at}/value`, "a field without a value");
+    checkJson(entry["value"], `${at}/value`);
   });
 }
 function addReference(id, path, walk) {
@@ -6777,7 +7190,8 @@ function checkResources(value, path) {
     seen.add(id);
   });
 }
-function checkExtensions(value, path) {
+function checkExtensions(value, path, walk) {
+  const seen = /* @__PURE__ */ new Set();
   requireArray(value, path).forEach((entry, index) => {
     if (!isRecord(entry)) fail(`${path}/${index}`, "not an extension declaration");
     for (const name2 of Object.keys(entry)) {
@@ -6786,20 +7200,118 @@ function checkExtensions(value, path) {
     const name = requireString(entry["name"], `${path}/${index}/name`);
     if (!validName(name, true)) fail(`${path}/${index}/name`, "not a qualified name");
     if (typeof entry["required"] !== "boolean") fail(`${path}/${index}/required`, "not a boolean");
-    if (entry["version"] !== void 0) requireString(entry["version"], `${path}/${index}/version`);
-    if (entry["required"] === true) fail(`${path}/${index}`, "an unknown required extension");
+    const version = requireString(entry["version"], `${path}/${index}/version`);
+    if (version === "") fail(`${path}/${index}/version`, "an empty version");
+    if (seen.has(name)) fail(`${path}/${index}/name`, "a duplicate extension declaration");
+    seen.add(name);
+    if (entry["required"] === true && walk.tree.registry.get(name)?.version !== version) {
+      fail(`${path}/${index}`, "an unknown required extension");
+    }
   });
 }
-function checkData(value, path, walk) {
+function checkData(value, path, walk, node) {
   checkObject(value, path);
   if (!isRecord(value)) return;
   for (const name of Object.keys(value)) {
     if (!validName(name, true)) fail(`${path}/${pointerKey(name)}`, "not a qualified data name");
     if (!walk.tree.declarations.has(name)) fail(`${path}/${pointerKey(name)}`, "an undeclared data name");
+    checkStandardData(name, value[name], `${path}/${pointerKey(name)}`, node);
+  }
+}
+function closedObject(value, path, allowed, required = []) {
+  if (!isRecord(value)) fail(path, "not an object");
+  for (const name of Object.keys(value)) if (!allowed.includes(name)) fail(`${path}/${pointerKey(name)}`, "unknown field");
+  for (const name of required) if (value[name] === void 0) fail(`${path}/${name}`, "required field absent");
+  return value;
+}
+function nonempty(value, path) {
+  if (typeof value !== "string" || value.length === 0) fail(path, "not a nonempty string");
+}
+function positiveNumber(value, path, zero) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || !zero && value === 0) {
+    fail(path, zero ? "not a nonnegative number" : "not a positive number");
+  }
+}
+var STYLE_DIRECT = [
+  "namedStyle",
+  "alignment",
+  "indentPt",
+  "spacingBeforePt",
+  "spacingAfterPt",
+  "pageBreakBefore",
+  "keepWithNext",
+  "language",
+  "direction"
+];
+function checkStyleDirect(value, path, node) {
+  const fields = closedObject(value, path, STYLE_DIRECT);
+  for (const [name, item] of Object.entries(fields)) {
+    const at = `${path}/${name}`;
+    if (["namedStyle", "language"].includes(name)) nonempty(item, at);
+    else if (name === "alignment" && !["start", "center", "end", "justify"].includes(item)) fail(at, "invalid alignment");
+    else if (name === "direction" && !["ltr", "rtl"].includes(item)) fail(at, "invalid direction");
+    else if (name.endsWith("Pt")) positiveNumber(item, at, true);
+    else if (["pageBreakBefore", "keepWithNext"].includes(name) && typeof item !== "boolean") fail(at, "not a boolean");
+    if (name === "language" && node["lang"] !== void 0 || name === "direction" && node["dir"] !== void 0) {
+      fail(at, "the common field already holds this value");
+    }
+  }
+}
+function checkStylePage(value, path) {
+  const page = closedObject(value, path, ["widthPt", "heightPt", "marginsPt"], ["widthPt", "heightPt", "marginsPt"]);
+  positiveNumber(page["widthPt"], `${path}/widthPt`, false);
+  positiveNumber(page["heightPt"], `${path}/heightPt`, false);
+  const margins = closedObject(
+    page["marginsPt"],
+    `${path}/marginsPt`,
+    ["top", "right", "bottom", "left"],
+    ["top", "right", "bottom", "left"]
+  );
+  for (const [name, amount] of Object.entries(margins)) positiveNumber(amount, `${path}/marginsPt/${name}`, true);
+}
+function checkStyle(value, path, node) {
+  const style = closedObject(value, path, [...STYLE_DIRECT, "namedStyles", "page"]);
+  checkStyleDirect(Object.fromEntries(Object.entries(style).filter(([name]) => STYLE_DIRECT.includes(name))), path, node);
+  if (node["type"] !== "document" && (style["namedStyles"] !== void 0 || style["page"] !== void 0)) {
+    fail(path, "named styles and page stand only on the root");
+  }
+  if (style["namedStyles"] !== void 0) {
+    if (!isRecord(style["namedStyles"])) fail(`${path}/namedStyles`, "not an object");
+    for (const [name, item] of Object.entries(style["namedStyles"])) {
+      nonempty(name, `${path}/namedStyles`);
+      checkStyleDirect(item, `${path}/namedStyles/${pointerKey(name)}`, {});
+    }
+  }
+  if (style["page"] !== void 0) checkStylePage(style["page"], `${path}/page`);
+}
+function checkStandardData(name, value, path, node) {
+  if (name === "carve.style") {
+    checkStyle(value, path, node);
+    return;
+  }
+  if (name === "carve.source") {
+    const source = closedObject(value, path, ["format", "locator", "importer"], ["format", "locator", "importer"]);
+    nonempty(source["format"], `${path}/format`);
+    const locator = closedObject(source["locator"], `${path}/locator`, ["part", "path", "id"]);
+    if (Object.keys(locator).length === 0) fail(`${path}/locator`, "empty locator");
+    for (const [key, item] of Object.entries(locator)) nonempty(item, `${path}/locator/${key}`);
+    const importer = closedObject(source["importer"], `${path}/importer`, ["name", "version"], ["name", "version"]);
+    for (const [key, item] of Object.entries(importer)) nonempty(item, `${path}/importer/${key}`);
+  }
+  if (name === "carve.annotation") {
+    const annotation = closedObject(value, path, ["ids"], ["ids"]);
+    const ids = requireArray(annotation["ids"], `${path}/ids`);
+    const seen = /* @__PURE__ */ new Set();
+    for (const [at, id] of ids.entries()) {
+      nonempty(id, `${path}/ids/${at}`);
+      if (seen.has(id)) fail(`${path}/ids/${at}`, "duplicate annotation id");
+      seen.add(id);
+    }
   }
 }
 function checkObject(value, path) {
   if (!isRecord(value)) fail(path, "not an object");
+  checkJson(value, path);
   const pending = [[value, path]];
   const seen = /* @__PURE__ */ new WeakSet();
   while (pending.length > 0) {
@@ -6810,6 +7322,31 @@ function checkObject(value, path) {
     for (const [name, child] of Object.entries(item)) pending.push([child, `${at}/${pointerKey(name)}`]);
   }
 }
+function checkJson(value, path) {
+  const active = /* @__PURE__ */ new Set();
+  const visit3 = (item, at) => {
+    if (item === null || typeof item === "string" || typeof item === "boolean") return;
+    if (typeof item === "number" && Number.isFinite(item)) return;
+    if (typeof item !== "object") fail(at, "not JSON");
+    if (active.has(item)) fail(at, "a cycle is not JSON");
+    active.add(item);
+    if (Array.isArray(item)) item.forEach((entry, index) => visit3(entry, `${at}/${index}`));
+    else for (const [name, entry] of Object.entries(item)) visit3(entry, `${at}/${pointerKey(name)}`);
+    active.delete(item);
+  };
+  visit3(value, path);
+}
+function checkSource(value, path) {
+  if (!isRecord(value)) fail(path, "source is not an object");
+  for (const name of Object.keys(value)) {
+    if (!["form", "name", "body", "title", "groupLabel"].includes(name)) fail(`${path}/${name}`, "unknown source field");
+    requireString(value[name], `${path}/${name}`);
+  }
+  if (!["inline", "div", "fence"].includes(value["form"])) fail(`${path}/form`, "unknown source form");
+  requireString(value["name"], `${path}/name`);
+  const body2 = requireString(value["body"], `${path}/body`);
+  if (utf8Length(body2) > MAX_PAYLOAD_BYTES) fail(`${path}/body`, "source body above 8 MiB");
+}
 var FIELD_CHECKS = /* @__PURE__ */ new Map([
   ["attrs", checkAttrs],
   ["pos", checkPosition],
@@ -6817,6 +7354,7 @@ var FIELD_CHECKS = /* @__PURE__ */ new Map([
   ["data", checkData],
   ["metadata", checkMetadata],
   ["props", checkObject],
+  ["source", checkSource],
   ["marker", checkMarker],
   ["task", checkTask],
   ["options", checkOptions],
@@ -6827,7 +7365,9 @@ var FIELD_CHECKS = /* @__PURE__ */ new Map([
   ["caption", (value, path, walk) => checkNode(value, path, ["caption"], walk)],
   ["fallback", (value, path, walk, node) => {
     const inner = { ...walk, fallbacks: walk.fallbacks + 1 };
-    checkList(value, path, node["type"] === "block_extension" ? "blocks" : "inlines", inner);
+    const role = node["type"] === "block_extension" ? BLOCKS : INLINES;
+    const allowed = typeof node["name"] === "string" && node["name"].includes(".") ? role.filter((type) => type !== "block_extension" && type !== "inline_extension") : role;
+    checkList(value, path, allowed, inner);
   }],
   ["columns", nodeList(["table_column"])],
   ["pairs", nodeList(["ruby_pair"])],
@@ -6843,9 +7383,15 @@ function allowedTypes(content) {
   if (content === "blocks") return BLOCKS;
   return content === "inlines" ? INLINES : content === "none" ? [] : content;
 }
-function checkList(value, path, content, walk) {
+function checkList(value, path, content, walk, parent) {
   const allowed = allowedTypes(content);
-  const inner = { ...walk, depth: walk.depth + 1 };
+  const inner = {
+    depth: walk.depth + 1,
+    fallbacks: walk.fallbacks,
+    tree: walk.tree,
+    ...walk.extensions === void 0 ? {} : { extensions: walk.extensions },
+    ...parent === void 0 ? {} : { parent }
+  };
   requireArray(value, path).forEach((child, index) => checkNode(child, `${path}/${index}`, allowed, inner));
 }
 function checkDependencies(node, type, path, walk) {
@@ -6865,11 +7411,43 @@ function checkLinkFields(node, type, path) {
 function checkExtensionName(node, type, path, walk) {
   const name = node["name"];
   if (typeof name !== "string") fail(`${path}/name`, "not an extension name");
+  checkExtensionIdentity(node, type, path, walk, name);
+  checkExtensionSource(node, type, path);
+  checkExtensionDefinition(node, path, walk, name);
+}
+function checkExtensionIdentity(node, type, path, walk, name) {
   const qualified = name.includes(".");
   const unqualifiedSource = type === "inline_extension" && name.startsWith("_") && validSegment(`a${name.slice(1)}`);
   if (!validName(name, type === "block_extension") && !unqualifiedSource) fail(`${path}/name`, "not an extension name");
   if (qualified && !walk.tree.declarations.has(name)) fail(`${path}/name`, "an undeclared extension name");
   if (qualified && node["fallback"] === void 0) fail(`${path}/fallback`, "a required field is missing");
+  if (qualified && node["version"] !== walk.tree.declarations.get(name)) fail(`${path}/version`, "version differs from declaration");
+  if (!qualified && node["version"] !== void 0) fail(`${path}/version`, "an unqualified extension has no version");
+}
+function checkExtensionSource(node, type, path) {
+  if (node["source"] !== void 0 && isRecord(node["source"])) {
+    const form = node["source"]["form"];
+    if (form === "inline" && type !== "inline_extension") fail(`${path}/source/form`, "inline source on a block extension");
+    if (form !== "inline" && type !== "block_extension") fail(`${path}/source/form`, "block source on an inline extension");
+  }
+}
+function checkExtensionDefinition(node, path, walk, name) {
+  const definition = walk.tree.registry.get(name);
+  if (definition?.children === "none" && Array.isArray(node["children"]) && node["children"].length > 0) {
+    fail(`${path}/children`, "extension children must be empty");
+  }
+  const parent = definition?.parent;
+  if (parent !== void 0 && (parent.name !== walk.parent?.name || parent.slot !== walk.parent.slot)) {
+    fail(path, "extension stands outside its parent slot");
+  }
+  if (definition !== void 0 && node["props"] !== void 0 && isRecord(node["props"])) checkProps(node["props"], path, definition);
+}
+function checkProps(props, path, definition) {
+  for (const [key, value] of Object.entries(props)) {
+    const kind = definition.props[key];
+    const valid = kind === "array" ? Array.isArray(value) : kind === "object" ? isRecord(value) : typeof value === kind;
+    if (kind === void 0 || !valid) fail(`${path}/props/${pointerKey(key)}`, "invalid extension prop");
+  }
 }
 function members(node, field) {
   if (!isRecord(node)) return [];
@@ -6938,17 +7516,22 @@ function checkNode(value, path, allowed, walk) {
   const rule = RULES.get(type);
   if (rule === void 0) fail(path, `unknown node type ${type}`);
   if (!allowed.includes(type)) fail(path, `${type} does not stand here`);
-  checkFields(value, type, rule, path, walk);
-  checkDependencies(value, type, path, walk);
+  const extension = type === "block_extension" || type === "inline_extension";
+  const depth2 = (walk.extensions ?? 0) + (extension ? 1 : 0);
+  if (depth2 > 32) fail(path, walk.fallbacks >= 32 ? "fallbacks are nested deeper than 32 extension nodes" : "extension nesting exceeds 32");
+  const current = { ...walk, extensions: depth2 };
+  checkFields(value, type, rule, path, current);
+  checkDependencies(value, type, path, current);
   if (type === "table") checkSpanCounts(value, path);
-  if (type === "table_cell") {
-    const attrs = value["attrs"];
-    if (value["header"] === true && isRecord(attrs) && typeof attrs["id"] === "string") walk.tree.headerIds.add(attrs["id"]);
-    if (Array.isArray(value["headerIds"])) {
-      value["headerIds"].forEach((id, index) => walk.tree.headerReferences.push([id, `${path}/headerIds/${index}`]));
-    }
-  }
+  if (type === "table_cell") checkCellReferences(value, path, walk);
   checkNodeBounds(value, path, walk);
+}
+function checkCellReferences(value, path, walk) {
+  const attrs = value["attrs"];
+  if (value["header"] === true && isRecord(attrs) && typeof attrs["id"] === "string") walk.tree.headerIds.add(attrs["id"]);
+  if (Array.isArray(value["headerIds"])) {
+    value["headerIds"].forEach((id, index) => walk.tree.headerReferences.push([id, `${path}/headerIds/${index}`]));
+  }
 }
 function checkVersion(value, path) {
   const version = requireString(value, path);
@@ -6988,7 +7571,7 @@ function checkReferences(document, tree) {
   }
 }
 var ENVELOPE_FIELDS = ["astVersion", "document", "vocabulary", "extensions"];
-function validateEnvelope(envelope) {
+function validateEnvelope(envelope, extensions = []) {
   for (const name of Object.keys(envelope)) if (!ENVELOPE_FIELDS.includes(name)) fail(`/${name}`, "not a field of the envelope");
   if (envelope["astVersion"] === void 0) fail("/astVersion", "a required field is missing");
   checkVersion(envelope["astVersion"], "/astVersion");
@@ -6997,7 +7580,18 @@ function validateEnvelope(envelope) {
     fail("/document/astVersion", "the document and envelope versions differ");
   }
   if (envelope["vocabulary"] !== void 0) checkObject(envelope["vocabulary"], "/vocabulary");
-  if (envelope["extensions"] !== void 0) checkExtensions(envelope["extensions"], "/extensions");
+  if (envelope["extensions"] !== void 0) {
+    const tree = {
+      resourceReferences: 0,
+      references: [],
+      declarations: /* @__PURE__ */ new Map(),
+      registry: new Map(extensions.map((entry) => [entry.name, entry])),
+      headerIds: /* @__PURE__ */ new Set(),
+      headerReferences: [],
+      sourcePositions: void 0
+    };
+    checkExtensions(envelope["extensions"], "/extensions", { depth: 0, fallbacks: 0, tree });
+  }
 }
 function sourcePositions(source) {
   const positions = /* @__PURE__ */ new Map([[0, [1, 1]]]);
@@ -7014,7 +7608,7 @@ function sourcePositions(source) {
   }
   return positions;
 }
-function validateTree(document, envelope, source) {
+function validateTree(document, envelope, source, extensions = []) {
   if (!isRecord(document)) fail("", "not a tree");
   if (document["type"] !== "document") fail("/type", "the root is not a document");
   if (document["children"] === void 0) fail("/children", "the root has no children");
@@ -7023,7 +7617,8 @@ function validateTree(document, envelope, source) {
   const tree = {
     resourceReferences: 0,
     references: [],
-    declarations: new Set(declarations),
+    declarations: new Map(declarations),
+    registry: new Map(extensions.map((entry) => [entry.name, entry])),
     headerIds: /* @__PURE__ */ new Set(),
     headerReferences: [],
     sourcePositions: source === void 0 ? void 0 : sourcePositions(source)
@@ -7108,267 +7703,6 @@ function blockText(nodes) {
     if (node.type === "paragraph" || node.type === "heading") parts.push(plainText(node.children));
   }
   return parts.join(" ");
-}
-
-// ../carve-js/v2/src/option-tables.ts
-var OPTION_KINDS = /* @__PURE__ */ new Map([
-  ["alignTables", "format"],
-  ["extensions", "parse"],
-  ["headingIds", "resolution"],
-  ["includes", "parse"],
-  ["labels", "render"],
-  ["mode", "render"],
-  ["normalize", "format"],
-  ["platforms", "lint"],
-  ["profile", "render"],
-  ["rawHtml", "render"],
-  ["renderers", "render"],
-  ["roundtrip", "render"],
-  ["rules", "lint"],
-  ["sections", "render"],
-  ["smartTypography", "render"],
-  ["social", "render"],
-  ["sourceLines", "render"],
-  ["strictLosses", "render"],
-  ["symbols", "render"],
-  ["urlPolicy", "render"]
-]);
-var OPTION_TYPES = /* @__PURE__ */ new Map([
-  ["alignTables", "boolean"],
-  ["extensions", "list"],
-  ["headingIds", "enum"],
-  ["includes", "structure"],
-  ["labels", "map"],
-  ["mode", "enum"],
-  ["normalize", "boolean"],
-  ["platforms", "list"],
-  ["profile", "enum"],
-  ["rawHtml", "boolean"],
-  ["renderers", "map"],
-  ["roundtrip", "boolean"],
-  ["rules", "map"],
-  ["sections", "boolean"],
-  ["smartTypography", "boolean"],
-  ["social", "structure"],
-  ["sourceLines", "boolean"],
-  ["strictLosses", "boolean"],
-  ["symbols", "map"],
-  ["urlPolicy", "structure"]
-]);
-var NULL_DEFAULTS = ["includes", "social"];
-var ENUM_VALUES = /* @__PURE__ */ new Map([
-  ["headingIds", ["off", "keep-case", "lower", "ascii"]],
-  ["mode", ["interactive", "static"]],
-  ["profile", ["full", "article", "comment", "minimal"]]
-]);
-var ENUM_DEFAULTS = /* @__PURE__ */ new Map([
-  ["headingIds", "keep-case"],
-  ["mode", "interactive"],
-  ["profile", "full"]
-]);
-var BOOLEAN_DEFAULTS = /* @__PURE__ */ new Map([
-  ["alignTables", false],
-  ["normalize", false],
-  ["rawHtml", false],
-  ["roundtrip", false],
-  ["sections", true],
-  ["smartTypography", true],
-  ["sourceLines", false],
-  ["strictLosses", false]
-]);
-var DEFAULT_LABELS = {
-  "footnoteBacklink": "Back to reference",
-  "indexBackref": "Back to",
-  "tabsGroup": "Tabs",
-  "codeGroup": "Code examples",
-  "endnotes": "Footnotes",
-  "tocNav": "Table of contents",
-  "admonitionNote": "Note",
-  "admonitionTip": "Tip",
-  "admonitionWarning": "Warning",
-  "admonitionDanger": "Danger",
-  "admonitionInfo": "Info",
-  "admonitionSuccess": "Success",
-  "admonitionExample": "Example",
-  "admonitionQuote": "Quote"
-};
-var DEFAULT_DENIED_SCHEMES = [
-  "javascript",
-  "vbscript",
-  "data",
-  "file",
-  "ms-msdt",
-  "ms-office",
-  "ms-word",
-  "ms-excel",
-  "ms-powerpoint",
-  "ms-access",
-  "ms-visio",
-  "ms-project",
-  "ms-publisher",
-  "ms-infopath",
-  "ms-spd",
-  "ms-search",
-  "search-ms",
-  "ms-cxh",
-  "ms-cxh-full",
-  "shell",
-  "vscode",
-  "vscode-insiders",
-  "jar"
-];
-
-// ../carve-js/v2/src/options.ts
-var CarveOptionError = class extends Error {
-  option;
-  constructor(option, message) {
-    super(`option ${option}: ${message}`);
-    this.name = "CarveOptionError";
-    this.option = option;
-  }
-};
-function isEmpty(value) {
-  if (value === void 0 || value === null) return true;
-  if (Array.isArray(value)) return value.length === 0;
-  return isPlainObject(value) && Object.keys(value).length === 0;
-}
-function enumValue(options, name) {
-  const value = options[name];
-  if (value === void 0) return ENUM_DEFAULTS.get(name);
-  if (typeof value !== "string" || !ENUM_VALUES.get(name).includes(value)) {
-    throw new CarveOptionError(name, `unknown value ${JSON.stringify(value)}`);
-  }
-  return value;
-}
-function booleanValue(options, name) {
-  const value = options[name];
-  if (value === void 0) return BOOLEAN_DEFAULTS.get(name);
-  if (typeof value !== "boolean") throw new CarveOptionError(name, "not a boolean");
-  return value;
-}
-function schemeSet(policy, field) {
-  const list3 = policy[field];
-  return list3 === void 0 ? null : new Set(list3.map((scheme) => scheme.toLowerCase()));
-}
-function isPlainObject(value) {
-  if (typeof value !== "object" || value === null) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-var ITEM_TYPES = /* @__PURE__ */ new Map([["labels", "string"], ["symbols", "string"], ["rules", "boolean"], ["platforms", "string"]]);
-var STRUCTURE_NAMES = /* @__PURE__ */ new Map([
-  ["includes", "an include root or resolver"],
-  ["social", "an object"],
-  ["urlPolicy", "an object with a deny list or an allow list"]
-]);
-function checkItems(name, items, what) {
-  const type = ITEM_TYPES.get(name);
-  if (type !== void 0 && !items.every((item) => typeof item === type)) throw new CarveOptionError(name, `not ${what} of ${type}s`);
-}
-var TYPE_CHECKS = /* @__PURE__ */ new Map([
-  ["boolean", (_name, value) => typeof value === "boolean" ? null : "not a boolean"],
-  ["enum", (name, value) => {
-    if (typeof value === "string" && ENUM_VALUES.get(name).includes(value)) return null;
-    return `unknown value ${JSON.stringify(value) ?? typeof value}`;
-  }],
-  ["list", (name, value) => {
-    if (!Array.isArray(value)) return "not a list";
-    checkItems(name, value, "a list");
-    return null;
-  }],
-  ["map", (name, value) => {
-    if (!isPlainObject(value)) return "not a map";
-    checkItems(name, Object.values(value), "a map");
-    return null;
-  }],
-  ["structure", (name, value) => {
-    const resolver = name === "includes" && (typeof value === "string" || typeof value === "function");
-    return isPlainObject(value) || resolver ? null : `not ${STRUCTURE_NAMES.get(name)}`;
-  }]
-]);
-function checkType(name, value) {
-  if (value === void 0 || value === null && NULL_DEFAULTS.includes(name)) return;
-  const reason = TYPE_CHECKS.get(OPTION_TYPES.get(name))(name, value);
-  if (reason !== null) throw new CarveOptionError(name, reason);
-}
-function urlPolicyValue(options) {
-  const value = options["urlPolicy"];
-  if (value === void 0) return {};
-  if (!isPlainObject(value)) throw new CarveOptionError("urlPolicy", "not an object with a deny list or an allow list");
-  for (const name of Object.keys(value)) {
-    if (name !== "deny" && name !== "allow") throw new CarveOptionError("urlPolicy", `unknown field ${name}`);
-    const list3 = value[name];
-    if (!Array.isArray(list3) || !list3.every((scheme) => typeof scheme === "string")) {
-      throw new CarveOptionError("urlPolicy", `${name} is not a list of strings`);
-    }
-  }
-  if (value["deny"] !== void 0 && value["allow"] !== void 0) {
-    throw new CarveOptionError("urlPolicy", "both a deny list and an allow list");
-  }
-  return value;
-}
-function stringMap(options, name) {
-  const value = options[name];
-  if (value === void 0 || value === null) return void 0;
-  if (!isPlainObject(value) || !Object.values(value).every((text) => typeof text === "string")) {
-    throw new CarveOptionError(name, "not a map of strings");
-  }
-  return value;
-}
-var SOCIAL_FIELDS = /* @__PURE__ */ new Map([["mentionUrl", "string"], ["tagUrl", "string"], ["resolveMention", "function"], ["resolveTag", "function"]]);
-function socialValue(options) {
-  const value = options["social"];
-  if (value === void 0 || value === null) return null;
-  if (!isPlainObject(value)) throw new CarveOptionError("social", "not an object");
-  for (const [name, field] of Object.entries(value)) {
-    const kind = SOCIAL_FIELDS.get(name);
-    if (kind === void 0) throw new CarveOptionError("social", `unknown field ${name}`);
-    if (field !== void 0 && typeof field !== kind) throw new CarveOptionError("social", `${name} is not a ${kind}`);
-  }
-  return value;
-}
-function checkValues(given, names, stage) {
-  for (const name of names) {
-    if (name === "positions" && stage === "parse") {
-      if (given[name] !== void 0 && typeof given[name] !== "boolean") throw new CarveOptionError(name, "not a boolean");
-    } else if (OPTION_KINDS.has(name)) checkType(name, given[name]);
-    else throw new CarveOptionError(name, "unknown option");
-  }
-}
-function checkNames(given, stage) {
-  const names = Object.keys(given);
-  checkValues(given, names, stage);
-  for (const name of names) {
-    const kind = OPTION_KINDS.get(name);
-    if (kind === "format" || kind === "lint" || stage === "parse" && kind === "render") {
-      throw new CarveOptionError(name, `not an option of ${stage}`);
-    }
-  }
-  for (const name of ["extensions", "includes", "renderers"]) {
-    if (!isEmpty(given[name])) throw new CarveOptionError(name, "not offered by this engine");
-  }
-}
-function readOptions(options, stage) {
-  const given = options ?? {};
-  checkNames(given, stage);
-  const policy = urlPolicyValue(given);
-  const allowed = schemeSet(policy, "allow");
-  return {
-    headingIds: enumValue(given, "headingIds"),
-    mode: enumValue(given, "mode"),
-    symbols: stringMap(given, "symbols") ?? {},
-    labels: { ...DEFAULT_LABELS, ...stringMap(given, "labels") },
-    social: socialValue(given),
-    sourceLines: booleanValue(given, "sourceLines"),
-    sections: booleanValue(given, "sections"),
-    smartTypography: booleanValue(given, "smartTypography"),
-    roundtrip: booleanValue(given, "roundtrip"),
-    rawHtml: booleanValue(given, "rawHtml"),
-    denied: allowed === null ? schemeSet(policy, "deny") ?? new Set(DEFAULT_DENIED_SCHEMES) : null,
-    allowed,
-    profile: enumValue(given, "profile"),
-    strictLosses: booleanValue(given, "strictLosses")
-  };
 }
 
 // ../carve-js/v2/src/slug.ts
@@ -8380,6 +8714,8 @@ function ruby(node, r) {
 function inlineExtension(node, r) {
   const name = node.name;
   if (!name.includes(".")) return `<span${attributes(r, node, { base: [`ext-${name}`] })}>${children(r, node)}</span>`;
+  const rendered = r.renderExtension(node);
+  if (rendered !== null) return rendered;
   loss(r, node, "extension-fallback-rendered", `the extension ${name} is rendered through its fallback`);
   return inlineHtml(r, node.fallback ?? node.children);
 }
@@ -8725,8 +9061,70 @@ function include(r, node, level) {
   line(r, level, `<p>${escapeText(includeSource(node))}</p>`);
 }
 function blockExtension(r, node, level) {
+  const rendered = r.renderExtension(node);
+  if (rendered !== null) {
+    line(r, level, rendered);
+    return;
+  }
   loss(r, node, "extension-fallback-rendered", `the extension ${node.name} is rendered through its fallback`);
-  writeBlocks(r, node.fallback, level);
+  line(r, level, rendererHost(r).blocks(node.fallback));
+}
+function isBlockNode(node) {
+  return NODE_TABLE.BLOCKS.includes(node.type);
+}
+function isInlineNode(node) {
+  return NODE_TABLE.INLINES.includes(node.type);
+}
+function rendererHost(r) {
+  return {
+    blocks: (nodes) => {
+      const previous = r.out;
+      const bidi = r.bidi;
+      r.bidi = true;
+      let html = "";
+      for (const node of nodes.filter(isBlockNode)) {
+        r.out = "";
+        writeBlocks(r, [node], 0);
+        html += r.out.slice(1);
+      }
+      r.out = previous;
+      r.bidi = bidi;
+      return html;
+    },
+    inlines: (nodes) => {
+      const bidi = r.bidi;
+      r.bidi = true;
+      const html = inlineHtml(r, nodes.filter(isInlineNode));
+      r.bidi = bidi;
+      return html;
+    },
+    plainText: (nodes) => plainText(nodes.filter(isInlineNode)),
+    escapeText,
+    escapeAttribute,
+    nextId: (prefix) => nextExtensionId(r, prefix),
+    profile: r.settings.profile,
+    urlPolicy: r.settings.urlPolicy
+  };
+}
+function nextExtensionId(r, prefix) {
+  let candidate = "";
+  do {
+    candidate = `${prefix}-${++r.extensionIds}`;
+  } while ([...r.usedIds].some((id) => id === candidate || id.startsWith(`${candidate}-`)));
+  r.usedIds.add(candidate);
+  return candidate;
+}
+function authoredIds(document) {
+  const ids = /* @__PURE__ */ new Set();
+  const visit3 = (node) => {
+    if (node.attrs?.id !== void 0) ids.add(node.attrs.id);
+    if (node.type === "heading" && node.generatedId !== void 0) ids.add(node.generatedId);
+    forEachSlot(node, (nodes) => {
+      for (const child of nodes) visit3(child);
+    });
+  };
+  visit3(document);
+  return ids;
 }
 function isCssKeyword(value) {
   for (let at = 0; at < value.length; at++) {
@@ -8964,7 +9362,14 @@ function renderDocument(document, settings, resolution, losses, bidi) {
     backlinkHost: null,
     backlinks: "",
     bidi,
-    longDescriptions: []
+    longDescriptions: [],
+    extensionIds: 0,
+    usedIds: Object.keys(settings.renderers).length === 0 ? /* @__PURE__ */ new Set() : authoredIds(document),
+    renderExtension: () => null
+  };
+  r.renderExtension = (node) => {
+    const renderer = settings.renderers[node.name];
+    return renderer !== void 0 && renderer.version === node.version ? renderer.render(node, rendererHost(r)) : null;
   };
   writeDocument(r, document);
   return { html: r.out.slice(1), losses: r.losses };
@@ -9446,12 +9851,24 @@ function visitInline(walk, node, path, frame) {
   const rawRef = frame.spans === null ? walk.src.slice(start, origin.aux) : contentSource(walk.src, frame.spans, start, origin.aux);
   addEntry(walk, node, path, origin.start, origin.end, { rawRef });
 }
+function visitExtension(walk, node, path, frame) {
+  const pos = node.pos;
+  if (pos === void 0) return frame;
+  const start = stringOffsetOfByte(walk.src, pos.startOffset);
+  const end = stringOffsetOfByte(walk.src, pos.endOffset);
+  const facts = {};
+  setBlankLines(walk, start, end, frame, facts);
+  addEntry(walk, node, path, start, end, facts);
+  return { ...frame, start, end, open: false };
+}
 function visit2(walk, node, path, frame) {
   const origin = walk.trace.blocks.get(node);
   let inner = frame;
   if (origin !== void 0) inner = visitBlock(walk, node, path, origin, frame);
   else if (node.type === "figure") inner = visitFigure(walk, node, path, frame);
-  else visitInline(walk, node, path, frame);
+  else if ((node.type === "block_extension" || node.type === "inline_extension") && node.source !== void 0) {
+    inner = visitExtension(walk, node, path, frame);
+  } else visitInline(walk, node, path, frame);
   forEachSlot(node, (nodes, step, single) => {
     if (single) visit2(walk, nodes[0], `${path}/${step}`, inner);
     else visitList(walk, nodes, `${path}/${step}`, inner);
@@ -9622,116 +10039,18 @@ function filterChildren(filter, node, depth2) {
   else if ("children" in node) filterList(filter, node.children, true, depth2, keep);
 }
 function filterNode(filter, node, depth2) {
-  const blocks = node.type === "block_extension";
   forEachSlot(node, (nodes, step, single) => {
     const list3 = nodes;
     if (step === "children") filterChildren(filter, node, depth2);
     else if (single) filterNode(filter, list3[0], depth2 + 1);
     else if (step === "pairs" || step === "columns") for (const child of list3) filterNode(filter, child, depth2 + 1);
-    else if (step === "longDescription" || blocks && (step === "fallback" || step.startsWith("slots/"))) {
+    else if (step === "longDescription" || step.startsWith("metadata/headers/") || step.startsWith("metadata/footers/") || node.type === "block_extension" && step === "fallback" || step.startsWith("slots/") && nodes[0] !== void 0 && NODE_TABLE.BLOCKS.includes(nodes[0].type)) {
       filterList(filter, list3, true, depth2, degradedBlocks);
     } else filterList(filter, list3, false, depth2, degradedInline);
   });
 }
 function applyProfile(document, name, rule, findings) {
   filterNode({ name, rule, findings }, document, 0);
-}
-
-// ../carve-js/v2/src/api.ts
-var CarveRenderError = class extends Error {
-  diagnostics;
-  constructor(diagnostics) {
-    super(`the render lost content: ${diagnostics.map((entry) => entry.code).join(", ")}`);
-    this.name = "CarveRenderError";
-    this.diagnostics = diagnostics;
-  }
-};
-var CarveInputError = class extends Error {
-  constructor(profile, limit) {
-    super(`the input is longer than the ${limit} bytes the profile ${profile} accepts`);
-    this.name = "CarveInputError";
-  }
-};
-var NO_PROFILE = PROFILES.get("full");
-var MAX_BYTES_PER_UNIT = 3;
-function profileRule(settings) {
-  return PROFILES.get(settings.profile) ?? NO_PROFILE;
-}
-function checkLength(src, settings) {
-  const limit = profileRule(settings).maxLength;
-  if (limit < 0 || src.length * MAX_BYTES_PER_UNIT <= limit) return;
-  if (src.length > limit || utf8Length(src) > limit) throw new CarveInputError(settings.profile, limit);
-}
-function inputStage(input, settings) {
-  if (typeof input === "string") {
-    checkLength(input, settings);
-    return buildSource(input, settings.sourceLines);
-  }
-  validateTree(input);
-  return { document: profileRule(settings) === NO_PROFILE ? input : structuredClone(input), facts: null };
-}
-function resolveStage(parsed, settings) {
-  const rule = profileRule(settings);
-  const losses = { entries: [], nodes: [] };
-  if (rule !== NO_PROFILE) applyProfile(parsed.document, settings.profile, rule, losses);
-  const resolution = resolve(parsed.document, settings.headingIds, parsed.facts, settings.symbols);
-  const bidi = parsed.facts === null || rule !== NO_PROFILE || parsed.facts.bidi;
-  return { document: parsed.document, settings, resolution, losses, bidi };
-}
-function renderStage(resolved) {
-  const losses = { entries: [...resolved.losses.entries], nodes: [...resolved.losses.nodes] };
-  return renderDocument(resolved.document, resolved.settings, resolved.resolution, losses, resolved.bidi);
-}
-function parseTree(src, options) {
-  readOptions(options, "parse");
-  return buildSource(src, options?.positions !== false);
-}
-function resolveTree(input, options) {
-  const settings = readOptions(options, "render");
-  const parsed = "type" in input ? inputStage(input, settings) : input;
-  return resolveStage(parsed, settings);
-}
-function renderTree(resolved) {
-  const rendered = renderStage(resolved);
-  if (!resolved.settings.strictLosses || rendered.losses.entries.length === 0) return rendered.html;
-  throw new CarveRenderError(locateFindings(resolved.document, rendered.losses));
-}
-function parseDiagnostics(resolved, parsed) {
-  const found = resolved.resolution.findings;
-  const noted = { entries: [], nodes: [] };
-  parsed.facts?.addFindings(noted);
-  if (noted.entries.length === 0) return locateFindings(resolved.document, found);
-  return locateFindings(resolved.document, { entries: [...noted.entries, ...found.entries], nodes: [...noted.nodes, ...found.nodes] });
-}
-function parseWithDiagnostics(src, options) {
-  const settings = readOptions(options, "parse");
-  const parsed = buildSource(src, options?.positions !== false);
-  const resolved = resolveStage(parsed, settings);
-  return { document: resolved.document, diagnostics: parseDiagnostics(resolved, parsed) };
-}
-function parse(src, options) {
-  const settings = readOptions(options, "parse");
-  return resolveStage(buildSource(src, options?.positions !== false), settings).document;
-}
-function parseWithLayout(src, options) {
-  const settings = readOptions(options, "parse");
-  const trace = createLayoutTrace();
-  const parsed = buildSource(src, true, null, trace);
-  const resolved = resolveStage(parsed, settings);
-  const diagnostics = parseDiagnostics(resolved, parsed);
-  return { document: resolved.document, diagnostics, layout: buildLayout(src, resolved.document, trace) };
-}
-function renderWithDiagnostics(input, options) {
-  const settings = readOptions(options, "render");
-  const parsed = inputStage(input, settings);
-  const resolved = resolveStage(parsed, settings);
-  const rendered = renderStage(resolved);
-  const diagnostics = [...parseDiagnostics(resolved, parsed), ...locateFindings(resolved.document, rendered.losses)];
-  return { html: settings.strictLosses && rendered.losses.entries.length > 0 ? "" : rendered.html, diagnostics };
-}
-function render(input, options) {
-  const settings = readOptions(options, "render");
-  return renderTree(resolveStage(inputStage(input, settings), settings));
 }
 
 // ../carve-js/v2/src/ast-json.ts
@@ -9749,7 +10068,7 @@ function cleanString(_key, value) {
 function envelopeOf(value) {
   return isRecord(value) && value["type"] === void 0 && value["document"] !== void 0 ? value : null;
 }
-function decodeTree(json, source) {
+function decodeTree(json, source, extensions = []) {
   let value;
   try {
     value = JSON.parse(json, cleanString);
@@ -9757,10 +10076,10 @@ function decodeTree(json, source) {
     throw new CarveTreeError("", "not JSON");
   }
   const envelope = envelopeOf(value);
-  if (envelope !== null) validateEnvelope(envelope);
+  if (envelope !== null) validateEnvelope(envelope, extensions);
   const document = envelope === null ? value : envelope["document"];
   try {
-    validateTree(document, envelope ?? void 0, source);
+    validateTree(document, envelope ?? void 0, source, extensions);
   } catch (error) {
     if (envelope !== null && error instanceof CarveTreeError) throw new CarveTreeError(`/document${error.path}`, error.reason);
     throw error;
@@ -9824,151 +10143,6 @@ function treesEqual(a, b) {
   return equalValues(a, b, false);
 }
 
-// ../carve-js/v2/src/layout-validate.ts
-var CarveLayoutError = class extends Error {
-  path;
-  reason;
-  constructor(path, reason) {
-    super(`${path === "" ? "/" : path}: ${reason}`);
-    this.name = "CarveLayoutError";
-    this.path = path;
-    this.reason = reason;
-  }
-};
-var ROOT_FIELDS = ["version", "encoding", "source", "lineEndings", "bom", "nodes"];
-var LINE_ENDINGS = ["none", "lf", "crlf", "cr", "mixed"];
-var WRAP_FIELDS = ["line", "path", "offset", "row"];
-function fail2(path, reason) {
-  throw new CarveLayoutError(path, reason);
-}
-var checkBoolean = (value, path) => {
-  if (typeof value !== "boolean") fail2(path, "is not a boolean");
-};
-var checkString = (value, path) => {
-  if (typeof value !== "string") fail2(path, "is not a string");
-};
-function checkCount2(value, path, minimum = 0) {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < minimum) fail2(path, `is not an integer of at least ${minimum}`);
-  return value;
-}
-function oneOf(values) {
-  return (value, path) => {
-    if (typeof value !== "string" || !values.includes(value)) fail2(path, `is not one of ${values.join(", ")}`);
-  };
-}
-var checkPointer = (value, path) => {
-  if (typeof value !== "string") fail2(path, "is not a string");
-  if (value !== "" && !value.startsWith("/")) fail2(path, "is not a JSON Pointer");
-  for (let at = value.indexOf("~"); at >= 0; at = value.indexOf("~", at + 1)) {
-    if (value[at + 1] !== "0" && value[at + 1] !== "1") fail2(path, "is not a JSON Pointer");
-  }
-};
-var checkWraps = (value, path) => {
-  if (!Array.isArray(value)) fail2(path, "is not a list");
-  let line2 = 0;
-  value.forEach((wrap, index) => {
-    const at = `${path}/${index}`;
-    if (!isRecord(wrap)) fail2(at, "is not an object");
-    for (const key of Object.keys(wrap)) if (!WRAP_FIELDS.includes(key)) fail2(`${at}/${key}`, "is not a field of a wrap");
-    const own = checkCount2(wrap["line"], `${at}/line`, 1);
-    if (own < line2) fail2(`${at}/line`, "is not sorted by line");
-    line2 = own;
-    checkPointer(wrap["path"], `${at}/path`);
-    checkCount2(wrap["offset"], `${at}/offset`);
-    if (wrap["row"] !== void 0) checkCount2(wrap["row"], `${at}/row`);
-  });
-};
-var checkOptionSpelling = (value, path) => {
-  if (!isRecord(value)) fail2(path, "is not an object");
-  for (const [name, written] of Object.entries(value)) {
-    if (!INCLUDE_OPTIONS.has(name)) fail2(`${path}/${name}`, "is not an include option");
-    checkString(written, `${path}/${name}`);
-  }
-};
-var FACTS = /* @__PURE__ */ new Map([
-  ["bare", checkBoolean],
-  ["fenced", checkBoolean],
-  ["hardBreakOpener", checkBoolean],
-  ["wraps", checkWraps],
-  ["continuationLines", (value, path) => void checkCount2(value, path)],
-  ["rawRef", checkString],
-  ["optionSpelling", checkOptionSpelling],
-  ["sourceFormat", oneOf(["pipe", "csv", "tsv"])],
-  ["markerRaw", checkString],
-  ["markerColumn", (value, path) => void checkCount2(value, path)],
-  ["contentColumn", (value, path) => void checkCount2(value, path)],
-  ["continuationStyle", oneOf(["lazy", "indent", "marker_line", "none"])],
-  ["blankLinesBefore", (value, path) => void checkCount2(value, path)],
-  ["blankLinesAfter", (value, path) => void checkCount2(value, path)],
-  ["openerRaw", checkString],
-  ["closerRaw", checkString],
-  ["metadataSeparatorRaw", checkString],
-  ["attachment", oneOf(["preceding", "none"])]
-]);
-function checkFence(entry, path) {
-  const opener = entry["openerRaw"];
-  if (opener === void 0 !== (entry["closerRaw"] === void 0)) fail2(path, "openerRaw and closerRaw come as a pair");
-  if (opener === "") fail2(`${path}/openerRaw`, "is empty");
-}
-function checkEntry(entry, path, length) {
-  if (!isRecord(entry)) fail2(path, "is not an object");
-  checkPointer(entry["path"], `${path}/path`);
-  const start = checkCount2(entry["startByte"], `${path}/startByte`);
-  const end = checkCount2(entry["endByte"], `${path}/endByte`);
-  if (start > end) fail2(`${path}/startByte`, "is behind endByte");
-  if (end > length) fail2(`${path}/endByte`, "is past the end of the source");
-  for (const key of Object.keys(entry)) {
-    if (key === "path" || key === "startByte" || key === "endByte") continue;
-    const check = FACTS.get(key);
-    if (check === void 0) fail2(`${path}/${key}`, "is not a field of a node entry");
-    check(entry[key], `${path}/${key}`);
-  }
-  checkFence(entry, path);
-  return entry["path"];
-}
-function checkRoot(record) {
-  for (const key of ROOT_FIELDS) if (record[key] === void 0) fail2(`/${key}`, "is missing");
-  for (const key of Object.keys(record)) if (!ROOT_FIELDS.includes(key)) fail2(`/${key}`, "is not a field of the record");
-  if (record["version"] !== LAYOUT_VERSION) fail2("/version", `version ${String(record["version"])} is not implemented`);
-  if (record["encoding"] !== "utf-8") fail2("/encoding", "is not utf-8");
-  checkString(record["source"], "/source");
-  oneOf(LINE_ENDINGS)(record["lineEndings"], "/lineEndings");
-  checkBoolean(record["bom"], "/bom");
-  if (!Array.isArray(record["nodes"])) fail2("/nodes", "is not a list");
-}
-var SLOT_ORDER = ["title", "children", "caption"];
-function compareSegments(a, b) {
-  const numberA = Number(a);
-  const numberB = Number(b);
-  if (Number.isInteger(numberA) && Number.isInteger(numberB)) return numberA - numberB;
-  const slot = SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b);
-  if (slot !== 0) return slot;
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-function compareDocumentOrder(a, b) {
-  const left = a.split("/");
-  const right = b.split("/");
-  for (let at = 0; at < left.length && at < right.length; at++) {
-    const order = compareSegments(left[at], right[at]);
-    if (order !== 0) return order;
-  }
-  return left.length - right.length;
-}
-function validateLayout(value) {
-  if (!isRecord(value)) fail2("", "the record is not an object");
-  checkRoot(value);
-  const length = utf8Length(value["source"]);
-  let previous = null;
-  value["nodes"].forEach((entry, index) => {
-    const path = checkEntry(entry, `/nodes/${index}`, length);
-    if (previous !== null && compareDocumentOrder(path, previous) <= 0) {
-      fail2(`/nodes/${index}/path`, path === previous ? "is a duplicate path" : "is not in document order");
-    }
-    previous = path;
-  });
-  return value;
-}
-
 // ../carve-js/v2/src/write-attributes.ts
 function isName(text) {
   if (text.length === 0) return false;
@@ -10027,8 +10201,9 @@ function braceBlock(node, extra) {
 }
 
 // ../carve-js/v2/src/write-state.ts
-function createWriter(facts, alignTables) {
+function createWriter(facts, alignTables, extensions = []) {
   return {
+    extensions,
     lines: [],
     lead: null,
     escapes: /* @__PURE__ */ new Map(),
@@ -10086,6 +10261,794 @@ function lose(w, node, field) {
   const message = field === null ? `a ${node.type} node has no spelling in Carve source here` : `the field ${field} of a ${node.type} node has no spelling in Carve source here`;
   const code = field === null ? "structure-unspellable" : "field-unspellable";
   addFinding(w.losses, node, { code, severity: "warning", channel: "render-loss", message });
+}
+
+// ../carve-js/v2/src/write-check.ts
+function parseChunk(src, abbreviations, extensions = []) {
+  return applyExtensions(buildSource(src, true, abbreviations, null, extensions.length > 0), extensions).document;
+}
+function createCheck(w) {
+  return {
+    w,
+    escapes: [],
+    retracted: [],
+    trials: [],
+    marks: /* @__PURE__ */ new Map(),
+    forms: [],
+    respelled: /* @__PURE__ */ new Set(),
+    misaligned: false,
+    losses: [],
+    flags: 0,
+    spanMarks: false,
+    owner: null,
+    chains: [],
+    source: null
+  };
+}
+function changes(c) {
+  return c.escapes.length + c.forms.length + c.retracted.length;
+}
+var NODE_SLOTS2 = ["children", "caption"];
+function sameList(a, b) {
+  return Array.isArray(b) && a.length === b.length && a.every((item, at) => sameValue(item, b[at]));
+}
+function sameFields(left, right) {
+  for (const name in left) if (!skipped(left, name, false) && left[name] !== void 0 && !sameValue(left[name], right[name])) return false;
+  for (const name in right) if (!skipped(right, name, false) && right[name] !== void 0 && left[name] === void 0) return false;
+  return true;
+}
+function sameValue(a, b) {
+  if (Array.isArray(a)) return sameList(a, b);
+  return isRecord(a) && isRecord(b) ? sameFields(a, b) : a === b;
+}
+function skipped(node, name, spanMarks) {
+  const type = node["type"];
+  if (typeof type !== "string" || !AST_RESULTS.has(type)) return false;
+  if (name === "pos" || name === "segments" || name === "srcByteLength") return true;
+  const result = AST_RESULTS.get(type)?.find((entry) => entry.field === name);
+  if (result === void 0) return false;
+  if (result.when === "reference use") return node["key"] !== void 0;
+  if (result.when === "derived from authored span mark") return spanMarks;
+  return true;
+}
+function isCompared(c, node, name) {
+  if (NODE_SLOTS2.includes(name)) return false;
+  if (name === "title") return titleOf(node) === void 0;
+  return !isRecord(node) || !skipped(node, name, c.spanMarks);
+}
+function differingField(c, e, a) {
+  if (!isRecord(e) || !isRecord(a)) return null;
+  for (const name in e) {
+    if (e[name] !== void 0 && isCompared(c, e, name) && !sameValue(e[name], a[name])) return name;
+  }
+  for (const name in a) {
+    if (a[name] !== void 0 && e[name] === void 0 && isCompared(c, a, name)) return name;
+  }
+  return null;
+}
+function changeForm(c, node) {
+  c.forms.push(node);
+  c.respelled.add(node);
+}
+function mark(c, node, at, escaped2) {
+  const marks = c.marks.get(node) ?? /* @__PURE__ */ new Map();
+  marks.set(at, escaped2);
+  c.marks.set(node, marks);
+}
+function isEscaped(c, node, at) {
+  const asked = c.marks.get(node)?.get(at);
+  if (asked !== void 0) return asked;
+  const written = c.w.escapes.get(node) ?? [];
+  return written[firstFrom(written, at)] === at;
+}
+function escapeAt(c, node, at) {
+  const value = node.value;
+  if (at < 0 || at >= value.length || !isAsciiPunctuation(value.charCodeAt(at)) || isEscaped(c, node, at)) return false;
+  c.escapes.push([node, at]);
+  mark(c, node, at, true);
+  return true;
+}
+function openerOffsets(value) {
+  const offsets = [];
+  if (value.startsWith("--")) offsets.push(1);
+  offsets.push(0);
+  let end = 0;
+  while (end < value.length && isAsciiAlphanumeric(value.charCodeAt(end))) end++;
+  if (end > 0 && (value[end] === "." || value[end] === ")")) offsets.push(end);
+  return offsets;
+}
+function escapeLineStart(c, nodes, from, owner) {
+  c.misaligned = true;
+  const first = nodes[from];
+  if (first?.type === "text") {
+    for (const at of openerOffsets(first.value)) if (escapeAt(c, first, at)) return;
+  }
+  for (let at = from + 1; at < nodes.length && !isBreak(nodes[at]); at++) {
+    const node = nodes[at];
+    if (node?.type === "text" && escapeAt(c, node, 0)) return;
+  }
+  if (first !== void 0 && hasOtherForm(c, first)) changeForm(c, first);
+  else c.losses.push([first ?? owner, null]);
+}
+function hasOtherForm(c, node) {
+  if ((c.w.forms.get(node) ?? 0) > 0 || c.respelled.has(node)) return false;
+  if (node.type === "emphasis" || node.type === "strong" || node.type === "comment") return true;
+  return "key" in node && node.key !== void 0 && c.w.facts?.get(node)?.rawRef !== void 0;
+}
+function lastText(node) {
+  let at = node;
+  for (; ; ) {
+    if (at === void 0) return null;
+    if (at.type === "text") return at;
+    const children2 = childNodes(at);
+    at = children2[children2.length - 1];
+  }
+}
+var CR2 = 13;
+function endsLineWithCr(value, at) {
+  let k = at;
+  while (value[k] === " " || value[k] === "	") k++;
+  return value.charCodeAt(k) === CR2;
+}
+var JOINING = "\\!^$`";
+var CLOSING_MARKS = /* @__PURE__ */ new Map([
+  ["emphasis", "/"],
+  ["strong", "*"],
+  ["underline", "_"],
+  ["strike", "~"],
+  ["highlight", "="],
+  ["superscript", "^"],
+  ["subscript", ","],
+  ["insert", "+"],
+  ["delete", "-"],
+  ["span", "]"],
+  ["link", "]"],
+  ["inline_footnote", "]"],
+  ["inline_extension", "]"]
+]);
+function escapeEnd(c, text, braces) {
+  if (text === null) return false;
+  const value = text.value;
+  if (value !== "" && JOINING.includes(value[value.length - 1]) && escapeAt(c, text, value.length - 1)) return true;
+  return braces && escapeAt(c, text, value.lastIndexOf("{"));
+}
+function escapeInContent(c, e) {
+  const mark2 = CLOSING_MARKS.get(e.type);
+  if (mark2 === void 0 || !("children" in e)) return false;
+  return escapeMark(c, e.children, 0, 0, mark2) || mark2 === "]" && escapeMark(c, e.children, 0, 0, "[");
+}
+function joinsNext(es, i) {
+  const value = i > 0 ? lastText(es[i - 1])?.value ?? "" : "";
+  return value !== "" && JOINING.includes(value[value.length - 1]);
+}
+function escapeOwnerMark(c, e) {
+  const mark2 = c.owner === null ? void 0 : CLOSING_MARKS.get(c.owner.type);
+  if (mark2 === void 0 || !("children" in e)) return false;
+  return escapeMark(c, e.children, 0, 0, mark2) || mark2 === "]" && escapeMark(c, e.children, 0, 0, "[");
+}
+function escapeBefore(c, es, i) {
+  const before2 = i > 0 ? lastText(es[i - 1]) : null;
+  return escapeEnd(c, before2, true) || escapeNameSigil(c, before2, es[i]);
+}
+function escapeNameSigil(c, text, e) {
+  if (text === null || !writeInlines(c.w, [e], c.flags).startsWith("[")) return false;
+  const value = text.value;
+  let start = value.length;
+  while (start > 0 && isExtensionNameChar(value.charCodeAt(start - 1))) start--;
+  while (start < value.length && (value[start] === "-" || value.charCodeAt(start) >= 48 && value.charCodeAt(start) <= 57)) start++;
+  return start < value.length && value[start - 1] === ":" && escapeAt(c, text, start - 1);
+}
+function isExtensionNameChar(code) {
+  return isAsciiAlphanumeric(code) || code === 95 || code === 45;
+}
+function escapeContentStart(c, e) {
+  const mark2 = CLOSING_MARKS.get(e.type);
+  const first = "children" in e ? e.children[0] : void 0;
+  return mark2 !== void 0 && mark2 !== "]" && first?.type === "text" && first.value.startsWith(mark2) && escapeAt(c, first, 0);
+}
+function escapeAfter(c, es, i) {
+  const next = textAt(es, i + 1);
+  return next !== null && escapeAt(c, next, 0);
+}
+function escapeInside(c, es, i) {
+  const e = es[i];
+  return escapeEnd(c, e !== void 0 && "children" in e ? lastText(e) : null, true);
+}
+function respell(c, es, i) {
+  const e = es[i];
+  if (c.w.lost.has(e)) return false;
+  const attempt = c.w.attempts.get(e) ?? { step: 0, escapes: [] };
+  c.w.attempts.set(e, attempt);
+  const before2 = c.escapes.length;
+  while (attempt.step < RESPELL_STEPS.length) {
+    const step = RESPELL_STEPS[attempt.step++];
+    if (!step(c, es, i, attempt)) continue;
+    for (let at = before2; at < c.escapes.length; at++) {
+      attempt.escapes.push(c.escapes[at]);
+      if (step !== escapeLoneBracket) c.trials.push(c.escapes[at]);
+    }
+    return true;
+  }
+  c.losses.push([e, null]);
+  return false;
+}
+var RESPELL_STEPS = [
+  escapeBefore,
+  (c, es, i) => escapeContentStart(c, es[i]),
+  (c, es, i) => escapeContentConstruct(c, es[i]),
+  escapeAcrossCloser,
+  escapeInside,
+  escapeAfter,
+  (c, es, i) => escapeContentLine(c, es[i]),
+  (c, es, i) => escapeOwnerMark(c, es[i]),
+  (c, es, i, attempt) => {
+    if (!hasOtherForm(c, es[i])) return false;
+    for (const escape of attempt.escapes) {
+      c.retracted.push(escape);
+      mark(c, escape[0], escape[1], false);
+    }
+    attempt.escapes = [];
+    changeForm(c, es[i]);
+    return true;
+  },
+  escapeBefore,
+  escapeInside,
+  (c, es, i) => escapeInContent(c, es[i]),
+  escapeLoneBracket
+];
+function escapeLoneBracket(c, es, i) {
+  const e = es[i];
+  if (e.type !== "inline_footnote" && e.type !== "inline_extension" || !("children" in e)) return false;
+  const open = [];
+  for (const text of textsBelow(e)) {
+    for (let at = 0; at < text.value.length; at++) {
+      const char = text.value[at];
+      if (char !== "[" && char !== "]" || isEscaped(c, text, at)) continue;
+      if (char === "[") open.push([text, at]);
+      else open.pop();
+    }
+  }
+  let asked = false;
+  for (const [text, at] of open) asked = escapeAt(c, text, at) || asked;
+  return asked || escapeMark(c, e.children, 0, 0, "[");
+}
+function contentFlags(c, e) {
+  return c.flags | (e.type === "emphasis" ? IN_EMPHASIS : e.type === "strong" ? IN_STRONG : 0);
+}
+var MAX_PROBE_ROUNDS = 32;
+function probeWriter(c, expected) {
+  const escapes = /* @__PURE__ */ new Map();
+  for (const text of expected.flatMap((node) => node.type === "text" ? [node] : textsBelow(node))) {
+    const own = c.w.escapes.get(text);
+    if (own !== void 0) escapes.set(text, [...own]);
+  }
+  return { ...c.w, escapes, attempts: /* @__PURE__ */ new Map(), losses: { entries: [], nodes: [] }, lost: new Set(c.w.lost) };
+}
+function probeEscapes(c, e, expected, flags, takes = () => true) {
+  const w = probeWriter(c, expected);
+  let found = false;
+  for (let round = 0; round < MAX_PROBE_ROUNDS; round++) {
+    const source = `${writeInlines(w, expected, flags)}
+`;
+    const parsed = parseChunk(source, c.w.abbreviations, c.w.extensions).children;
+    const block = parsed[0];
+    if (parsed.length !== 1 || block?.type !== "paragraph") return round === 0 ? null : found;
+    const probe = createCheck(w);
+    probe.flags = flags;
+    probe.source = source;
+    compareInlines(probe, expected, block.children, e);
+    extendChains(probe);
+    const taken = probe.escapes.filter(([node, at]) => takes(node, at) && escapeAt(c, node, at));
+    if (taken.length === 0) return round === 0 && probe.losses.length > 0 ? null : found;
+    found = true;
+    for (const [node, at] of taken) w.escapes.set(node, [...w.escapes.get(node) ?? [], at].sort((x, y) => x - y));
+  }
+  return found;
+}
+function escapeContentConstruct(c, e) {
+  if (!("children" in e) || e.children.length === 0) return false;
+  const word = { type: "text", value: "x" };
+  const flat = e.children.map((node) => node.type === "soft_break" ? { type: "text", value: " " } : node);
+  const variants = isBreak(e.children[0]) ? [[word, ...e.children], [word, ...flat]] : [e.children, [word, ...e.children], [word, ...flat]];
+  for (const expected of variants) {
+    const found = probeEscapes(c, e, expected, contentFlags(c, e));
+    if (found !== null) return found;
+  }
+  return false;
+}
+function escapeAcrossCloser(c, es, i) {
+  const e = es[i];
+  if (!isPairedMark(e) || !textsBelow(e).some((text) => opensAcross(text.value))) return false;
+  const flags = contentFlags(c, e);
+  const spelled = writeInlines(c.w, [e], c.flags);
+  const content = writeInlines(c.w, e.children, flags);
+  const closer = { type: "text", value: spelled.slice(spelled.length - (spelled.length - content.length) / 2) };
+  const word = { type: "text", value: "x" };
+  let end = i + 1;
+  while (end < es.length && end - i <= MAX_ACROSS) end++;
+  const inlines = [...e.children, closer, ...es.slice(i + 1, end)];
+  const mark2 = CLOSING_MARKS.get(e.type);
+  const own = new Set(textsBelow(e));
+  const takes = (node, at) => node !== closer && node !== word && !(own.has(node) && node.value[at] === mark2);
+  return probeEscapes(c, e, inlines, flags, takes) === true || probeEscapes(c, e, [word, ...inlines], flags, takes) === true;
+}
+var MAX_ACROSS = 16;
+function opensAcross(value) {
+  for (const opener of "[`<{$:") if (value.includes(opener)) return true;
+  return false;
+}
+function textsBelow(node) {
+  return childNodes(node).flatMap((child) => child.type === "text" ? [child] : textsBelow(child));
+}
+var PAIRED_MARKS = [
+  "emphasis",
+  "strong",
+  "underline",
+  "strike",
+  "highlight",
+  "superscript",
+  "subscript",
+  "insert",
+  "delete"
+];
+function isPairedMark(node) {
+  return PAIRED_MARKS.includes(node.type) && "children" in node;
+}
+function escapeContentLine(c, e) {
+  if (!("children" in e)) return false;
+  const nodes = e.children;
+  for (let at = 0; at < nodes.length; at++) {
+    const node = nodes[at];
+    if ("children" in node && escapeContentLine(c, node)) return true;
+    const next = nodes[at + 1];
+    if (!isBreak(node) || next?.type !== "text" || !hasOpenerShape(next) || !opensBlockAlone(c, nodes, at + 1)) continue;
+    for (const offset of openerOffsets(next.value)) if (escapeAt(c, next, offset)) return true;
+  }
+  return false;
+}
+function opensBlockAlone(c, nodes, from) {
+  let end = from;
+  while (end < nodes.length && !isBreak(nodes[end])) end++;
+  const blocks = parseChunk(writeInlines(c.w, nodes.slice(from, end), c.flags), c.w.abbreviations, c.w.extensions).children;
+  return blocks.length !== 1 || blocks[0].type !== "paragraph";
+}
+function openerShift(a) {
+  if (a.type === "image" || a.type === "literal_inline" || a.type === "inline_footnote") return 1;
+  if (a.type === "math") return a.display ? 2 : 1;
+  if (a.type !== "smart_punctuation") return 0;
+  const source = a.source;
+  return source.startsWith("{-") ? 2 : source.startsWith("-") ? 1 : 0;
+}
+function escapeOpener(c, e, at, a) {
+  const value = e.value;
+  let start = at;
+  while (start < value.length && (value[start] === " " || value[start] === "	")) start++;
+  const shifted = start + openerShift(a);
+  if (escapeAt(c, e, shifted)) {
+    const opener = value[shifted];
+    if (opener === "[" && isChainOpener(a) || opener === "`" && SPAN_TYPES.includes(a.type)) c.chains.push([e, shifted, a]);
+  } else if (!escapeAt(c, e, start)) c.losses.push([e, "value"]);
+}
+function isChainOpener(a) {
+  if (a.type === "footnote_ref") return true;
+  if (a.type !== "link" && a.type !== "image" && a.type !== "span" && a.type !== "inline_footnote") return false;
+  return !("key" in a && a.key !== void 0) || "refForm" in a && (a.refForm === "full" || a.refForm === "collapsed");
+}
+function holdsCloser(node) {
+  if (node.type === "image" && node.alt?.includes("]") === true) return true;
+  return childNodes(node).some((child) => child.type === "text" ? child.value.includes("]") : holdsCloser(child));
+}
+function escapeBrackets(c, node, at, a) {
+  const value = node.value;
+  const [start, end] = bracketRun(value, at);
+  if (!value.includes("]", end)) return;
+  if (a.type === "footnote_ref") return escapeLabels(c, node, at, end);
+  const sigil = sigilOf(value, at);
+  const opens = (k) => sigilOf(value, k) === sigil && (sigil === "^" || value[k + 1] !== "^");
+  for (let k = at - 1; k >= start; k--) {
+    if (value[k] !== "[") continue;
+    if (!opens(k)) break;
+    escapeAt(c, node, k);
+  }
+  if (holdsCloser(a)) return;
+  for (let k = at + 1; k < end; k++) {
+    if (value[k] !== "[") continue;
+    if (!opens(k)) return;
+    escapeAt(c, node, k);
+  }
+}
+function sigilOf(value, at) {
+  const before2 = value[at - 1];
+  return before2 === "!" || before2 === "^" ? before2 : "";
+}
+function bracketRun(value, at) {
+  const inRun = (k) => value[k] === "[" || (value[k] === "!" || value[k] === "^") && value[k + 1] === "[";
+  let start = at;
+  while (start > 0 && inRun(start - 1)) start--;
+  let end = at + 1;
+  while (end < value.length && inRun(end)) end++;
+  return [start, end];
+}
+function escapeLabels(c, node, at, end) {
+  const value = node.value;
+  for (let k = at + 1; k < end; k++) {
+    if (value[k] !== "[") continue;
+    if (value[k + 1] !== "^" || k + 2 >= end) return;
+    escapeAt(c, node, k);
+  }
+}
+var SPAN_TYPES = ["code", "literal_inline", "math"];
+function isEscapedBacktick(source, at) {
+  let before2 = at;
+  while (before2 > 0 && source[before2 - 1] === "\\") before2--;
+  return (at - before2) % 2 === 1;
+}
+function escapeBackticks(c, node, at, a) {
+  const source = c.source;
+  const value = node.value;
+  if (source === null || a.pos === void 0) return;
+  let run = at;
+  while (value[run] === "`") run++;
+  let start = source.indexOf("`", stringOffsetOfByte(source, a.pos.startOffset));
+  if (start < 0) return;
+  const end = start + run - at;
+  while (start < end && source[start] === "`") start++;
+  if (start !== end || source[end] === "`") return;
+  for (let k = source.indexOf("`", end); k >= 0; k = source.indexOf("`", k + 1)) if (!isEscapedBacktick(source, k)) return;
+  for (let k = at + 1; k < run; k++) escapeAt(c, node, k);
+}
+function extendChains(c) {
+  if (c.chains.length === 0) return;
+  const placed = /* @__PURE__ */ new Map();
+  for (const [node, at] of c.escapes) placed.set(node, (placed.get(node) ?? /* @__PURE__ */ new Set()).add(at));
+  for (const [node, at, a] of c.chains) {
+    if (placed.get(node)?.has(at) !== true) continue;
+    if (node.value[at] === "`") escapeBackticks(c, node, at, a);
+    else escapeBrackets(c, node, at, a);
+  }
+}
+function isPaired(node) {
+  return node.type === "emphasis" || node.type === "strong";
+}
+function escapeMark(c, nodes, start, from, mark2) {
+  for (let at = start; at < nodes.length; at++) {
+    const node = nodes[at];
+    if (node.type !== "text") {
+      if ("children" in node && escapeMark(c, node.children, 0, 0, mark2)) return true;
+      continue;
+    }
+    const value = node.value;
+    for (let k = value.indexOf(mark2, at === start ? from : 0); k >= 0; k = value.indexOf(mark2, k + 1)) if (escapeAt(c, node, k)) return true;
+  }
+  return false;
+}
+function closedEarly(c, es, i, vi, owner) {
+  const mark2 = CLOSING_MARKS.get(owner.type);
+  if (isPaired(owner) && hasOtherForm(c, owner)) changeForm(c, owner);
+  else if (mark2 === void 0 || !escapeMark(c, es, i, vi, mark2)) c.losses.push([owner, null]);
+}
+function openerLine(es, from) {
+  let at = from;
+  while (at + 2 < es.length && isBraceLine(es[at]) && isBreak(es[at + 1])) at += 2;
+  return at;
+}
+function isBraceLine(node) {
+  return node?.type === "text" && node.value.startsWith("{") && node.value.endsWith("}");
+}
+function endedEarly(c, es, i, owner) {
+  const line2 = isBreak(es[i]) ? es[i + 1] : void 0;
+  if (line2?.type === "text" && endsLineWithCr(line2.value, 0)) {
+    c.losses.push([line2, "value"]);
+    return;
+  }
+  if (i > 0 && !isBreak(es[i]) && escapeEnd(c, lastText(es[i - 1]), false)) return;
+  if (i > 0 && isBreak(es[i - 1])) escapeLineStart(c, es, openerLine(es, i), owner);
+  else if (CLOSING_MARKS.has(owner.type)) closedEarly(c, es, i, 0, owner);
+  else if (isBreak(es[i]) && i + 1 < es.length) escapeLineStart(c, es, openerLine(es, i + 1), owner);
+  else c.losses.push([es[i] ?? owner, null]);
+}
+function matchCharacters(c, e, a, at) {
+  const value = e.value;
+  const other = a.value;
+  const length = Math.min(value.length - at.vi, other.length - at.aj);
+  for (let k = 0; k < length; k++) {
+    if (value.charCodeAt(at.vi + k) === other.charCodeAt(at.aj + k)) continue;
+    if (!escapeAt(c, e, at.vi + k)) c.losses.push([e, "value"]);
+    return false;
+  }
+  at.vi += length;
+  at.aj += length;
+  if (at.aj === other.length) {
+    at.j++;
+    at.aj = 0;
+  }
+  return true;
+}
+function parseEndsInText(c, es, at, owner) {
+  if (es[at.i]?.type === "text" && endsLineWithCr(es[at.i].value, at.vi)) {
+    c.losses.push([es[at.i], "value"]);
+    return false;
+  }
+  if (at.vi === 0 && at.i > 0 && startsWithCloser(es[at.i - 1], es[at.i]) && escapeAt(c, es[at.i], 0)) return false;
+  if (at.vi === 0 && at.i > 0 && isBreak(es[at.i - 1])) escapeLineStart(c, es, openerLine(es, at.i), owner);
+  else if (CLOSING_MARKS.has(owner.type)) closedEarly(c, es, at.i, at.vi, owner);
+  else c.losses.push([owner, null]);
+  return false;
+}
+function startsWithCloser(node, next) {
+  const mark2 = CLOSING_MARKS.get(node.type);
+  return mark2 !== void 0 && next?.type === "text" && next.value.startsWith(mark2);
+}
+function afterTextNode(c, es, as, at, owner) {
+  at.i++;
+  at.vi = 0;
+  if (at.aj === 0 || es[at.i]?.type === "text") return true;
+  if (es[at.i] === void 0) {
+    if (!escapeInContent(c, owner) && !escapeEnd(c, lastText(owner), true)) c.losses.push([owner, null]);
+  } else if (at.j + 1 >= as.length && isPaired(owner) && !joinsNext(es, at.i)) closedEarly(c, es, at.i, 0, owner);
+  else return respell(c, es, at.i) && stepOver(c, es, as, at);
+  return false;
+}
+function matchText(c, e, es, as, at, owner) {
+  const value = e.value;
+  const a = as[at.j];
+  if (a === void 0) return parseEndsInText(c, es, at, owner);
+  if (a.type !== "text") return skipConstruct(c, e, a, at);
+  if (!matchCharacters(c, e, a, at)) return false;
+  return at.vi < value.length || afterTextNode(c, es, as, at, owner);
+}
+function stepOver(c, es, as, at) {
+  const a = as[at.j];
+  const spelled = writeInlines(c.w, [es[at.i]], c.flags);
+  if (a?.type !== "text" || spelled.includes("\\") || !a.value.startsWith(spelled, at.aj)) return false;
+  at.aj += spelled.length;
+  if (at.aj === a.value.length) {
+    at.j++;
+    at.aj = 0;
+  }
+  at.i++;
+  return true;
+}
+function skipConstruct(c, e, a, at) {
+  escapeOpener(c, e, at.vi, a);
+  const pos = a.pos;
+  if (pos === void 0) return false;
+  const end = spelledEnd(c.w, e, at.vi, pos.endOffset - pos.startOffset, (c.flags & IN_CELL) !== 0);
+  if (end < 0) return false;
+  at.vi = end;
+  at.j++;
+  if (at.vi === e.value.length) {
+    at.i++;
+    at.vi = 0;
+  }
+  return true;
+}
+function readsNeighbor(c, e, es, i, a) {
+  const next = textAt(es, i + 1);
+  if (next !== null && !sameValue(e.attrs, a.attrs) && next.value.startsWith("{")) return escapeAt(c, next, 0);
+  if (next !== null && readsOn(e, next) && differingField(c, e, a) !== null) return escapeAt(c, next, 0);
+  if (e.type !== "smart_punctuation" || a.type !== "smart_punctuation" || e.kind === a.kind && e.source === a.source) return false;
+  if (next !== null && (moveSigilEscape(c, next) || escapeAt(c, next, 0))) return true;
+  const before2 = textAt(es, i - 1);
+  return before2 !== null && escapeAt(c, before2, before2.value.length - 1);
+}
+function moveSigilEscape(c, next) {
+  const value = next.value;
+  if (value[0] !== ":" || !isEscaped(c, next, 0)) return false;
+  let bracket = 1;
+  while (bracket < value.length && isExtensionNameChar(value.charCodeAt(bracket))) bracket++;
+  if (bracket === 1 || value[bracket] !== "[" || isEscaped(c, next, bracket)) return false;
+  c.retracted.push([next, 0]);
+  mark(c, next, 0, false);
+  return escapeAt(c, next, bracket);
+}
+function readsOn(node, next) {
+  if (node.attrs !== void 0) return false;
+  if (node.type === "mention" || node.type === "tag") return true;
+  return (node.type === "code" || node.type === "literal_inline" || node.type === "math") && next.value.startsWith("`");
+}
+function textAt(nodes, at) {
+  const node = nodes[at];
+  return node?.type === "text" ? node : null;
+}
+function isLostCode(c, node) {
+  return node !== void 0 && node.type === "code" && c.w.lost.has(node);
+}
+function matchNode(c, e, es, as, at, owner) {
+  const a = as[at.j];
+  if (a === void 0) {
+    endedEarly(c, es, at.i, owner);
+    return false;
+  }
+  if (a.type !== e.type || at.aj > 0) return respell(c, es, at.i) && stepOver(c, es, as, at);
+  if (isLostCode(c, es[at.i + 1])) {
+    at.i++;
+    while (isLostCode(c, es[at.i])) at.i++;
+    at.j++;
+    return true;
+  }
+  if (readsNeighbor(c, e, es, at.i, a)) return false;
+  compareInline(c, e, a);
+  at.i++;
+  at.j++;
+  return true;
+}
+function setAnchor(es, as, at) {
+  if (at.vi !== 0 || at.aj !== 0) return;
+  const pos = as[at.j]?.pos;
+  if (isBreak(es[at.i])) at.anchor = -1;
+  else if (pos !== void 0) {
+    at.anchor = at.i;
+    at.anchorByte = pos.startOffset;
+  }
+}
+function firstNodeFrom(as, j, offset) {
+  while (j < as.length && (as[j].pos?.startOffset ?? -1) < offset) j++;
+  return j;
+}
+function resumeAt(at, i, j) {
+  at.i = i;
+  at.j = j;
+  at.vi = 0;
+  at.aj = 0;
+  return true;
+}
+function resync(c, es, as, at) {
+  const failed = as[at.j]?.pos;
+  if (at.anchor < 0 || failed === void 0) return false;
+  let offset = at.anchorByte;
+  let j = at.j;
+  for (let k = at.anchor; k < es.length && !isBreak(es[k]); k++) {
+    j = firstNodeFrom(as, j, offset);
+    if (k > at.i && offset >= failed.endOffset && as[j]?.pos?.startOffset === offset) return resumeAt(at, k, j);
+    offset += utf8Length(writeInlines(c.w, [es[k]], c.flags));
+  }
+  return false;
+}
+function compareInlines(c, es, as, owner) {
+  const outer = c.owner;
+  c.owner = owner;
+  compareList(c, es, as, owner);
+  c.owner = outer;
+}
+function compareList(c, es, as, owner) {
+  const at = { i: 0, vi: 0, j: 0, aj: 0, anchor: -1, anchorByte: 0 };
+  while (at.i < es.length) {
+    setAnchor(es, as, at);
+    const e = es[at.i];
+    const more = e.type === "text" ? matchText(c, e, es, as, at, owner) : matchNode(c, e, es, as, at, owner);
+    if (!more && !resync(c, es, as, at)) return;
+  }
+  if (at.j < as.length) c.losses.push([owner, null]);
+}
+function compareRaw(c, e, a) {
+  const probe = createCheck(c.w);
+  probe.flags = c.flags;
+  compareFields(probe, e, a);
+  if ("children" in e) compareInlines(probe, e.children, childNodes(a), e);
+  if (changes(probe) + probe.losses.length > 0 && changes(c) === 0) changeForm(c, e);
+  else if (changes(probe) + probe.losses.length > 0) c.misaligned = true;
+}
+function compareFields(c, e, a) {
+  const field = differingField(c, e, a);
+  if (field !== null) c.losses.push([e, field]);
+}
+function compareInline(c, e, a) {
+  if ("key" in e && e.key !== void 0 && hasOtherForm(c, e)) return compareRaw(c, e, a);
+  compareFields(c, e, a);
+  if (!("children" in e)) return;
+  const outer = c.flags;
+  if (e.type === "emphasis") c.flags |= IN_EMPHASIS;
+  else if (e.type === "strong") c.flags |= IN_STRONG;
+  compareInlines(c, e.children, childNodes(a), e);
+  c.flags = outer;
+}
+function blockMismatch(c, e) {
+  c.misaligned = true;
+  if (e.type === "paragraph" && e.children.length > 0) escapeLineStart(c, e.children, 0, e);
+  else c.losses.push([e, null]);
+}
+function missingBlock(c, e) {
+  const first = e.type === "paragraph" ? e.children[0] : void 0;
+  if (first?.type === "text" && endsLineWithCr(first.value, 0)) {
+    c.losses.push([first, "value"]);
+    return;
+  }
+  if (e.type === "paragraph" && e.children.length > 0) escapeLineStart(c, e.children, 0, e);
+  else if (hasOtherForm(c, e)) changeForm(c, e);
+  else c.losses.push([e, null]);
+}
+function hasSpanMarks2(table3) {
+  for (const group of table3.children) {
+    if (group.type !== "comment" && group.children.some(rowHasSpanMarks)) return true;
+  }
+  return false;
+}
+function rowHasSpanMarks(row) {
+  return row.type === "table_row" && row.children.some((cell) => cell.span !== void 0);
+}
+function compareSlots(c, e, a) {
+  const title = titleOf(e);
+  const parsedTitle = titleOf(a);
+  if (title !== void 0) compareInlines(c, title, parsedTitle ?? [], e);
+  else if (parsedTitle !== void 0) c.losses.push([e, "title"]);
+  const caption2 = captionOf(e);
+  const parsedCaption = captionOf(a);
+  if (caption2 !== void 0 && parsedCaption !== void 0) compareBlock(c, caption2, parsedCaption);
+  else if (caption2 !== parsedCaption) c.losses.push([caption2 ?? e, caption2 === void 0 ? "caption" : null]);
+}
+function compareBlock(c, e, a) {
+  if (c.w.lost.has(e)) return true;
+  if (e.type !== a.type) {
+    blockMismatch(c, e);
+    return false;
+  }
+  const marks = c.spanMarks;
+  const flags = c.flags;
+  if (e.type === "table" && a.type === "table") c.spanMarks = hasSpanMarks2(e) || hasSpanMarks2(a);
+  if (e.type === "table_cell") c.flags |= IN_CELL;
+  compareFields(c, e, a);
+  if (isInlineParent(e)) compareInlines(c, e.children, childNodes(a), e);
+  else compareBlocks(c, childNodes(e), childNodes(a), e);
+  compareSlots(c, e, a);
+  c.spanMarks = marks;
+  c.flags = flags;
+  return true;
+}
+function readStarts(node, offset, paragraphs, lines) {
+  for (const block of childNodes(node)) {
+    const pos = block.pos;
+    if (pos !== void 0) {
+      lines.add(pos.startLine - offset);
+      if (block.type === "paragraph") paragraphs.add((pos.startLine - offset) * PLACE_COLUMNS + pos.startColumn - 1);
+    }
+    if (!isInlineParent(block)) readStarts(block, offset, paragraphs, lines);
+    const caption2 = captionOf(block);
+    if (caption2 !== void 0) readStarts(caption2, offset, paragraphs, lines);
+  }
+}
+function hasOpenerShape(node) {
+  const value = node?.type === "text" ? node.value : "";
+  if (value === "") return node !== void 0 && node.type !== "text";
+  return !isAsciiAlphanumeric(value.charCodeAt(0)) || openerOffsets(value).length > 1;
+}
+function isPending(c, node) {
+  return node?.type === "text" && c.marks.has(node);
+}
+function escapeOpenerLines(c, e, place2, paragraphs, lines) {
+  const top = e.children;
+  if (!paragraphs.has(place2) && hasOpenerShape(top[0]) && !isPending(c, top[0])) escapeLineStart(c, top, 0, e);
+  let line2 = Math.floor(place2 / PLACE_COLUMNS);
+  const visit3 = (nodes) => {
+    for (let at = 0; at < nodes.length; at++) {
+      const node = nodes[at];
+      if ("children" in node) visit3(node.children);
+      if (!isBreak(node)) continue;
+      line2++;
+      if (lines.has(line2) && hasOpenerShape(nodes[at + 1]) && !isPending(c, nodes[at + 1])) escapeLineStart(c, nodes, at + 1, e);
+    }
+  };
+  visit3(top);
+}
+function escapeOpeners(c, parsed, offset) {
+  if (!c.misaligned) return;
+  const paragraphs = /* @__PURE__ */ new Set();
+  const lines = /* @__PURE__ */ new Set();
+  readStarts(parsed, offset, paragraphs, lines);
+  for (const [node, place2] of c.w.starts) {
+    if (node.attrs === void 0 && node.lang === void 0) escapeOpenerLines(c, node, place2, paragraphs, lines);
+  }
+}
+function compareBlocks(c, es, as, owner) {
+  const before2 = changes(c);
+  const count = Math.min(es.length, as.length);
+  for (let at = 0; at < count; at++) if (!compareBlock(c, es[at], as[at])) return;
+  if (es.length === as.length || changes(c) > before2 || es.some((e) => c.w.lost.has(e))) return;
+  const missing = es[as.length];
+  c.misaligned = true;
+  if (owner.type === "line_block" && missing !== void 0) escapeLineStart(c, childNodes(missing), 0, missing);
+  else if (es.length > as.length) missingBlock(c, es[as.length]);
+  else c.losses.push([owner, null]);
 }
 
 // ../carve-js/v2/src/write-inline.ts
@@ -10304,6 +11267,26 @@ function citationGroup(w, node) {
   lose(w, node, null);
   return node.raw;
 }
+function inlineExtension2(w, node, flags) {
+  if (!node.name.includes(".")) return `:${node.name}[${writeInlines(w, node.children, flags)}]`;
+  const source = node.source;
+  if (source?.form === "inline") {
+    const form = `:${source.name}[${source.body}]`;
+    let same = w.extensions.length === 0;
+    if (!same) {
+      try {
+        const parsed = parseChunk(`${form}${braceBlock(node)}
+`, w.abbreviations, w.extensions).children[0];
+        same = parsed?.type === "paragraph" && parsed.children.length === 1 && treesEqual(node, parsed.children[0]);
+      } catch {
+        same = false;
+      }
+    }
+    if (same) return form;
+  }
+  lose(w, node, null);
+  return writeInlines(w, node.fallback ?? node.children, flags);
+}
 var WRITERS2 = {
   text: textNode,
   soft_break: () => "\n",
@@ -10322,7 +11305,7 @@ var WRITERS2 = {
   link: linkNode2,
   image: imageNode2,
   inline_footnote: (w, node, flags) => `^[${writeInlines(w, node.children, flags)}]`,
-  inline_extension: (w, node, flags) => `:${node.name}[${writeInlines(w, node.children, flags)}]`,
+  inline_extension: inlineExtension2,
   footnote_ref: (_w, node) => `[^${labelText(node.key)}]`,
   code: (_w, node) => codeSpan2(node.value),
   literal_inline: (_w, node) => `!${codeSpan2(node.value)}`,
@@ -17383,7 +18366,7 @@ var INCB_EXTEND = [
 
 // ../carve-js/v2/src/width.ts
 var ASCII_END3 = 128;
-var CR2 = 1;
+var CR3 = 1;
 var LF2 = 2;
 var CONTROL = 3;
 var EXTEND = 4;
@@ -17414,7 +18397,7 @@ function joinsHangul(before2, at) {
   return (before2 === LVT || before2 === T) && at === T;
 }
 function isControl(gcb) {
-  return gcb === CR2 || gcb === LF2 || gcb === CONTROL;
+  return gcb === CR3 || gcb === LF2 || gcb === CONTROL;
 }
 function joinsCluster(context, codePoint, gcb) {
   const before2 = context.before;
@@ -17425,7 +18408,7 @@ function joinsCluster(context, codePoint, gcb) {
 }
 function breaksBefore(context, codePoint, gcb) {
   const before2 = context.before;
-  if (before2 === CR2 && gcb === LF2) return false;
+  if (before2 === CR3 && gcb === LF2) return false;
   if (isControl(before2) || isControl(gcb)) return true;
   return !joinsHangul(before2, gcb) && !joinsCluster(context, codePoint, gcb);
 }
@@ -17973,6 +18956,43 @@ function childrenOnly2(w, node, prefix, flags) {
   const fallback = "fallback" in node ? node.fallback : void 0;
   writeBlocks2(w, fallback ?? childNodes(node), prefix, flags, false);
 }
+function sourceLines(body2) {
+  const lines = body2.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+function extensionSpelling(node) {
+  const source = node.source;
+  if (source === void 0 || source.form === "inline") return null;
+  const lines = sourceLines(source.body);
+  const mark2 = source.form === "div" ? ":" : "`";
+  const run = mark2.repeat(Math.max(MIN_RUN2, longestBareRun(lines, mark2.charCodeAt(0)) + 1));
+  const title = source.title === void 0 ? "" : ` ${quoted2(source.title)}`;
+  const label = source.groupLabel === void 0 ? "" : ` [${source.groupLabel}]`;
+  const opener = source.form === "div" ? `${run} ${source.name}${title}${label}` : `${run}${source.name}${title}${label}`;
+  return [opener, ...lines, run].join("\n") + "\n";
+}
+function blockExtension2(w, node, prefix, flags) {
+  const spelling = extensionSpelling(node);
+  if (spelling !== null) {
+    let same = w.extensions.length === 0;
+    if (!same) {
+      try {
+        const parsed = parseChunk(spelling, w.abbreviations, w.extensions).children[0];
+        same = parsed !== void 0 && treesEqual(node, parsed);
+      } catch {
+        same = false;
+      }
+    }
+    if (same) {
+      attributeLine(w, node, prefix);
+      for (const line2 of spelling.trimEnd().split("\n")) emit(w, prefix, line2);
+      return;
+    }
+  }
+  lose(w, node, null);
+  writeBlocks2(w, node.fallback, prefix, flags, false);
+}
 function table2(w, node, prefix, flags) {
   writeTable(w, node, prefix, flags);
   caption(w, node.caption, prefix, flags);
@@ -18006,7 +19026,8 @@ var WRITERS3 = {
   figure_group: figureGroup,
   figure,
   line_block: lineBlock2,
-  table: table2
+  table: table2,
+  block_extension: blockExtension2
 };
 function writeOwn3(w, type, node, prefix, flags) {
   const writer = WRITERS3[type];
@@ -18102,794 +19123,6 @@ function writeSiblings(w, nodes, prefix, flags, layout) {
 }
 function writeBlocks2(w, nodes, prefix, flags, tight) {
   writeSiblings(w, nodes, prefix, flags, tight ? TIGHT_ITEM : BLOCKS3);
-}
-
-// ../carve-js/v2/src/write-check.ts
-function parseChunk(src, abbreviations) {
-  return buildSource(src, true, abbreviations).document;
-}
-function createCheck(w) {
-  return {
-    w,
-    escapes: [],
-    retracted: [],
-    trials: [],
-    marks: /* @__PURE__ */ new Map(),
-    forms: [],
-    respelled: /* @__PURE__ */ new Set(),
-    misaligned: false,
-    losses: [],
-    flags: 0,
-    spanMarks: false,
-    owner: null,
-    chains: [],
-    source: null
-  };
-}
-function changes(c) {
-  return c.escapes.length + c.forms.length + c.retracted.length;
-}
-var NODE_SLOTS2 = ["children", "caption"];
-function sameList(a, b) {
-  return Array.isArray(b) && a.length === b.length && a.every((item, at) => sameValue(item, b[at]));
-}
-function sameFields(left, right) {
-  for (const name in left) if (!skipped(left, name, false) && left[name] !== void 0 && !sameValue(left[name], right[name])) return false;
-  for (const name in right) if (!skipped(right, name, false) && right[name] !== void 0 && left[name] === void 0) return false;
-  return true;
-}
-function sameValue(a, b) {
-  if (Array.isArray(a)) return sameList(a, b);
-  return isRecord(a) && isRecord(b) ? sameFields(a, b) : a === b;
-}
-function skipped(node, name, spanMarks) {
-  const type = node["type"];
-  if (typeof type !== "string" || !AST_RESULTS.has(type)) return false;
-  if (name === "pos" || name === "segments" || name === "srcByteLength") return true;
-  const result = AST_RESULTS.get(type)?.find((entry) => entry.field === name);
-  if (result === void 0) return false;
-  if (result.when === "reference use") return node["key"] !== void 0;
-  if (result.when === "derived from authored span mark") return spanMarks;
-  return true;
-}
-function isCompared(c, node, name) {
-  if (NODE_SLOTS2.includes(name)) return false;
-  if (name === "title") return titleOf(node) === void 0;
-  return !isRecord(node) || !skipped(node, name, c.spanMarks);
-}
-function differingField(c, e, a) {
-  if (!isRecord(e) || !isRecord(a)) return null;
-  for (const name in e) {
-    if (e[name] !== void 0 && isCompared(c, e, name) && !sameValue(e[name], a[name])) return name;
-  }
-  for (const name in a) {
-    if (a[name] !== void 0 && e[name] === void 0 && isCompared(c, a, name)) return name;
-  }
-  return null;
-}
-function changeForm(c, node) {
-  c.forms.push(node);
-  c.respelled.add(node);
-}
-function mark(c, node, at, escaped2) {
-  const marks = c.marks.get(node) ?? /* @__PURE__ */ new Map();
-  marks.set(at, escaped2);
-  c.marks.set(node, marks);
-}
-function isEscaped(c, node, at) {
-  const asked = c.marks.get(node)?.get(at);
-  if (asked !== void 0) return asked;
-  const written = c.w.escapes.get(node) ?? [];
-  return written[firstFrom(written, at)] === at;
-}
-function escapeAt(c, node, at) {
-  const value = node.value;
-  if (at < 0 || at >= value.length || !isAsciiPunctuation(value.charCodeAt(at)) || isEscaped(c, node, at)) return false;
-  c.escapes.push([node, at]);
-  mark(c, node, at, true);
-  return true;
-}
-function openerOffsets(value) {
-  const offsets = [];
-  if (value.startsWith("--")) offsets.push(1);
-  offsets.push(0);
-  let end = 0;
-  while (end < value.length && isAsciiAlphanumeric(value.charCodeAt(end))) end++;
-  if (end > 0 && (value[end] === "." || value[end] === ")")) offsets.push(end);
-  return offsets;
-}
-function escapeLineStart(c, nodes, from, owner) {
-  c.misaligned = true;
-  const first = nodes[from];
-  if (first?.type === "text") {
-    for (const at of openerOffsets(first.value)) if (escapeAt(c, first, at)) return;
-  }
-  for (let at = from + 1; at < nodes.length && !isBreak(nodes[at]); at++) {
-    const node = nodes[at];
-    if (node?.type === "text" && escapeAt(c, node, 0)) return;
-  }
-  if (first !== void 0 && hasOtherForm(c, first)) changeForm(c, first);
-  else c.losses.push([first ?? owner, null]);
-}
-function hasOtherForm(c, node) {
-  if ((c.w.forms.get(node) ?? 0) > 0 || c.respelled.has(node)) return false;
-  if (node.type === "emphasis" || node.type === "strong" || node.type === "comment") return true;
-  return "key" in node && node.key !== void 0 && c.w.facts?.get(node)?.rawRef !== void 0;
-}
-function lastText(node) {
-  let at = node;
-  for (; ; ) {
-    if (at === void 0) return null;
-    if (at.type === "text") return at;
-    const children2 = childNodes(at);
-    at = children2[children2.length - 1];
-  }
-}
-var CR3 = 13;
-function endsLineWithCr(value, at) {
-  let k = at;
-  while (value[k] === " " || value[k] === "	") k++;
-  return value.charCodeAt(k) === CR3;
-}
-var JOINING = "\\!^$`";
-var CLOSING_MARKS = /* @__PURE__ */ new Map([
-  ["emphasis", "/"],
-  ["strong", "*"],
-  ["underline", "_"],
-  ["strike", "~"],
-  ["highlight", "="],
-  ["superscript", "^"],
-  ["subscript", ","],
-  ["insert", "+"],
-  ["delete", "-"],
-  ["span", "]"],
-  ["link", "]"],
-  ["inline_footnote", "]"],
-  ["inline_extension", "]"]
-]);
-function escapeEnd(c, text, braces) {
-  if (text === null) return false;
-  const value = text.value;
-  if (value !== "" && JOINING.includes(value[value.length - 1]) && escapeAt(c, text, value.length - 1)) return true;
-  return braces && escapeAt(c, text, value.lastIndexOf("{"));
-}
-function escapeInContent(c, e) {
-  const mark2 = CLOSING_MARKS.get(e.type);
-  if (mark2 === void 0 || !("children" in e)) return false;
-  return escapeMark(c, e.children, 0, 0, mark2) || mark2 === "]" && escapeMark(c, e.children, 0, 0, "[");
-}
-function joinsNext(es, i) {
-  const value = i > 0 ? lastText(es[i - 1])?.value ?? "" : "";
-  return value !== "" && JOINING.includes(value[value.length - 1]);
-}
-function escapeOwnerMark(c, e) {
-  const mark2 = c.owner === null ? void 0 : CLOSING_MARKS.get(c.owner.type);
-  if (mark2 === void 0 || !("children" in e)) return false;
-  return escapeMark(c, e.children, 0, 0, mark2) || mark2 === "]" && escapeMark(c, e.children, 0, 0, "[");
-}
-function escapeBefore(c, es, i) {
-  const before2 = i > 0 ? lastText(es[i - 1]) : null;
-  return escapeEnd(c, before2, true) || escapeNameSigil(c, before2, es[i]);
-}
-function escapeNameSigil(c, text, e) {
-  if (text === null || !writeInlines(c.w, [e], c.flags).startsWith("[")) return false;
-  const value = text.value;
-  let start = value.length;
-  while (start > 0 && isExtensionNameChar(value.charCodeAt(start - 1))) start--;
-  while (start < value.length && (value[start] === "-" || value.charCodeAt(start) >= 48 && value.charCodeAt(start) <= 57)) start++;
-  return start < value.length && value[start - 1] === ":" && escapeAt(c, text, start - 1);
-}
-function isExtensionNameChar(code) {
-  return isAsciiAlphanumeric(code) || code === 95 || code === 45;
-}
-function escapeContentStart(c, e) {
-  const mark2 = CLOSING_MARKS.get(e.type);
-  const first = "children" in e ? e.children[0] : void 0;
-  return mark2 !== void 0 && mark2 !== "]" && first?.type === "text" && first.value.startsWith(mark2) && escapeAt(c, first, 0);
-}
-function escapeAfter(c, es, i) {
-  const next = textAt(es, i + 1);
-  return next !== null && escapeAt(c, next, 0);
-}
-function escapeInside(c, es, i) {
-  const e = es[i];
-  return escapeEnd(c, e !== void 0 && "children" in e ? lastText(e) : null, true);
-}
-function respell(c, es, i) {
-  const e = es[i];
-  if (c.w.lost.has(e)) return false;
-  const attempt = c.w.attempts.get(e) ?? { step: 0, escapes: [] };
-  c.w.attempts.set(e, attempt);
-  const before2 = c.escapes.length;
-  while (attempt.step < RESPELL_STEPS.length) {
-    const step = RESPELL_STEPS[attempt.step++];
-    if (!step(c, es, i, attempt)) continue;
-    for (let at = before2; at < c.escapes.length; at++) {
-      attempt.escapes.push(c.escapes[at]);
-      if (step !== escapeLoneBracket) c.trials.push(c.escapes[at]);
-    }
-    return true;
-  }
-  c.losses.push([e, null]);
-  return false;
-}
-var RESPELL_STEPS = [
-  escapeBefore,
-  (c, es, i) => escapeContentStart(c, es[i]),
-  (c, es, i) => escapeContentConstruct(c, es[i]),
-  escapeAcrossCloser,
-  escapeInside,
-  escapeAfter,
-  (c, es, i) => escapeContentLine(c, es[i]),
-  (c, es, i) => escapeOwnerMark(c, es[i]),
-  (c, es, i, attempt) => {
-    if (!hasOtherForm(c, es[i])) return false;
-    for (const escape of attempt.escapes) {
-      c.retracted.push(escape);
-      mark(c, escape[0], escape[1], false);
-    }
-    attempt.escapes = [];
-    changeForm(c, es[i]);
-    return true;
-  },
-  escapeBefore,
-  escapeInside,
-  (c, es, i) => escapeInContent(c, es[i]),
-  escapeLoneBracket
-];
-function escapeLoneBracket(c, es, i) {
-  const e = es[i];
-  if (e.type !== "inline_footnote" && e.type !== "inline_extension" || !("children" in e)) return false;
-  const open = [];
-  for (const text of textsBelow(e)) {
-    for (let at = 0; at < text.value.length; at++) {
-      const char = text.value[at];
-      if (char !== "[" && char !== "]" || isEscaped(c, text, at)) continue;
-      if (char === "[") open.push([text, at]);
-      else open.pop();
-    }
-  }
-  let asked = false;
-  for (const [text, at] of open) asked = escapeAt(c, text, at) || asked;
-  return asked || escapeMark(c, e.children, 0, 0, "[");
-}
-function contentFlags(c, e) {
-  return c.flags | (e.type === "emphasis" ? IN_EMPHASIS : e.type === "strong" ? IN_STRONG : 0);
-}
-var MAX_PROBE_ROUNDS = 32;
-function probeWriter(c, expected) {
-  const escapes = /* @__PURE__ */ new Map();
-  for (const text of expected.flatMap((node) => node.type === "text" ? [node] : textsBelow(node))) {
-    const own = c.w.escapes.get(text);
-    if (own !== void 0) escapes.set(text, [...own]);
-  }
-  return { ...c.w, escapes, attempts: /* @__PURE__ */ new Map(), losses: { entries: [], nodes: [] }, lost: new Set(c.w.lost) };
-}
-function probeEscapes(c, e, expected, flags, takes = () => true) {
-  const w = probeWriter(c, expected);
-  let found = false;
-  for (let round = 0; round < MAX_PROBE_ROUNDS; round++) {
-    const source = `${writeInlines(w, expected, flags)}
-`;
-    const parsed = parseChunk(source, c.w.abbreviations).children;
-    const block = parsed[0];
-    if (parsed.length !== 1 || block?.type !== "paragraph") return round === 0 ? null : found;
-    const probe = createCheck(w);
-    probe.flags = flags;
-    probe.source = source;
-    compareInlines(probe, expected, block.children, e);
-    extendChains(probe);
-    const taken = probe.escapes.filter(([node, at]) => takes(node, at) && escapeAt(c, node, at));
-    if (taken.length === 0) return round === 0 && probe.losses.length > 0 ? null : found;
-    found = true;
-    for (const [node, at] of taken) w.escapes.set(node, [...w.escapes.get(node) ?? [], at].sort((x, y) => x - y));
-  }
-  return found;
-}
-function escapeContentConstruct(c, e) {
-  if (!("children" in e) || e.children.length === 0) return false;
-  const word = { type: "text", value: "x" };
-  const flat = e.children.map((node) => node.type === "soft_break" ? { type: "text", value: " " } : node);
-  const variants = isBreak(e.children[0]) ? [[word, ...e.children], [word, ...flat]] : [e.children, [word, ...e.children], [word, ...flat]];
-  for (const expected of variants) {
-    const found = probeEscapes(c, e, expected, contentFlags(c, e));
-    if (found !== null) return found;
-  }
-  return false;
-}
-function escapeAcrossCloser(c, es, i) {
-  const e = es[i];
-  if (!isPairedMark(e) || !textsBelow(e).some((text) => opensAcross(text.value))) return false;
-  const flags = contentFlags(c, e);
-  const spelled = writeInlines(c.w, [e], c.flags);
-  const content = writeInlines(c.w, e.children, flags);
-  const closer = { type: "text", value: spelled.slice(spelled.length - (spelled.length - content.length) / 2) };
-  const word = { type: "text", value: "x" };
-  let end = i + 1;
-  while (end < es.length && end - i <= MAX_ACROSS) end++;
-  const inlines = [...e.children, closer, ...es.slice(i + 1, end)];
-  const mark2 = CLOSING_MARKS.get(e.type);
-  const own = new Set(textsBelow(e));
-  const takes = (node, at) => node !== closer && node !== word && !(own.has(node) && node.value[at] === mark2);
-  return probeEscapes(c, e, inlines, flags, takes) === true || probeEscapes(c, e, [word, ...inlines], flags, takes) === true;
-}
-var MAX_ACROSS = 16;
-function opensAcross(value) {
-  for (const opener of "[`<{$:") if (value.includes(opener)) return true;
-  return false;
-}
-function textsBelow(node) {
-  return childNodes(node).flatMap((child) => child.type === "text" ? [child] : textsBelow(child));
-}
-var PAIRED_MARKS = [
-  "emphasis",
-  "strong",
-  "underline",
-  "strike",
-  "highlight",
-  "superscript",
-  "subscript",
-  "insert",
-  "delete"
-];
-function isPairedMark(node) {
-  return PAIRED_MARKS.includes(node.type) && "children" in node;
-}
-function escapeContentLine(c, e) {
-  if (!("children" in e)) return false;
-  const nodes = e.children;
-  for (let at = 0; at < nodes.length; at++) {
-    const node = nodes[at];
-    if ("children" in node && escapeContentLine(c, node)) return true;
-    const next = nodes[at + 1];
-    if (!isBreak(node) || next?.type !== "text" || !hasOpenerShape(next) || !opensBlockAlone(c, nodes, at + 1)) continue;
-    for (const offset of openerOffsets(next.value)) if (escapeAt(c, next, offset)) return true;
-  }
-  return false;
-}
-function opensBlockAlone(c, nodes, from) {
-  let end = from;
-  while (end < nodes.length && !isBreak(nodes[end])) end++;
-  const blocks = parseChunk(writeInlines(c.w, nodes.slice(from, end), c.flags), c.w.abbreviations).children;
-  return blocks.length !== 1 || blocks[0].type !== "paragraph";
-}
-function openerShift(a) {
-  if (a.type === "image" || a.type === "literal_inline" || a.type === "inline_footnote") return 1;
-  if (a.type === "math") return a.display ? 2 : 1;
-  if (a.type !== "smart_punctuation") return 0;
-  const source = a.source;
-  return source.startsWith("{-") ? 2 : source.startsWith("-") ? 1 : 0;
-}
-function escapeOpener(c, e, at, a) {
-  const value = e.value;
-  let start = at;
-  while (start < value.length && (value[start] === " " || value[start] === "	")) start++;
-  const shifted = start + openerShift(a);
-  if (escapeAt(c, e, shifted)) {
-    const opener = value[shifted];
-    if (opener === "[" && isChainOpener(a) || opener === "`" && SPAN_TYPES.includes(a.type)) c.chains.push([e, shifted, a]);
-  } else if (!escapeAt(c, e, start)) c.losses.push([e, "value"]);
-}
-function isChainOpener(a) {
-  if (a.type === "footnote_ref") return true;
-  if (a.type !== "link" && a.type !== "image" && a.type !== "span" && a.type !== "inline_footnote") return false;
-  return !("key" in a && a.key !== void 0) || "refForm" in a && (a.refForm === "full" || a.refForm === "collapsed");
-}
-function holdsCloser(node) {
-  if (node.type === "image" && node.alt?.includes("]") === true) return true;
-  return childNodes(node).some((child) => child.type === "text" ? child.value.includes("]") : holdsCloser(child));
-}
-function escapeBrackets(c, node, at, a) {
-  const value = node.value;
-  const [start, end] = bracketRun(value, at);
-  if (!value.includes("]", end)) return;
-  if (a.type === "footnote_ref") return escapeLabels(c, node, at, end);
-  const sigil = sigilOf(value, at);
-  const opens = (k) => sigilOf(value, k) === sigil && (sigil === "^" || value[k + 1] !== "^");
-  for (let k = at - 1; k >= start; k--) {
-    if (value[k] !== "[") continue;
-    if (!opens(k)) break;
-    escapeAt(c, node, k);
-  }
-  if (holdsCloser(a)) return;
-  for (let k = at + 1; k < end; k++) {
-    if (value[k] !== "[") continue;
-    if (!opens(k)) return;
-    escapeAt(c, node, k);
-  }
-}
-function sigilOf(value, at) {
-  const before2 = value[at - 1];
-  return before2 === "!" || before2 === "^" ? before2 : "";
-}
-function bracketRun(value, at) {
-  const inRun = (k) => value[k] === "[" || (value[k] === "!" || value[k] === "^") && value[k + 1] === "[";
-  let start = at;
-  while (start > 0 && inRun(start - 1)) start--;
-  let end = at + 1;
-  while (end < value.length && inRun(end)) end++;
-  return [start, end];
-}
-function escapeLabels(c, node, at, end) {
-  const value = node.value;
-  for (let k = at + 1; k < end; k++) {
-    if (value[k] !== "[") continue;
-    if (value[k + 1] !== "^" || k + 2 >= end) return;
-    escapeAt(c, node, k);
-  }
-}
-var SPAN_TYPES = ["code", "literal_inline", "math"];
-function isEscapedBacktick(source, at) {
-  let before2 = at;
-  while (before2 > 0 && source[before2 - 1] === "\\") before2--;
-  return (at - before2) % 2 === 1;
-}
-function escapeBackticks(c, node, at, a) {
-  const source = c.source;
-  const value = node.value;
-  if (source === null || a.pos === void 0) return;
-  let run = at;
-  while (value[run] === "`") run++;
-  let start = source.indexOf("`", stringOffsetOfByte(source, a.pos.startOffset));
-  if (start < 0) return;
-  const end = start + run - at;
-  while (start < end && source[start] === "`") start++;
-  if (start !== end || source[end] === "`") return;
-  for (let k = source.indexOf("`", end); k >= 0; k = source.indexOf("`", k + 1)) if (!isEscapedBacktick(source, k)) return;
-  for (let k = at + 1; k < run; k++) escapeAt(c, node, k);
-}
-function extendChains(c) {
-  if (c.chains.length === 0) return;
-  const placed = /* @__PURE__ */ new Map();
-  for (const [node, at] of c.escapes) placed.set(node, (placed.get(node) ?? /* @__PURE__ */ new Set()).add(at));
-  for (const [node, at, a] of c.chains) {
-    if (placed.get(node)?.has(at) !== true) continue;
-    if (node.value[at] === "`") escapeBackticks(c, node, at, a);
-    else escapeBrackets(c, node, at, a);
-  }
-}
-function isPaired(node) {
-  return node.type === "emphasis" || node.type === "strong";
-}
-function escapeMark(c, nodes, start, from, mark2) {
-  for (let at = start; at < nodes.length; at++) {
-    const node = nodes[at];
-    if (node.type !== "text") {
-      if ("children" in node && escapeMark(c, node.children, 0, 0, mark2)) return true;
-      continue;
-    }
-    const value = node.value;
-    for (let k = value.indexOf(mark2, at === start ? from : 0); k >= 0; k = value.indexOf(mark2, k + 1)) if (escapeAt(c, node, k)) return true;
-  }
-  return false;
-}
-function closedEarly(c, es, i, vi, owner) {
-  const mark2 = CLOSING_MARKS.get(owner.type);
-  if (isPaired(owner) && hasOtherForm(c, owner)) changeForm(c, owner);
-  else if (mark2 === void 0 || !escapeMark(c, es, i, vi, mark2)) c.losses.push([owner, null]);
-}
-function openerLine(es, from) {
-  let at = from;
-  while (at + 2 < es.length && isBraceLine(es[at]) && isBreak(es[at + 1])) at += 2;
-  return at;
-}
-function isBraceLine(node) {
-  return node?.type === "text" && node.value.startsWith("{") && node.value.endsWith("}");
-}
-function endedEarly(c, es, i, owner) {
-  const line2 = isBreak(es[i]) ? es[i + 1] : void 0;
-  if (line2?.type === "text" && endsLineWithCr(line2.value, 0)) {
-    c.losses.push([line2, "value"]);
-    return;
-  }
-  if (i > 0 && !isBreak(es[i]) && escapeEnd(c, lastText(es[i - 1]), false)) return;
-  if (i > 0 && isBreak(es[i - 1])) escapeLineStart(c, es, openerLine(es, i), owner);
-  else if (CLOSING_MARKS.has(owner.type)) closedEarly(c, es, i, 0, owner);
-  else if (isBreak(es[i]) && i + 1 < es.length) escapeLineStart(c, es, openerLine(es, i + 1), owner);
-  else c.losses.push([es[i] ?? owner, null]);
-}
-function matchCharacters(c, e, a, at) {
-  const value = e.value;
-  const other = a.value;
-  const length = Math.min(value.length - at.vi, other.length - at.aj);
-  for (let k = 0; k < length; k++) {
-    if (value.charCodeAt(at.vi + k) === other.charCodeAt(at.aj + k)) continue;
-    if (!escapeAt(c, e, at.vi + k)) c.losses.push([e, "value"]);
-    return false;
-  }
-  at.vi += length;
-  at.aj += length;
-  if (at.aj === other.length) {
-    at.j++;
-    at.aj = 0;
-  }
-  return true;
-}
-function parseEndsInText(c, es, at, owner) {
-  if (es[at.i]?.type === "text" && endsLineWithCr(es[at.i].value, at.vi)) {
-    c.losses.push([es[at.i], "value"]);
-    return false;
-  }
-  if (at.vi === 0 && at.i > 0 && startsWithCloser(es[at.i - 1], es[at.i]) && escapeAt(c, es[at.i], 0)) return false;
-  if (at.vi === 0 && at.i > 0 && isBreak(es[at.i - 1])) escapeLineStart(c, es, openerLine(es, at.i), owner);
-  else if (CLOSING_MARKS.has(owner.type)) closedEarly(c, es, at.i, at.vi, owner);
-  else c.losses.push([owner, null]);
-  return false;
-}
-function startsWithCloser(node, next) {
-  const mark2 = CLOSING_MARKS.get(node.type);
-  return mark2 !== void 0 && next?.type === "text" && next.value.startsWith(mark2);
-}
-function afterTextNode(c, es, as, at, owner) {
-  at.i++;
-  at.vi = 0;
-  if (at.aj === 0 || es[at.i]?.type === "text") return true;
-  if (es[at.i] === void 0) {
-    if (!escapeInContent(c, owner) && !escapeEnd(c, lastText(owner), true)) c.losses.push([owner, null]);
-  } else if (at.j + 1 >= as.length && isPaired(owner) && !joinsNext(es, at.i)) closedEarly(c, es, at.i, 0, owner);
-  else return respell(c, es, at.i) && stepOver(c, es, as, at);
-  return false;
-}
-function matchText(c, e, es, as, at, owner) {
-  const value = e.value;
-  const a = as[at.j];
-  if (a === void 0) return parseEndsInText(c, es, at, owner);
-  if (a.type !== "text") return skipConstruct(c, e, a, at);
-  if (!matchCharacters(c, e, a, at)) return false;
-  return at.vi < value.length || afterTextNode(c, es, as, at, owner);
-}
-function stepOver(c, es, as, at) {
-  const a = as[at.j];
-  const spelled = writeInlines(c.w, [es[at.i]], c.flags);
-  if (a?.type !== "text" || spelled.includes("\\") || !a.value.startsWith(spelled, at.aj)) return false;
-  at.aj += spelled.length;
-  if (at.aj === a.value.length) {
-    at.j++;
-    at.aj = 0;
-  }
-  at.i++;
-  return true;
-}
-function skipConstruct(c, e, a, at) {
-  escapeOpener(c, e, at.vi, a);
-  const pos = a.pos;
-  if (pos === void 0) return false;
-  const end = spelledEnd(c.w, e, at.vi, pos.endOffset - pos.startOffset, (c.flags & IN_CELL) !== 0);
-  if (end < 0) return false;
-  at.vi = end;
-  at.j++;
-  if (at.vi === e.value.length) {
-    at.i++;
-    at.vi = 0;
-  }
-  return true;
-}
-function readsNeighbor(c, e, es, i, a) {
-  const next = textAt(es, i + 1);
-  if (next !== null && !sameValue(e.attrs, a.attrs) && next.value.startsWith("{")) return escapeAt(c, next, 0);
-  if (next !== null && readsOn(e, next) && differingField(c, e, a) !== null) return escapeAt(c, next, 0);
-  if (e.type !== "smart_punctuation" || a.type !== "smart_punctuation" || e.kind === a.kind && e.source === a.source) return false;
-  if (next !== null && (moveSigilEscape(c, next) || escapeAt(c, next, 0))) return true;
-  const before2 = textAt(es, i - 1);
-  return before2 !== null && escapeAt(c, before2, before2.value.length - 1);
-}
-function moveSigilEscape(c, next) {
-  const value = next.value;
-  if (value[0] !== ":" || !isEscaped(c, next, 0)) return false;
-  let bracket = 1;
-  while (bracket < value.length && isExtensionNameChar(value.charCodeAt(bracket))) bracket++;
-  if (bracket === 1 || value[bracket] !== "[" || isEscaped(c, next, bracket)) return false;
-  c.retracted.push([next, 0]);
-  mark(c, next, 0, false);
-  return escapeAt(c, next, bracket);
-}
-function readsOn(node, next) {
-  if (node.attrs !== void 0) return false;
-  if (node.type === "mention" || node.type === "tag") return true;
-  return (node.type === "code" || node.type === "literal_inline" || node.type === "math") && next.value.startsWith("`");
-}
-function textAt(nodes, at) {
-  const node = nodes[at];
-  return node?.type === "text" ? node : null;
-}
-function isLostCode(c, node) {
-  return node !== void 0 && node.type === "code" && c.w.lost.has(node);
-}
-function matchNode(c, e, es, as, at, owner) {
-  const a = as[at.j];
-  if (a === void 0) {
-    endedEarly(c, es, at.i, owner);
-    return false;
-  }
-  if (a.type !== e.type || at.aj > 0) return respell(c, es, at.i) && stepOver(c, es, as, at);
-  if (isLostCode(c, es[at.i + 1])) {
-    at.i++;
-    while (isLostCode(c, es[at.i])) at.i++;
-    at.j++;
-    return true;
-  }
-  if (readsNeighbor(c, e, es, at.i, a)) return false;
-  compareInline(c, e, a);
-  at.i++;
-  at.j++;
-  return true;
-}
-function setAnchor(es, as, at) {
-  if (at.vi !== 0 || at.aj !== 0) return;
-  const pos = as[at.j]?.pos;
-  if (isBreak(es[at.i])) at.anchor = -1;
-  else if (pos !== void 0) {
-    at.anchor = at.i;
-    at.anchorByte = pos.startOffset;
-  }
-}
-function firstNodeFrom(as, j, offset) {
-  while (j < as.length && (as[j].pos?.startOffset ?? -1) < offset) j++;
-  return j;
-}
-function resumeAt(at, i, j) {
-  at.i = i;
-  at.j = j;
-  at.vi = 0;
-  at.aj = 0;
-  return true;
-}
-function resync(c, es, as, at) {
-  const failed = as[at.j]?.pos;
-  if (at.anchor < 0 || failed === void 0) return false;
-  let offset = at.anchorByte;
-  let j = at.j;
-  for (let k = at.anchor; k < es.length && !isBreak(es[k]); k++) {
-    j = firstNodeFrom(as, j, offset);
-    if (k > at.i && offset >= failed.endOffset && as[j]?.pos?.startOffset === offset) return resumeAt(at, k, j);
-    offset += utf8Length(writeInlines(c.w, [es[k]], c.flags));
-  }
-  return false;
-}
-function compareInlines(c, es, as, owner) {
-  const outer = c.owner;
-  c.owner = owner;
-  compareList(c, es, as, owner);
-  c.owner = outer;
-}
-function compareList(c, es, as, owner) {
-  const at = { i: 0, vi: 0, j: 0, aj: 0, anchor: -1, anchorByte: 0 };
-  while (at.i < es.length) {
-    setAnchor(es, as, at);
-    const e = es[at.i];
-    const more = e.type === "text" ? matchText(c, e, es, as, at, owner) : matchNode(c, e, es, as, at, owner);
-    if (!more && !resync(c, es, as, at)) return;
-  }
-  if (at.j < as.length) c.losses.push([owner, null]);
-}
-function compareRaw(c, e, a) {
-  const probe = createCheck(c.w);
-  probe.flags = c.flags;
-  compareFields(probe, e, a);
-  if ("children" in e) compareInlines(probe, e.children, childNodes(a), e);
-  if (changes(probe) + probe.losses.length > 0 && changes(c) === 0) changeForm(c, e);
-  else if (changes(probe) + probe.losses.length > 0) c.misaligned = true;
-}
-function compareFields(c, e, a) {
-  const field = differingField(c, e, a);
-  if (field !== null) c.losses.push([e, field]);
-}
-function compareInline(c, e, a) {
-  if ("key" in e && e.key !== void 0 && hasOtherForm(c, e)) return compareRaw(c, e, a);
-  compareFields(c, e, a);
-  if (!("children" in e)) return;
-  const outer = c.flags;
-  if (e.type === "emphasis") c.flags |= IN_EMPHASIS;
-  else if (e.type === "strong") c.flags |= IN_STRONG;
-  compareInlines(c, e.children, childNodes(a), e);
-  c.flags = outer;
-}
-function blockMismatch(c, e) {
-  c.misaligned = true;
-  if (e.type === "paragraph" && e.children.length > 0) escapeLineStart(c, e.children, 0, e);
-  else c.losses.push([e, null]);
-}
-function missingBlock(c, e) {
-  const first = e.type === "paragraph" ? e.children[0] : void 0;
-  if (first?.type === "text" && endsLineWithCr(first.value, 0)) {
-    c.losses.push([first, "value"]);
-    return;
-  }
-  if (e.type === "paragraph" && e.children.length > 0) escapeLineStart(c, e.children, 0, e);
-  else if (hasOtherForm(c, e)) changeForm(c, e);
-  else c.losses.push([e, null]);
-}
-function hasSpanMarks2(table3) {
-  for (const group of table3.children) {
-    if (group.type !== "comment" && group.children.some(rowHasSpanMarks)) return true;
-  }
-  return false;
-}
-function rowHasSpanMarks(row) {
-  return row.type === "table_row" && row.children.some((cell) => cell.span !== void 0);
-}
-function compareSlots(c, e, a) {
-  const title = titleOf(e);
-  const parsedTitle = titleOf(a);
-  if (title !== void 0) compareInlines(c, title, parsedTitle ?? [], e);
-  else if (parsedTitle !== void 0) c.losses.push([e, "title"]);
-  const caption2 = captionOf(e);
-  const parsedCaption = captionOf(a);
-  if (caption2 !== void 0 && parsedCaption !== void 0) compareBlock(c, caption2, parsedCaption);
-  else if (caption2 !== parsedCaption) c.losses.push([caption2 ?? e, caption2 === void 0 ? "caption" : null]);
-}
-function compareBlock(c, e, a) {
-  if (c.w.lost.has(e)) return true;
-  if (e.type !== a.type) {
-    blockMismatch(c, e);
-    return false;
-  }
-  const marks = c.spanMarks;
-  const flags = c.flags;
-  if (e.type === "table" && a.type === "table") c.spanMarks = hasSpanMarks2(e) || hasSpanMarks2(a);
-  if (e.type === "table_cell") c.flags |= IN_CELL;
-  compareFields(c, e, a);
-  if (isInlineParent(e)) compareInlines(c, e.children, childNodes(a), e);
-  else compareBlocks(c, childNodes(e), childNodes(a), e);
-  compareSlots(c, e, a);
-  c.spanMarks = marks;
-  c.flags = flags;
-  return true;
-}
-function readStarts(node, offset, paragraphs, lines) {
-  for (const block of childNodes(node)) {
-    const pos = block.pos;
-    if (pos !== void 0) {
-      lines.add(pos.startLine - offset);
-      if (block.type === "paragraph") paragraphs.add((pos.startLine - offset) * PLACE_COLUMNS + pos.startColumn - 1);
-    }
-    if (!isInlineParent(block)) readStarts(block, offset, paragraphs, lines);
-    const caption2 = captionOf(block);
-    if (caption2 !== void 0) readStarts(caption2, offset, paragraphs, lines);
-  }
-}
-function hasOpenerShape(node) {
-  const value = node?.type === "text" ? node.value : "";
-  if (value === "") return node !== void 0 && node.type !== "text";
-  return !isAsciiAlphanumeric(value.charCodeAt(0)) || openerOffsets(value).length > 1;
-}
-function isPending(c, node) {
-  return node?.type === "text" && c.marks.has(node);
-}
-function escapeOpenerLines(c, e, place2, paragraphs, lines) {
-  const top = e.children;
-  if (!paragraphs.has(place2) && hasOpenerShape(top[0]) && !isPending(c, top[0])) escapeLineStart(c, top, 0, e);
-  let line2 = Math.floor(place2 / PLACE_COLUMNS);
-  const visit3 = (nodes) => {
-    for (let at = 0; at < nodes.length; at++) {
-      const node = nodes[at];
-      if ("children" in node) visit3(node.children);
-      if (!isBreak(node)) continue;
-      line2++;
-      if (lines.has(line2) && hasOpenerShape(nodes[at + 1]) && !isPending(c, nodes[at + 1])) escapeLineStart(c, nodes, at + 1, e);
-    }
-  };
-  visit3(top);
-}
-function escapeOpeners(c, parsed, offset) {
-  if (!c.misaligned) return;
-  const paragraphs = /* @__PURE__ */ new Set();
-  const lines = /* @__PURE__ */ new Set();
-  readStarts(parsed, offset, paragraphs, lines);
-  for (const [node, place2] of c.w.starts) {
-    if (node.attrs === void 0 && node.lang === void 0) escapeOpenerLines(c, node, place2, paragraphs, lines);
-  }
-}
-function compareBlocks(c, es, as, owner) {
-  const before2 = changes(c);
-  const count = Math.min(es.length, as.length);
-  for (let at = 0; at < count; at++) if (!compareBlock(c, es[at], as[at])) return;
-  if (es.length === as.length || changes(c) > before2 || es.some((e) => c.w.lost.has(e))) return;
-  const missing = es[as.length];
-  c.misaligned = true;
-  if (owner.type === "line_block" && missing !== void 0) escapeLineStart(c, childNodes(missing), 0, missing);
-  else if (es.length > as.length) missingBlock(c, es[as.length]);
-  else c.losses.push([owner, null]);
 }
 
 // ../carve-js/v2/src/write.ts
@@ -19077,7 +19310,7 @@ function groupTree(w, group, first, escapes) {
   w.starts.clear();
   writeBlocks2(w, group, "", 0, false);
   return parseChunk(`${first ? "" : "\n"}${w.lines.join("\n")}
-`, w.abbreviations);
+`, w.abbreviations, w.extensions);
 }
 function isAsked(w, group, first, node, at) {
   const placed = w.escapes;
@@ -19178,7 +19411,7 @@ function compareGroup(w, document, group, first) {
 `;
   const check = createCheck(w);
   check.source = source;
-  const parsed = parseChunk(source, w.abbreviations);
+  const parsed = parseChunk(source, w.abbreviations, w.extensions);
   w.parsed = parsed;
   compareBlocks(check, group, parsed.children, document);
   escapeOpeners(check, parsed, first ? 1 : 2);
@@ -19213,18 +19446,400 @@ function writeDocument2(w, document) {
 function writeTree(document, options) {
   const layout = options?.layout;
   const facts = layout === void 0 ? null : /* @__PURE__ */ new Map();
-  const w = createWriter(facts, options?.alignTables === true);
+  const w = createWriter(facts, options?.alignTables === true, options?.extensions);
   if (layout !== void 0 && facts !== null) readLayout(w, facts, document, layout.nodes);
   readAbbreviations(w, document);
   const source = writeDocument2(w, document);
-  return { source, diagnostics: locateFindings(document, w.losses) };
+  const diagnostics = locateFindings(document, w.losses);
+  for (const name of ["headers", "footers"]) {
+    document.metadata?.[name]?.forEach((_entry, index) => diagnostics.push({
+      code: "structure-unspellable",
+      severity: "warning",
+      channel: "render-loss",
+      message: `a root ${name.slice(0, -1)} has no spelling in Carve source`,
+      path: `/metadata/${name}/${index}`
+    }));
+  }
+  return { source, diagnostics };
 }
 function writeWithDiagnostics(document, options) {
-  validateTree(document);
+  validateTree(document, void 0, void 0, options?.extensions);
   return writeTree(document, options);
 }
 function write(document, options) {
   return writeWithDiagnostics(document, options).source;
+}
+
+// ../carve-js/v2/src/extensions/claims.ts
+function sourceBody(node) {
+  const text = write({ type: "document", astVersion: "2.0", children: [node] });
+  const lines = text.split("\n");
+  const opener = lines.findIndex((line2) => line2.startsWith(":::"));
+  const body2 = lines.slice(opener + 1, -2).join("\n");
+  return body2 === "" ? "" : `${body2}
+`;
+}
+function divSource(node, name) {
+  const source = { form: "div", name, body: sourceBody(node) };
+  if (node.title !== void 0) source.title = plainText(node.title);
+  if (node.groupLabel !== void 0) source.groupLabel = node.groupLabel;
+  return source;
+}
+function claim(node, definition, sourceNames) {
+  const matcher = definition.matcher;
+  if (matcher === void 0) return null;
+  switch (matcher.form) {
+    case "div":
+      return node.type === "div" && sourceNames?.get(node) === matcher.name ? divClaim(node, matcher.name, sourceNames) : null;
+    case "fence":
+      return node.type === "code_block" && sourceNames?.get(node) === matcher.name ? fenceClaim(node, matcher.name) : null;
+    case "inline":
+      return node.type === "inline_extension" && node.name === matcher.name ? inlineClaim(node, matcher.name) : null;
+  }
+}
+function divClaim(node, name, sourceNames) {
+  return {
+    form: "div",
+    name,
+    node,
+    body: node.children,
+    sourceName: (child) => sourceNames.get(child),
+    ...node.attrs === void 0 ? {} : { attrs: node.attrs },
+    ...node.title === void 0 ? {} : { title: plainText(node.title) },
+    ...node.groupLabel === void 0 ? {} : { label: node.groupLabel },
+    source: divSource(node, name)
+  };
+}
+function fenceClaim(node, name) {
+  const source = { form: "fence", name, body: node.value };
+  if (node.title !== void 0) source.title = plainText(node.title);
+  if (node.groupLabel !== void 0) source.groupLabel = node.groupLabel;
+  return {
+    form: "fence",
+    name,
+    node,
+    value: node.value,
+    ...node.attrs === void 0 ? {} : { attrs: node.attrs },
+    source,
+    ...source.title === void 0 ? {} : { title: source.title },
+    ...source.groupLabel === void 0 ? {} : { label: source.groupLabel }
+  };
+}
+function inlineClaim(node, name) {
+  const core = { type: "inline_extension", name, children: node.children };
+  const document = { type: "document", astVersion: "2.0", children: [{ type: "paragraph", children: [core] }] };
+  const written = write(document);
+  const source = { form: "inline", name, body: written.slice(name.length + 2, -2) };
+  return {
+    form: "inline",
+    name,
+    node,
+    children: node.children,
+    ...node.attrs === void 0 ? {} : { attrs: node.attrs },
+    source
+  };
+}
+function replace(node, definitions, sourceNames) {
+  for (const definition of definitions) {
+    const input = claim(node, definition, sourceNames);
+    if (input === null || definition.transform === void 0) continue;
+    const transformed = definition.transform(input);
+    if (transformed === null) continue;
+    attachClaim(transformed, input, node, definition);
+    replaceChildren(transformed, definitions, sourceNames);
+    return transformed;
+  }
+  replaceChildren(node, definitions, sourceNames);
+  return node;
+}
+function attachClaim(transformed, input, node, definition) {
+  if (transformed.name !== definition.name || transformed.version !== definition.version || transformed.type !== (input.form === "inline" ? "inline_extension" : "block_extension")) {
+    throw new Error(`invalid transform of ${definition.name}`);
+  }
+  transformed.source = input.source;
+  if (input.attrs !== void 0) {
+    const attrs = input.form === "div" ? remainingAttrs(input.attrs) : input.attrs;
+    if (attrs !== void 0) transformed.attrs = attrs;
+  }
+  if (node.pos !== void 0) transformed.pos = node.pos;
+}
+function remainingAttrs(attrs) {
+  const classes = attrs.classes?.slice(1);
+  if (attrs.id === void 0 && attrs.keyValues === void 0 && (classes?.length ?? 0) === 0) return void 0;
+  return {
+    ...attrs.id === void 0 ? {} : { id: attrs.id },
+    ...attrs.keyValues === void 0 ? {} : { keyValues: attrs.keyValues },
+    ...classes === void 0 || classes.length === 0 ? {} : { classes }
+  };
+}
+function replaceChildren(node, definitions, sourceNames) {
+  forEachSlot(node, (nodes, step) => {
+    if ((node.type === "block_extension" || node.type === "inline_extension") && step === "fallback") return;
+    for (const [at, child] of nodes.entries()) Reflect.set(nodes, at, replace(child, definitions, sourceNames));
+  });
+}
+function applyExtensions(parsed, definitions) {
+  if (definitions.length === 0) return parsed;
+  const document = parsed.document;
+  const sourceNames = parsed.facts?.sourceNames ?? null;
+  for (const [at, child] of document.children.entries()) Reflect.set(document.children, at, replace(child, definitions, sourceNames));
+  const used = /* @__PURE__ */ new Map();
+  forEachSlot(document, function collect(nodes) {
+    for (const node of nodes) {
+      if ((node.type === "block_extension" || node.type === "inline_extension") && node.name.includes(".") && node.version !== void 0) used.set(node.name, node.version);
+      forEachSlot(node, collect);
+    }
+  });
+  if (used.size > 0) document.extensions = [...used].sort(([a], [b]) => a.localeCompare(b)).map(([name, version]) => ({ name, version, required: false }));
+  return parsed;
+}
+
+// ../carve-js/v2/src/api.ts
+var CarveRenderError = class extends Error {
+  diagnostics;
+  constructor(diagnostics) {
+    super(`the render lost content: ${diagnostics.map((entry) => entry.code).join(", ")}`);
+    this.name = "CarveRenderError";
+    this.diagnostics = diagnostics;
+  }
+};
+var CarveInputError = class extends Error {
+  constructor(profile, limit) {
+    super(`the input is longer than the ${limit} bytes the profile ${profile} accepts`);
+    this.name = "CarveInputError";
+  }
+};
+var NO_PROFILE = PROFILES.get("full");
+var MAX_BYTES_PER_UNIT = 3;
+function profileRule(settings) {
+  return PROFILES.get(settings.profile) ?? NO_PROFILE;
+}
+function checkLength(src, settings) {
+  const limit = profileRule(settings).maxLength;
+  if (limit < 0 || src.length * MAX_BYTES_PER_UNIT <= limit) return;
+  if (src.length > limit || utf8Length(src) > limit) throw new CarveInputError(settings.profile, limit);
+}
+function inputStage(input, settings) {
+  if (typeof input === "string") {
+    checkLength(input, settings);
+    return applyExtensions(buildSource(input, settings.sourceLines, null, null, settings.extensions.length > 0), settings.extensions);
+  }
+  validateTree(input, void 0, void 0, settings.extensions);
+  return { document: profileRule(settings) === NO_PROFILE ? input : structuredClone(input), facts: null };
+}
+function resolveStage(parsed, settings) {
+  const rule = profileRule(settings);
+  const losses = { entries: [], nodes: [] };
+  if (rule !== NO_PROFILE) applyProfile(parsed.document, settings.profile, rule, losses);
+  const resolution = resolve(parsed.document, settings.headingIds, parsed.facts, settings.symbols);
+  const bidi = parsed.facts === null || rule !== NO_PROFILE || parsed.facts.bidi;
+  return { document: parsed.document, settings, resolution, losses, bidi };
+}
+function renderStage(resolved) {
+  const losses = { entries: [...resolved.losses.entries], nodes: [...resolved.losses.nodes] };
+  return renderDocument(resolved.document, resolved.settings, resolved.resolution, losses, resolved.bidi);
+}
+function parseTree(src, options) {
+  const settings = readOptions(options, "parse");
+  return applyExtensions(buildSource(src, options?.positions !== false, null, null, settings.extensions.length > 0), settings.extensions);
+}
+function resolveTree(input, options) {
+  const settings = readOptions(options, "render");
+  const parsed = "type" in input ? inputStage(input, settings) : input;
+  return resolveStage(parsed, settings);
+}
+function renderTree(resolved) {
+  const rendered = renderStage(resolved);
+  if (!resolved.settings.strictLosses || rendered.losses.entries.length === 0) return rendered.html;
+  throw new CarveRenderError(locateFindings(resolved.document, rendered.losses));
+}
+function parseDiagnostics(resolved, parsed) {
+  const found = resolved.resolution.findings;
+  const noted = { entries: [], nodes: [] };
+  parsed.facts?.addFindings(noted);
+  if (noted.entries.length === 0) return locateFindings(resolved.document, found);
+  return locateFindings(resolved.document, { entries: [...noted.entries, ...found.entries], nodes: [...noted.nodes, ...found.nodes] });
+}
+function parseWithDiagnostics(src, options) {
+  const settings = readOptions(options, "parse");
+  const parsed = applyExtensions(
+    buildSource(src, options?.positions !== false, null, null, settings.extensions.length > 0),
+    settings.extensions
+  );
+  const resolved = resolveStage(parsed, settings);
+  return { document: resolved.document, diagnostics: parseDiagnostics(resolved, parsed) };
+}
+function parse(src, options) {
+  const settings = readOptions(options, "parse");
+  return resolveStage(applyExtensions(
+    buildSource(src, options?.positions !== false, null, null, settings.extensions.length > 0),
+    settings.extensions
+  ), settings).document;
+}
+function parseWithLayout(src, options) {
+  const settings = readOptions(options, "parse");
+  const trace = createLayoutTrace();
+  const parsed = applyExtensions(buildSource(src, true, null, trace, settings.extensions.length > 0), settings.extensions);
+  const resolved = resolveStage(parsed, settings);
+  const diagnostics = parseDiagnostics(resolved, parsed);
+  return { document: resolved.document, diagnostics, layout: buildLayout(src, resolved.document, trace) };
+}
+function renderWithDiagnostics(input, options) {
+  const settings = readOptions(options, "render");
+  const parsed = inputStage(input, settings);
+  const resolved = resolveStage(parsed, settings);
+  const rendered = renderStage(resolved);
+  const diagnostics = [...parseDiagnostics(resolved, parsed), ...locateFindings(resolved.document, rendered.losses)];
+  return { html: settings.strictLosses && rendered.losses.entries.length > 0 ? "" : rendered.html, diagnostics };
+}
+function render(input, options) {
+  const settings = readOptions(options, "render");
+  return renderTree(resolveStage(inputStage(input, settings), settings));
+}
+
+// ../carve-js/v2/src/layout-validate.ts
+var CarveLayoutError = class extends Error {
+  path;
+  reason;
+  constructor(path, reason) {
+    super(`${path === "" ? "/" : path}: ${reason}`);
+    this.name = "CarveLayoutError";
+    this.path = path;
+    this.reason = reason;
+  }
+};
+var ROOT_FIELDS = ["version", "encoding", "source", "lineEndings", "bom", "nodes"];
+var LINE_ENDINGS = ["none", "lf", "crlf", "cr", "mixed"];
+var WRAP_FIELDS = ["line", "path", "offset", "row"];
+function fail2(path, reason) {
+  throw new CarveLayoutError(path, reason);
+}
+var checkBoolean = (value, path) => {
+  if (typeof value !== "boolean") fail2(path, "is not a boolean");
+};
+var checkString = (value, path) => {
+  if (typeof value !== "string") fail2(path, "is not a string");
+};
+function checkCount2(value, path, minimum = 0) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < minimum) fail2(path, `is not an integer of at least ${minimum}`);
+  return value;
+}
+function oneOf(values) {
+  return (value, path) => {
+    if (typeof value !== "string" || !values.includes(value)) fail2(path, `is not one of ${values.join(", ")}`);
+  };
+}
+var checkPointer = (value, path) => {
+  if (typeof value !== "string") fail2(path, "is not a string");
+  if (value !== "" && !value.startsWith("/")) fail2(path, "is not a JSON Pointer");
+  for (let at = value.indexOf("~"); at >= 0; at = value.indexOf("~", at + 1)) {
+    if (value[at + 1] !== "0" && value[at + 1] !== "1") fail2(path, "is not a JSON Pointer");
+  }
+};
+var checkWraps = (value, path) => {
+  if (!Array.isArray(value)) fail2(path, "is not a list");
+  let line2 = 0;
+  value.forEach((wrap, index) => {
+    const at = `${path}/${index}`;
+    if (!isRecord(wrap)) fail2(at, "is not an object");
+    for (const key of Object.keys(wrap)) if (!WRAP_FIELDS.includes(key)) fail2(`${at}/${key}`, "is not a field of a wrap");
+    const own = checkCount2(wrap["line"], `${at}/line`, 1);
+    if (own < line2) fail2(`${at}/line`, "is not sorted by line");
+    line2 = own;
+    checkPointer(wrap["path"], `${at}/path`);
+    checkCount2(wrap["offset"], `${at}/offset`);
+    if (wrap["row"] !== void 0) checkCount2(wrap["row"], `${at}/row`);
+  });
+};
+var checkOptionSpelling = (value, path) => {
+  if (!isRecord(value)) fail2(path, "is not an object");
+  for (const [name, written] of Object.entries(value)) {
+    if (!INCLUDE_OPTIONS.has(name)) fail2(`${path}/${name}`, "is not an include option");
+    checkString(written, `${path}/${name}`);
+  }
+};
+var FACTS = /* @__PURE__ */ new Map([
+  ["bare", checkBoolean],
+  ["fenced", checkBoolean],
+  ["hardBreakOpener", checkBoolean],
+  ["wraps", checkWraps],
+  ["continuationLines", (value, path) => void checkCount2(value, path)],
+  ["rawRef", checkString],
+  ["optionSpelling", checkOptionSpelling],
+  ["sourceFormat", oneOf(["pipe", "csv", "tsv"])],
+  ["markerRaw", checkString],
+  ["markerColumn", (value, path) => void checkCount2(value, path)],
+  ["contentColumn", (value, path) => void checkCount2(value, path)],
+  ["continuationStyle", oneOf(["lazy", "indent", "marker_line", "none"])],
+  ["blankLinesBefore", (value, path) => void checkCount2(value, path)],
+  ["blankLinesAfter", (value, path) => void checkCount2(value, path)],
+  ["openerRaw", checkString],
+  ["closerRaw", checkString],
+  ["metadataSeparatorRaw", checkString],
+  ["attachment", oneOf(["preceding", "none"])]
+]);
+function checkFence(entry, path) {
+  const opener = entry["openerRaw"];
+  if (opener === void 0 !== (entry["closerRaw"] === void 0)) fail2(path, "openerRaw and closerRaw come as a pair");
+  if (opener === "") fail2(`${path}/openerRaw`, "is empty");
+}
+function checkEntry(entry, path, length) {
+  if (!isRecord(entry)) fail2(path, "is not an object");
+  checkPointer(entry["path"], `${path}/path`);
+  const start = checkCount2(entry["startByte"], `${path}/startByte`);
+  const end = checkCount2(entry["endByte"], `${path}/endByte`);
+  if (start > end) fail2(`${path}/startByte`, "is behind endByte");
+  if (end > length) fail2(`${path}/endByte`, "is past the end of the source");
+  for (const key of Object.keys(entry)) {
+    if (key === "path" || key === "startByte" || key === "endByte") continue;
+    const check = FACTS.get(key);
+    if (check === void 0) fail2(`${path}/${key}`, "is not a field of a node entry");
+    check(entry[key], `${path}/${key}`);
+  }
+  checkFence(entry, path);
+  return entry["path"];
+}
+function checkRoot(record) {
+  for (const key of ROOT_FIELDS) if (record[key] === void 0) fail2(`/${key}`, "is missing");
+  for (const key of Object.keys(record)) if (!ROOT_FIELDS.includes(key)) fail2(`/${key}`, "is not a field of the record");
+  if (record["version"] !== LAYOUT_VERSION) fail2("/version", `version ${String(record["version"])} is not implemented`);
+  if (record["encoding"] !== "utf-8") fail2("/encoding", "is not utf-8");
+  checkString(record["source"], "/source");
+  oneOf(LINE_ENDINGS)(record["lineEndings"], "/lineEndings");
+  checkBoolean(record["bom"], "/bom");
+  if (!Array.isArray(record["nodes"])) fail2("/nodes", "is not a list");
+}
+var SLOT_ORDER = ["title", "children", "caption"];
+function compareSegments(a, b) {
+  const numberA = Number(a);
+  const numberB = Number(b);
+  if (Number.isInteger(numberA) && Number.isInteger(numberB)) return numberA - numberB;
+  const slot = SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b);
+  if (slot !== 0) return slot;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function compareDocumentOrder(a, b) {
+  const left = a.split("/");
+  const right = b.split("/");
+  for (let at = 0; at < left.length && at < right.length; at++) {
+    const order = compareSegments(left[at], right[at]);
+    if (order !== 0) return order;
+  }
+  return left.length - right.length;
+}
+function validateLayout(value) {
+  if (!isRecord(value)) fail2("", "the record is not an object");
+  checkRoot(value);
+  const length = utf8Length(value["source"]);
+  let previous = null;
+  value["nodes"].forEach((entry, index) => {
+    const path = checkEntry(entry, `/nodes/${index}`, length);
+    if (previous !== null && compareDocumentOrder(path, previous) <= 0) {
+      fail2(`/nodes/${index}/path`, path === previous ? "is a duplicate path" : "is not in document order");
+    }
+    previous = path;
+  });
+  return value;
 }
 
 // ../carve-js/v2/src/format.ts
@@ -19235,19 +19850,97 @@ function readFormatOptions(options) {
     checkType(name, given[name]);
   }
   for (const name of Object.keys(given)) {
-    if (OPTION_KINDS.get(name) !== "format") throw new CarveOptionError(name, "not an option of format");
+    if (OPTION_KINDS.get(name) !== "format" && name !== "extensions") throw new CarveOptionError(name, "not an option of format");
   }
-  return { alignTables: given["alignTables"] === true, normalize: given["normalize"] === true };
+  return {
+    alignTables: given["alignTables"] === true,
+    normalize: given["normalize"] === true,
+    extensions: options?.extensions ?? []
+  };
 }
 function formatWithDiagnostics(source, options) {
-  const { alignTables, normalize } = readFormatOptions(options);
-  const parsed = parseWithLayout(source);
-  const written = writeTree(parsed.document, normalize ? { alignTables } : { layout: parsed.layout, alignTables });
+  const { alignTables, normalize, extensions } = readFormatOptions(options);
+  const parsed = parseWithLayout(source, { extensions });
+  const written = writeTree(parsed.document, normalize ? { alignTables, extensions } : { layout: parsed.layout, alignTables, extensions });
   return { source: written.source, diagnostics: [...parsed.diagnostics, ...written.diagnostics] };
 }
 function format(source, options) {
   return formatWithDiagnostics(source, options).source;
 }
+
+// ../carve-js/v2/src/extensions/tabs.ts
+function tabNode(node) {
+  const title = node.title ?? [];
+  const fallback = [];
+  if (title.length > 0) fallback.push({ type: "paragraph", children: [{ type: "strong", children: title }] });
+  fallback.push(...structuredClone(node.children));
+  const result = {
+    type: "block_extension",
+    name: "carve.tab",
+    version: "1",
+    children: [],
+    slots: { title, body: node.children },
+    fallback,
+    source: divSource(node, "tab")
+  };
+  if (node.pos !== void 0) result.pos = node.pos;
+  const attrs = node.attrs === void 0 ? void 0 : remainingAttrs(node.attrs);
+  if (attrs !== void 0) result.attrs = attrs;
+  return result;
+}
+function isTab(node, claim2) {
+  return node.type === "div" && claim2.sourceName(node) === "tab" && node.title !== void 0 && plainText(node.title).trim() !== "";
+}
+function tabsTransform(claim2) {
+  if (claim2.form !== "div" || claim2.body.length === 0 || !claim2.body.every((node) => isTab(node, claim2))) return null;
+  const tabs = claim2.body.filter((node) => isTab(node, claim2)).map(tabNode);
+  return {
+    type: "block_extension",
+    name: "carve.tabs",
+    version: "1",
+    children: [],
+    slots: { tabs },
+    fallback: structuredClone(tabs.flatMap((tab) => tab.fallback))
+  };
+}
+var tabExtension = {
+  name: "carve.tab",
+  version: "1",
+  parent: { name: "carve.tabs", slot: "tabs" },
+  props: {},
+  children: "none",
+  slots: { title: { kind: "inline", optional: true }, body: { kind: "block" } }
+};
+var tabsExtension = {
+  name: "carve.tabs",
+  version: "1",
+  matcher: { form: "div", name: "tabs" },
+  props: {},
+  children: "none",
+  slots: { tabs: { kind: "block_extension", name: "carve.tab", minItems: 1 } },
+  transform: tabsTransform
+};
+var tabsExtensions = [tabExtension, tabsExtension];
+function renderTabs(node, host) {
+  if (node.type !== "block_extension") return "";
+  const tabs = node.slots?.["tabs"] ?? [];
+  const group = host.nextId("tabs");
+  let controls = "";
+  let panels = "";
+  for (let at = 0; at < tabs.length; at++) {
+    const tab = tabs[at];
+    if (tab?.type !== "block_extension") continue;
+    const title = tab.slots?.["title"] ?? [];
+    const body2 = tab.slots?.["body"] ?? [];
+    const label = title.length === 0 ? `Tab ${at + 1}` : host.plainText(title);
+    const id = `${group}-${at}`;
+    controls += `<input type="radio" name="${group}" id="${id}"${at === 0 ? " checked" : ""}>`;
+    controls += `<label for="${id}">${title.length === 0 ? host.escapeText(label) : host.inlines(title)}</label>`;
+    panels += `<div class="tab-panel" role="group" aria-label="${host.escapeAttribute(label)}">${host.blocks(body2)}</div>`;
+  }
+  return `<div class="tabs" role="group" aria-label="Tabs">${controls}${panels}</div>`;
+}
+var tabsRenderer = { version: "1", render: renderTabs };
 
 // ../carve-js/v2/src/index.ts
 function parseBlockTree(src) {
@@ -19440,6 +20133,10 @@ export {
   scanBlocks,
   scanInline,
   stringOffsetOfByte,
+  tabExtension,
+  tabsExtension,
+  tabsExtensions,
+  tabsRenderer,
   treesEqual,
   urlScheme,
   utf8Length,

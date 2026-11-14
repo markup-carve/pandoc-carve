@@ -1,4 +1,5 @@
 import { type Attrs, type CitationLocator, type ExtensionDeclaration, type IncludeOptions, type Marker, type Metadata, type Position, type Resource, type Task } from './ast.js';
+import { type ExtensionSource } from './extensions/types.js';
 /** C2-A-027: the fields every node may carry. */
 export interface NodeBase {
     attrs?: Attrs;
@@ -37,15 +38,16 @@ export interface BlockExtensionNode extends NodeBase {
     type: "block_extension";
     children: Block[];
     name: string;
+    version: string;
     fallback: Block[];
-    version?: string;
     props?: Record<string, unknown>;
     slots?: Record<string, Node[]>;
     payload?: {
         format: string;
-        value: string;
+        value: unknown;
     }[];
     resourceIds?: string[];
+    source?: ExtensionSource;
 }
 export interface BlockQuoteNode extends NodeBase {
     type: "block_quote";
@@ -213,14 +215,15 @@ export interface InlineExtensionNode extends NodeBase {
     type: "inline_extension";
     children: Inline[];
     name: string;
-    version?: string;
     props?: Record<string, unknown>;
     slots?: Record<string, Node[]>;
     payload?: {
         format: string;
-        value: string;
+        value: unknown;
     }[];
     resourceIds?: string[];
+    source?: ExtensionSource;
+    version?: string;
     fallback?: Inline[];
 }
 export interface InlineFootnoteNode extends NodeBase {

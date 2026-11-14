@@ -1,9 +1,12 @@
-import { type Block, type Node, type ParagraphNode } from './ast.js';
+import { type Block, type BlockExtensionNode, type InlineExtensionNode, type Node, type ParagraphNode } from './ast.js';
 import { type Findings } from './diagnostics.js';
 import { type Settings, type UrlPolicy } from './options.js';
 import { type Resolution } from './resolve.js';
 /** The state of one render. */
 export interface Render {
+    extensionIds: number;
+    usedIds: Set<string>;
+    renderExtension: (node: BlockExtensionNode | InlineExtensionNode) => string | null;
     settings: Settings;
     resolution: Resolution;
     /** The output: every line with a line break before it, so the first character is cut off at the end. */

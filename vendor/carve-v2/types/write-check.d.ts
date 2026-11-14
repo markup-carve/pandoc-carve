@@ -1,7 +1,8 @@
 import { type DocumentNode, type Node, type TextNode } from './ast.js';
+import { type ExtensionDefinition } from './extensions/types.js';
 import { type Writer } from './write-state.js';
 /** The tree of `src`, one block of a larger document whose abbreviations are `abbreviations`. */
-export declare function parseChunk(src: string, abbreviations: Map<string, string>): DocumentNode;
+export declare function parseChunk(src: string, abbreviations: Map<string, string>, extensions?: readonly ExtensionDefinition[]): DocumentNode;
 /** One comparison of written blocks with their parse: what it asks the next write to change. */
 export interface Check {
     w: Writer;

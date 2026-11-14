@@ -46,6 +46,14 @@ export interface Metadata {
     authors?: string[];
     date?: string;
     bibliography?: BibliographyMetadata;
+    headers?: {
+        placement: 'default' | 'first' | 'even';
+        children: Block[];
+    }[];
+    footers?: {
+        placement: 'default' | 'first' | 'even';
+        children: Block[];
+    }[];
 }
 /** C2-A-120: a citation locator and its inline text. */
 export interface CitationLocator {
@@ -64,7 +72,7 @@ export interface IncludeOptions {
 export interface ExtensionDeclaration {
     name: string;
     required: boolean;
-    version?: string;
+    version: string;
 }
 export interface Resource {
     id: string;

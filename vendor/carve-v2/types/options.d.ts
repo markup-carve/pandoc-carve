@@ -1,3 +1,4 @@
+import { type ExtensionDefinition, type ExtensionRenderer } from './extensions/types.js';
 export type HeadingIds = 'off' | 'keep-case' | 'lower' | 'ascii';
 export type Mode = 'interactive' | 'static';
 export type Profile = 'full' | 'article' | 'comment' | 'minimal';
@@ -14,11 +15,11 @@ export interface Social {
     resolveTag?: (name: string) => string | null | undefined;
 }
 export interface Options {
-    extensions?: readonly unknown[];
+    extensions?: readonly ExtensionDefinition[];
     includes?: unknown;
     headingIds?: HeadingIds;
     mode?: Mode;
-    renderers?: Readonly<Record<string, unknown>>;
+    renderers?: Readonly<Record<string, ExtensionRenderer>>;
     symbols?: Readonly<Record<string, string>>;
     labels?: Readonly<Record<string, string>>;
     social?: Social | null;
@@ -43,6 +44,9 @@ export interface ParseOptions extends Pick<Options, 'extensions' | 'includes' | 
 export type RenderOptions = Omit<Options, 'alignTables' | 'normalize' | 'rules' | 'platforms'>;
 /** The options with every default filled in. */
 export interface Settings {
+    extensions: readonly ExtensionDefinition[];
+    renderers: Readonly<Record<string, ExtensionRenderer>>;
+    urlPolicy: UrlPolicy;
     headingIds: HeadingIds;
     mode: Mode;
     symbols: Readonly<Record<string, string>>;

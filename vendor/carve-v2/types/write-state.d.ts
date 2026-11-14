@@ -1,5 +1,6 @@
 import { type DocumentNode, type Node, type ParagraphNode, type TextNode } from './ast.js';
 import { type Findings } from './diagnostics.js';
+import { type ExtensionDefinition } from './extensions/types.js';
 /** The facts of the sidecar that the writer reads (C2-L-046), by node. */
 export interface WriterFacts {
     bare?: boolean;
@@ -22,6 +23,7 @@ export interface Attempt {
     escapes: [TextNode, number][];
 }
 export interface Writer {
+    extensions: readonly ExtensionDefinition[];
     /** The lines of the blocks being written, without their line endings. */
     lines: string[];
     /** What the next line starts with instead of its prefix: the markers of the items it opens (C2-W-027). */
@@ -54,7 +56,7 @@ export interface Writer {
     /** The parse of the group of blocks as it was last written (C2-W-089). */
     parsed: DocumentNode | null;
 }
-export declare function createWriter(facts: Map<Node, WriterFacts> | null, alignTables: boolean): Writer;
+export declare function createWriter(facts: Map<Node, WriterFacts> | null, alignTables: boolean, extensions?: readonly ExtensionDefinition[]): Writer;
 /** The columns a line can have in a place of `Writer.starts`. */
 export declare const PLACE_COLUMNS = 8192;
 /** Notes where the paragraph `node` starts, for the test of its lines after a parse (C2-W-092). */

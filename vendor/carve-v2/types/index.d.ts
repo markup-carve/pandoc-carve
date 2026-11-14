@@ -29,5 +29,7 @@ export { type Diagnostic } from './diagnostics.js';
 /** C2-H-173: shared scheme test and default policy data for consumers of URL sinks. */
 export { isUrlAllowed, urlScheme } from './html-attributes.js';
 export { DEFAULT_DENIED_SCHEMES } from './option-tables.js';
+export { type ExtensionClaim, type ExtensionDefinition, type ExtensionRenderer, type ExtensionRenderHost, type ExtensionSlot, type ExtensionSource } from './extensions/types.js';
+export { tabExtension, tabsExtension, tabsExtensions, tabsRenderer } from './extensions/tabs.js';
 /** Block tree of `src`. Leaves keep their source spans; inline content is not parsed. */
 export declare function parseBlockTree(src: string): BlockNode;

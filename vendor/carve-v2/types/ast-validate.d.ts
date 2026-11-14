@@ -1,4 +1,5 @@
 import { type DocumentNode } from './ast.js';
+import { type ExtensionDefinition } from './extensions/types.js';
 /** A tree that a reader refuses. `path` is an RFC 6901 pointer to the node or the field. */
 export declare class CarveTreeError extends Error {
     path: string;
@@ -27,6 +28,6 @@ export declare const NODE_TABLE: {
  * C2-A-012 to C2-A-019: refuses an envelope whose own fields a reader may not accept: a version it does not
  * read, an unknown required extension, or a field the envelope does not have. The tree inside is checked apart.
  */
-export declare function validateEnvelope(envelope: Readonly<Record<string, unknown>>): void;
+export declare function validateEnvelope(envelope: Readonly<Record<string, unknown>>, extensions?: readonly ExtensionDefinition[]): void;
 /** Refuses `document` unless it is a tree of contract 2.0. */
-export declare function validateTree(document: unknown, envelope?: Readonly<Record<string, unknown>>, source?: string): asserts document is DocumentNode;
+export declare function validateTree(document: unknown, envelope?: Readonly<Record<string, unknown>>, source?: string, extensions?: readonly ExtensionDefinition[]): asserts document is DocumentNode;

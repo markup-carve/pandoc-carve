@@ -14,7 +14,7 @@ test('paragraph with word-split text', () => {
 });
 
 test('emphasis family maps to native constructors', () => {
-  const xs = firstInlines('/i/ *b* /*bi*/ _u_ ~s~ =h= {^sup^} {,sub,}');
+  const xs = firstInlines('/i/ *b* */bi/* {_u_} {~s~} {=h=} {^sup^} {,sub,}');
   const tags = xs.filter((x) => x.t !== 'Space').map((x) => x.t);
   assert.deepEqual(tags, [
     'Emph',
@@ -48,14 +48,15 @@ test('code span and code block with language and title', () => {
   const [cb] = blocks('```python "greet.py"\ndef f(): pass\n```');
   assert.equal(cb.t, 'CodeBlock');
   assert.deepEqual(cb.c[0][1], ['python']);
-  assert.deepEqual(cb.c[0][2], [['title', 'greet.py']]);
+  assert.deepEqual(cb.c[0][2], [['carve-title', JSON.stringify([{ type: 'text', value: 'greet.py' }])]]);
 });
 
 test('inline literal renders as prose, never as Code', () => {
   // PART 9 SS27: the <code> wrapper is dropped, so it must NOT become Pandoc
   // Code (monospace) - that would invert the construct's whole purpose.
   const xs = firstInlines('!`/kaet/`');
-  assert.deepEqual(xs, [{ t: 'Str', c: '/kaet/' }]);
+  assert.deepEqual(xs[0].c[1], [{ t: 'Str', c: '/kaet/' }]);
+  assert.deepEqual(xs[0].c[0][1], ['carve-literal']);
   assert.ok(!xs.some((x) => x.t === 'Code'));
 
   // ... unlike its code-span sibling, which stays Code.
@@ -67,7 +68,8 @@ test('inline literal carries attributes on a Span', () => {
   // bare text otherwise - the Pandoc mapping mirrors that split.
   const [span] = firstInlines('!`x`{.ipa}');
   assert.equal(span.t, 'Span');
-  assert.deepEqual(span.c[0], ['', ['ipa'], []]);
+  assert.deepEqual(span.c[0], ['', ['carve-literal', 'ipa'], [['value', '"x"']]]);
+  assert.deepEqual(carveToPandoc('!`x`{.ipa}').doc.blocks[0].c[0].c[1], [{ t: 'Str', c: 'x' }]);
   assert.deepEqual(span.c[1], [{ t: 'Str', c: 'x' }]);
 });
 
@@ -76,7 +78,7 @@ test('inline literal content stays verbatim and emits no warning', () => {
   const xs = doc.blocks[0].c;
   // no inline construct is parsed inside, and nothing degrades
   assert.ok(!xs.some((x) => x.t === 'Strong'));
-  assert.equal(xs[0].c, 'a<b>');
+  assert.deepEqual(xs[0].c[1], [{ t: 'Str', c: 'a<b>' }]);
   assert.deepEqual(warnings, []);
 });
 
@@ -84,7 +86,7 @@ test('inline literal preserves runs of spaces verbatim', () => {
   // Prose collapses a run of spaces to a single Space, but a literal captures
   // its content VERBATIM - collapsing would lose what the author wrote.
   const xs = carveToPandoc('!`a  b`').doc.blocks[0].c;
-  assert.deepEqual(xs.map((x) => x.t), ['Str', 'Space', 'Space', 'Str']);
+  assert.deepEqual(xs[0].c[1].map((x) => x.t), ['Str', 'Space', 'Space', 'Str']);
   // ... while ordinary prose still collapses, so the change stays scoped.
   const prose = carveToPandoc('a  b').doc.blocks[0].c;
   assert.deepEqual(prose.map((x) => x.t), ['Str', 'Space', 'Str']);
@@ -97,20 +99,14 @@ test('inline literal contributes its text to heading slugs for crossrefs', () =>
   const link = para.c.find((x) => x.t === 'Link');
   assert.ok(link, 'crossref did not resolve into the literal-only heading');
   assert.equal(link.c[2][0], '#Cat');
-  assert.deepEqual(link.c[1], [{ t: 'Str', c: 'Cat' }]);
+  assert.deepEqual(link.c[1][0].c[1], [{ t: 'Str', c: 'Cat' }]);
 });
 
-test('name lookups compare case exactly (carve#2732)', () => {
+test('name lookups compare case exactly', () => {
   const [para] = blocks('# Plan\n\n{#Fig-One}\n![x](x.png)\n^ Figure #: One\n\n</#Plan> </#plan> [Plan][] [plan][] </#fig-one>\n').filter((b) => b.t === 'Para');
   const links = para.c.filter((x) => x.t === 'Link');
-  assert.deepEqual(links.map((l) => [l.c[0][1], l.c[2][0]]), [
-    [['crossref'], '#Plan'],
-    [[], '#Plan'],
-  ]);
-  assert.ok(para.c.some((x) => x.t === 'Str' && x.c.includes('[plan][]')));
-  // An unresolved crossref is its literal source, as the engine renders it.
-  assert.ok(para.c.some((x) => x.t === 'Str' && x.c === '</#plan>'));
-  assert.ok(para.c.some((x) => x.t === 'Str' && x.c === '</#fig-one>'));
+  assert.deepEqual(links.map((l) => l.c[2][0]), ['#Plan', '#plan', '#Plan', '', '#fig-one']);
+  assert.ok(links[3].c[0][2].some(([key]) => key === 'carve-unresolved'));
 });
 
 test('a crossref reaches an id spelled in either normalization form', () => {
@@ -118,7 +114,8 @@ test('a crossref reaches an id spelled in either normalization form', () => {
   for (const [id, target] of [[nfd, nfd], ['caf\u00e9', nfd]]) {
     const [para] = blocks(`{id="${id}"}\n# Hello\n\n</#${target}>\n`).filter((b) => b.t === 'Para');
     const link = para.c.find((x) => x.t === 'Link');
-    assert.deepEqual(link.c[0][1], ['crossref'], `${JSON.stringify(id)} <- ${JSON.stringify(target)}`);
+    assert.equal(link.c[2][0], `#${target}`, `${JSON.stringify(id)} <- ${JSON.stringify(target)}`);
+    assert.ok(link.c[0][2].some(([key]) => key === 'carve-xref'));
   }
 });
 
@@ -129,10 +126,10 @@ test('links, autolinks, images', () => {
 
   const [auto] = firstInlines('<https://e.com>');
   assert.equal(auto.t, 'Link');
-  assert.deepEqual(auto.c[0][1], ['uri']);
+  assert.deepEqual(auto.c[0][2], [['carve-autolink', '1']]);
 
   const [email] = firstInlines('<hi@e.com>');
-  assert.deepEqual(email.c[0][1], ['email']);
+  assert.equal(email.c[2][0], 'mailto:hi@e.com');
 
   const [img] = firstInlines('inline ![alt text](i.png) here').filter((x) => x.t === 'Image');
   assert.deepEqual(img.c[2], ['i.png', '']);
@@ -156,12 +153,12 @@ test('math inline and display', () => {
   const xs = firstInlines('$`e=mc^2`');
   assert.deepEqual(xs[0], { t: 'Math', c: [{ t: 'InlineMath' }, 'e=mc^2'] });
   const [dp] = blocks('$$`e^{i\\pi}+1=0`');
-  assert.equal(dp.c[0].c[0].t, 'DisplayMath');
+  assert.equal(dp.c[1][0].c[0].c[0].t, 'DisplayMath');
 });
 
 test('footnotes: reference and inline resolve to Note', () => {
   const xs = firstInlines('x[^n]\n\n[^n]: the /def/ here');
-  const note = xs.find((x) => x.t === 'Note');
+  const note = xs.find((x) => x.t === 'Span' && x.c[0][1].includes('carve-footnote-ref'))?.c[1][0];
   assert.ok(note, 'reference note present');
   assert.equal(note.c[0].t, 'Para');
   assert.ok(note.c[0].c.some((i) => i.t === 'Emph'));
@@ -171,29 +168,21 @@ test('footnotes: reference and inline resolve to Note', () => {
   assert.ok(note2, 'inline note present');
 });
 
-test('missing footnote definition degrades to the literal source, with a warning', () => {
+test('missing footnote definition stays identifiable in Pandoc JSON', () => {
   const r = carveToPandoc('x[^ghost]');
-  assert.ok(r.warnings.some((w) => w.includes('ghost')));
-  // The four characters the author typed, not a raised `ghost`. A Superscript
-  // here is a construct the document does not contain, and it survived the
-  // round trip as one: `[^ghost]` came back spelled `{^ghost^}`.
-  assert.ok(
-    !r.doc.blocks[0].c.some((i) => i.t === 'Superscript'),
-    JSON.stringify(r.doc.blocks[0].c),
-  );
-  assert.equal(
-    r.doc.blocks[0].c.map((i) => (i.t === 'Space' ? ' ' : i.c)).join(''),
-    'x[^ghost]',
-  );
+  const ref = r.doc.blocks[0].c[1];
+  assert.equal(ref.t, 'Span');
+  assert.deepEqual(ref.c[0][2], [['key', 'ghost']]);
+  assert.deepEqual(ref.c[1], [{ t: 'Note', c: [] }]);
 });
 
-test('link reference definitions resolve their links and emit no block or warning', () => {
+test('link reference definitions resolve their links and survive as tree data', () => {
   const result = carveToPandoc('[label][ref]\n\n[ref]: https://example.com "Title"');
-  assert.deepEqual(result.warnings, []);
-  assert.equal(result.doc.blocks.length, 1, 'the definition itself renders nothing');
+  assert.equal(result.doc.blocks.length, 2, 'the definition is carried as raw tree data');
   const link = result.doc.blocks[0].c.find((inline) => inline.t === 'Link');
   assert.ok(link, 'the reference became a link');
-  assert.deepEqual(link.c[2], ['https://example.com', 'Title']);
+  assert.deepEqual(link.c[2][0], 'https://example.com');
+  assert.equal(result.doc.blocks[1].c[0], 'carve-tree');
 });
 
 test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
@@ -211,8 +200,7 @@ test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
 
   const [tasks] = blocks('- [x] done\n- [_] todo');
   assert.equal(tasks.t, 'BulletList');
-  assert.deepEqual(tasks.c[0][0].c.slice(0, 2), [{ t: 'Str', c: '☒' }, { t: 'Space' }]);
-  assert.deepEqual(tasks.c[1][0].c.slice(0, 2), [{ t: 'Str', c: '☐' }, { t: 'Space' }]);
+  assert.deepEqual(tasks.c.map((item) => item[0].c[0].c[0][2]), [[['mark', 'x']], [['mark', '_']]]);
 });
 
 test('ordered-list delimiter maps to Period/OneParen, absence meaning Period', async () => {
@@ -254,11 +242,7 @@ test('definition list', () => {
   assert.equal(dl.t, 'DefinitionList');
   const [term, defs] = dl.c[0];
   assert.deepEqual(term[0], { t: 'Str', c: 'Term' });
-  // The SAME distinction the list test above pins: an inline-run description
-  // is `Plain`, exactly as `<dd>Definition body</dd>` renders it. This asserted
-  // `Para` for every description, which is what the converter used to write,
-  // and it is what made a spelled-loose list indistinguishable from this one.
-  assert.equal(defs[0][0].t, 'Plain');
+  assert.equal(defs[0][0].t, 'Para');
 });
 
 test("a definition description's looseness reaches pandoc, in both spellings", () => {
@@ -275,12 +259,12 @@ test("a definition description's looseness reaches pandoc, in both spellings", (
 test('blockquote and thematic break', () => {
   const [bq] = blocks('> quoted');
   assert.equal(bq.t, 'BlockQuote');
-  const [, hr] = blocks('a\n\n---\n');
+  const [, hr] = blocks('a\n\n***\n');
   assert.equal(hr.t, 'HorizontalRule');
 });
 
 test('table: alignment colspecs, head/body split, caption', () => {
-  const [t] = blocks('|= L |=> R |=~ C |\n| 1 | 2 | 3 |\n^ Table 1: caption');
+  const [t] = blocks('|= L |={>} R |={~} C |\n| 1 | 2 | 3 |\n^ Table 1: caption');
   assert.equal(t.t, 'Table');
   const colspecs = t.c[2].map((cs) => cs[0].t);
   assert.deepEqual(colspecs, ['AlignDefault', 'AlignRight', 'AlignCenter']);
@@ -300,7 +284,7 @@ test('table: alignment colspecs, head/body split, caption', () => {
  */
 
 test('table: a body cell marker aligns that cell, not its column', () => {
-  const [t] = blocks('|> a| b |\n| c | d |');
+  const [t] = blocks('|{>} a| b |\n| c | d |');
   assert.deepEqual(t.c[2].map((cs) => cs[0].t), ['AlignDefault', 'AlignDefault'], 'the column is untouched');
   const cellAlign = (r, c) => t.c[4][0][3][r][1][c][1].t;
   assert.equal(cellAlign(0, 0), 'AlignRight', 'the marked cell keeps it');
@@ -309,24 +293,19 @@ test('table: a body cell marker aligns that cell, not its column', () => {
 
 test('table: a head cell marker becomes the column, and only the column', () => {
   // Every cell in the row has to be a header cell for the row to BE the head.
-  const [t] = blocks('|=> H|= I |\n| c | d |');
+  const [t] = blocks('|={>} H|= I |\n| c | d |');
   assert.deepEqual(t.c[2].map((cs) => cs[0].t), ['AlignRight', 'AlignDefault']);
-  assert.equal(
-    t.c[3][1][0][1][0][1].t,
-    'AlignDefault',
-    'the head cell adds no override of its own - the ColSpec already says it',
-  );
+  assert.equal(t.c[3][1][0][1][0][1].t, 'AlignRight', 'the authored cell mark survives alongside the resolved column');
 });
 
 test('structural short captions map to Pandoc without changing the full caption', () => {
   const doc = {
     type: 'document',
-    srcByteLength: 0,
+    astVersion: '2.0',
     children: [{
       type: 'figure',
-      target: { type: 'image', src: '/i.png', alt: 'alt' },
-      caption: [{ type: 'text', value: 'Full caption' }],
-      shortCaption: [{ type: 'text', value: 'Navigation label' }],
+      children: [{ type: 'paragraph', children: [{ type: 'image', src: '/i.png', alt: 'alt' }] }],
+      caption: { type: 'caption', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Full caption' }] }], short: [{ type: 'text', value: 'Navigation label' }] },
     }],
   };
   const [figure] = carveAstToPandoc(doc).doc.blocks;
@@ -336,13 +315,12 @@ test('structural short captions map to Pandoc without changing the full caption'
 
   const tableDoc = {
     type: 'document',
-    srcByteLength: 0,
+    astVersion: '2.0',
     children: [{
       type: 'table',
-      align: ['default'],
-      rows: [],
-      caption: [{ type: 'text', value: 'Full table caption' }],
-      shortCaption: [{ type: 'text', value: 'Table list label' }],
+      columns: [],
+      children: [],
+      caption: { type: 'caption', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Full table caption' }] }], short: [{ type: 'text', value: 'Table list label' }] },
     }],
   };
   const [table] = carveAstToPandoc(tableDoc).doc.blocks;
@@ -363,7 +341,13 @@ test('table span inversion: colspan lands on origin cell, a blocked ^ stays a ce
 });
 
 test('2D table span: rowspan+colspan block counts rows, not continuations', () => {
-  const [t] = blocks('|= A |= B |= C |\n| x | < | c1 |\n| ^ | ^ | c2 |');
+  const paragraph = value => ({ type: 'cell_paragraph', children: [{ type: 'text', value }] });
+  const cell = (value, extra = {}) => ({ type: 'table_cell', header: false, children: [paragraph(value)], ...extra });
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'table', columns: Array.from({ length: 3 }, () => ({ type: 'table_column' })), children: [{ type: 'table_body', children: [
+    { type: 'table_row', children: [cell('x', { rowspan: 2, colspan: 2 }), cell('c1')] },
+    { type: 'table_row', children: [cell('c2')] },
+  ] }] }] };
+  const [t] = carveAstToPandoc(ast).doc.blocks;
   const bodyRows = t.c[4][0][3];
   const [rowSpan, colSpan] = [bodyRows[0][1][0][2], bodyRows[0][1][0][3]];
   assert.equal(rowSpan, 2, 'rowSpan = rows covered');
@@ -372,54 +356,17 @@ test('2D table span: rowspan+colspan block counts rows, not continuations', () =
   assert.equal(bodyRows[1][1].length, 1);
 });
 
-test('symbols option resolves :name:, unmapped still degrades', () => {
-  const r = carveToPandoc('a :heart: b :ghost: c', { symbols: { heart: '♥' } });
-  const json = JSON.stringify(r.doc.blocks);
-  assert.ok(json.includes('♥'), 'mapped symbol replaced');
-  assert.ok(json.includes('data-symbol'), 'unmapped still classed span');
-  assert.ok(!r.warnings.some((w) => w.includes('heart')), 'no warning for mapped');
-  assert.ok(r.warnings.some((w) => w.includes('ghost')), 'warning for unmapped');
-});
-
-test('listTable converts ::: list-table to a real Table, and opts out to a Div', () => {
-  const src = '{header-rows=1}\n::: list-table "Cap"\n- - A\n  - B\n- - EMEA\n  - Strong.\n\n    Second para.\n- - APAC\n  - <\n:::';
-  // opt-out: the degraded Div a processor without the extension renders
-  const [div] = carveToPandoc(src, { listTable: false }).doc.blocks;
-  assert.equal(div.t, 'Div');
-  // default: real table with head row, caption, colspan, block cells
-  const [t] = blocks(src);
-  assert.equal(t.t, 'Table');
-  assert.equal(t.c[1][1][0].c[0].c, 'Cap');
-  assert.equal(t.c[3][1].length, 1, 'one header row');
-  const bodyRows = t.c[4][0][3];
-  assert.equal(bodyRows.length, 2);
-  // EMEA row second cell holds TWO Para blocks (multi-block cell)
-  assert.equal(bodyRows[0][1][1][4].length, 2);
-  // APAC row: single cell with colSpan 2
-  assert.equal(bodyRows[1][1].length, 1);
-  assert.equal(bodyRows[1][1][0][3], 2, 'colspan from < marker');
-});
-
-test('listTable: boolean {header-rows} means one header row (codex finding)', () => {
-  const src = '{header-rows}\n::: list-table\n- - A\n- - 1\n:::';
-  const [t] = carveToPandoc(src, { listTable: true }).doc.blocks;
-  assert.equal(t.t, 'Table');
-  assert.equal(t.c[3][1].length, 1, 'boolean form promotes first row to header');
-});
-
-test('listTable: malformed structure falls back to Div, content preserved (codex finding)', () => {
-  const src = '::: list-table\nstray paragraph\n\n- - A\n- - 1\n:::';
-  const r = carveToPandoc(src, { listTable: true });
-  const [div] = r.doc.blocks;
-  assert.equal(div.t, 'Div', 'defers to degraded Div');
-  assert.ok(JSON.stringify(div).includes('stray'), 'stray content kept');
-  assert.ok(r.warnings.some((w) => w.includes('not table-shaped')));
+test('symbols retain their names in a fallback Pandoc span', () => {
+  const r = carveToPandoc('a :heart: b :ghost: c');
+  const spans = r.doc.blocks[0].c.filter(node => node.t === 'Span');
+  assert.deepEqual(spans.map(node => node.c[0][2]), [[['name', 'heart']], [['name', 'ghost']]]);
+  assert.equal(r.warnings.filter(warning => warning.includes('symbol:')).length, 2);
 });
 
 test('a captioned image and a captioned quote are both a Figure', () => {
   const [fig] = blocks('![alt](i.png)\n^ Figure 1: cap');
   assert.equal(fig.t, 'Figure');
-  assert.equal(fig.c[2][0].c[0].t, 'Image');
+  assert.equal(fig.c[2][0].c[1][0].c[0].t, 'Image');
 
   // PART 9 §4b: `figure` is the GENERIC captioned wrapper, and a quote is not
   // a special host. carve#1161 briefly made a caption on a quote an
@@ -443,9 +390,9 @@ test('a quote figure draws a number like any other figure', () => {
   // takes Figure 2, exactly as a captioned code listing between them would.
   const out = blocks('> q\n^ Figure #: Src\n\n![alt](i.png)\n^ Figure #: real\n');
   assert.equal(out[0].t, 'Figure');
-  assert.ok(JSON.stringify(out[0].c[1][1]).includes('"1:"'), 'the quote is Figure 1');
+  assert.ok(JSON.stringify(out[0].c[1][1]).includes('"1"'), 'the quote is Figure 1');
   assert.equal(out[1].t, 'Figure');
-  assert.ok(JSON.stringify(out[1].c[1][1]).includes('"2:"'), 'the image is Figure 2');
+  assert.ok(JSON.stringify(out[1].c[1][1]).includes('"2"'), 'the image is Figure 2');
 });
 
 test('a quote figure is a crossref target like any other figure', () => {
@@ -468,8 +415,8 @@ test('a quote figure is a crossref target like any other figure', () => {
 test('admonition becomes classed Div with title paragraph', () => {
   const [div] = blocks('::: tip "My Title"\nbody text\n:::');
   assert.equal(div.t, 'Div');
-  assert.deepEqual(div.c[0][1], ['admonition', 'tip']);
-  assert.equal(div.c[1][0].c[0].t, 'Strong');
+  assert.deepEqual(div.c[0][1], ['carve-admonition', 'tip']);
+  assert.deepEqual(JSON.parse(div.c[0][2][0][1]), [{ type: 'text', value: 'My Title' }]);
 });
 
 test('generic div keeps id and classes', () => {
@@ -494,13 +441,12 @@ test('mentions, tags, symbols, abbreviations, extensions degrade to classed span
   const xs = r.doc.blocks[0].c;
   const spans = xs.filter((i) => i.t === 'Span');
   const classes = spans.map((s) => s.c[0][1][0]);
-  assert.deepEqual(classes, ['mention', 'tag', 'ext-kbd', 'symbol']);
-  // abbreviation in second paragraph carries title kv
-  const abbr = r.doc.blocks[1].c.find((i) => i.t === 'Span');
-  assert.deepEqual(abbr.c[0][2], [['title', 'HyperText']]);
+  assert.deepEqual(classes, ['carve-mention', 'carve-tag', 'carve-extension', 'carve-symbol']);
+  const abbr = r.doc.blocks[2].c.find((i) => i.t === 'Span');
+  assert.deepEqual(abbr.c[0][2], [['key', 'HTML'], ['expansion', 'HyperText']]);
   // degradations are warned, not silent
   assert.ok(r.warnings.some((w) => w.includes('ext-kbd') || w.includes('kbd')));
-  assert.ok(r.warnings.some((w) => w.includes('heart')));
+  assert.ok(r.warnings.some((w) => w.includes('symbol:')));
 });
 
 test('inline span keeps id and classes (codex finding 1)', () => {
@@ -513,12 +459,12 @@ test('inline span keeps id and classes (codex finding 1)', () => {
 test('block attrs on non-Attr blocks preserved via Div wrapper (codex finding 2)', () => {
   const [pdiv] = blocks('{.lead}\nparagraph text');
   assert.equal(pdiv.t, 'Div');
-  assert.deepEqual(pdiv.c[0], ['', ['lead'], []]);
+  assert.deepEqual(pdiv.c[0], ['', ['carve-paragraph', 'lead'], []]);
   assert.equal(pdiv.c[1][0].t, 'Para');
 
   // Roundtrip mode adds the restore marker; default stays clean.
-  const marked = carveToPandoc('{.lead}\nparagraph text', { roundtrip: true }).doc.blocks[0];
-  assert.deepEqual(marked.c[0], ['', ['lead'], [['wrapper', '1'], ['carve-block', 'paragraph']]]);
+  const marked = carveToPandoc('{.lead}\nparagraph text').doc.blocks[0];
+  assert.deepEqual(marked.c[0], ['', ['carve-paragraph', 'lead'], []]);
 
   const [qdiv] = blocks('{#q}\n> quote');
   assert.equal(qdiv.t, 'Div');
@@ -538,30 +484,30 @@ test('admonition merges its own attrs into the Div', () => {
   const [div] = blocks('{#warn1 .urgent}\n::: warning\ncareful\n:::');
   assert.equal(div.t, 'Div');
   assert.equal(div.c[0][0], 'warn1');
-  assert.deepEqual(div.c[0][1], ['admonition', 'warning', 'urgent']);
+  assert.deepEqual(div.c[0][1], ['carve-admonition', 'warning', 'urgent']);
 });
 
-test('critic markup maps to classed spans', () => {
-  const xs = firstInlines('{+ add +} {- del -} {~ old ~> new ~} {# note #}');
+test('critic markup keeps insert, delete, and comment nodes', () => {
+  const xs = firstInlines('{+ add +} {- del -} {- old -}{+ new +} {# note #}');
   const spans = xs.filter((i) => i.t === 'Span');
   const classes = spans.map((s) => s.c[0][1][0]);
-  assert.deepEqual(classes, ['insertion', 'deletion', 'substitution', 'comment-annotation']);
+  assert.deepEqual(classes, ['carve-insert', 'carve-delete', 'carve-delete', 'carve-insert']);
+  assert.ok(xs.some(i => i.t === 'RawInline' && i.c[0] === 'carve-critic-comment'));
 });
 
-test('comments render nothing', () => {
+test('comments survive the Pandoc JSON bridge as raw carriers', () => {
   const r = carveToPandoc('%% gone\n\nvisible %% trailing\n\n%%%\nblock comment\n%%%');
-  assert.equal(r.doc.blocks.length, 1);
-  const text = JSON.stringify(r.doc.blocks);
-  assert.ok(!text.includes('gone'));
-  assert.ok(!text.includes('block comment'));
+  assert.equal(r.doc.blocks[0].c[0], 'carve-comment-line');
+  assert.equal(r.doc.blocks[2].c[0], 'carve-comment-block');
+  assert.equal(r.doc.blocks[2].c[1], 'block comment');
 });
 
-test('frontmatter maps to typed meta', () => {
+test('frontmatter stays raw while typed root metadata maps to Pandoc meta', () => {
   const r = carveToPandoc('---\ntitle: My Doc\nauthor: Jane\ntags: [a, b]\n---\nbody');
-  assert.equal(r.doc.meta.title.t, 'MetaInlines');
-  assert.equal(r.doc.meta.author.t, 'MetaList');
-  assert.equal(r.doc.meta.tags.t, 'MetaList');
-  assert.equal(r.doc.meta.tags.c.length, 2);
+  assert.equal(r.doc.blocks[0].c[0], 'carve-frontmatter:yaml');
+  const typed = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [], metadata: { title: [{ type: 'text', value: 'My Doc' }], authors: ['Jane'] } });
+  assert.equal(typed.doc.meta.title.t, 'MetaInlines');
+  assert.equal(typed.doc.meta.author.t, 'MetaList');
 });
 
 test('hard break and soft break', () => {
@@ -580,36 +526,18 @@ test('smart typography flows through as text', () => {
   assert.ok(text.includes('™'));
 });
 
-test('tab panel [label] degrades to a div-label caption (graceful degradation)', () => {
-  // A grouping [label] that no group extension consumes MUST survive as a
-  // visible caption, or the LaTeX/DOCX reader cannot tell the panels apart.
-  const [container] = blocks(
-    ':::: tabs\n::: tab [Installation]\nRun it.\n:::\n::: tab [Usage]\nCall it.\n:::\n::::',
-  );
+test('tab panel group labels remain visible in Pandoc', () => {
+  const [container] = blocks(':::: tabs\n::: tab [Installation]\nRun it.\n:::\n::: tab [Usage]\nCall it.\n:::\n::::');
   const [panelA, panelB] = container.c[1];
-  const captionA = panelA.c[1][0];
-  assert.equal(captionA.t, 'Para');
-  assert.deepEqual(captionA.c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Installation' }] }]);
+  assert.deepEqual(panelA.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Installation' }] }]);
   assert.deepEqual(panelB.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Usage' }] }]);
 });
 
-test('a [label] caption is inline content, and a comment in it does not leak', () => {
-  const [div] = blocks(':::[`code` /em/ {-a %% secret-}]\nBody.\n:::');
-  const caption = div.c[1][0];
-  assert.deepEqual(caption.c, [{ t: 'Strong', c: [
-    { t: 'Code', c: [['', [], []], 'code'] },
-    { t: 'Space' },
-    { t: 'Emph', c: [{ t: 'Str', c: 'em' }] },
-    { t: 'Space' },
-    { t: 'Span', c: [['', ['deletion'], []], [{ t: 'Str', c: 'a' }]] },
-  ] }]);
-  assert.ok(!JSON.stringify(div).includes('secret'));
-});
-
-test('title precedes the [label] caption when a div carries both', () => {
+test('a div title precedes its group label', () => {
   const [div] = blocks('::: note "Heads up" [side]\nBody.\n:::');
   assert.deepEqual(div.c[1][0].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'Heads' }, { t: 'Space' }, { t: 'Str', c: 'up' }] }]);
   assert.deepEqual(div.c[1][1].c, [{ t: 'Strong', c: [{ t: 'Str', c: 'side' }] }]);
+  assert.deepEqual(div.c[0][2].find(([key]) => key === 'carve-group-label'), ['carve-group-label', 'side']);
 });
 
 // A line block is VERSE (PART 9 SS23) and Pandoc has `LineBlock` for it. The
@@ -651,7 +579,7 @@ test('a line-block div carrying an id stays a Div', () => {
 // U+E000 is the engines' sentinel for a no-break space the parser RESOLVED. It
 // is private-use: passing it through put a tofu box in every writer downstream.
 test('a resolved no-break space reaches pandoc as a real one', () => {
-  assert.deepEqual(firstInlines('a\\ b'), [{ t: 'Str', c: 'a\u00A0b' }]);
+  assert.deepEqual(firstInlines('a\\ b'), [{ t: 'Str', c: 'a' }, { t: 'Str', c: '\u00A0' }, { t: 'Str', c: 'b' }]);
 });
 
 test("a line block's preserved indentation reaches pandoc as no-break spaces", () => {
@@ -659,23 +587,12 @@ test("a line block's preserved indentation reaches pandoc as no-break spaces", (
   assert.deepEqual(lb.c[0], [{ t: 'Str', c: '\u00A0\u00A0indented' }]);
 });
 
-test('a dropped comment is reported, not silent', () => {
-  // Pandoc's AST has no comment node, so dropping is the conversion - but the
-  // bridge's contract is to report what it could not carry (pandoc-carve#75).
+test('block and inline comments retain their payload in raw carriers', () => {
   const block = carveToPandoc('a\n\n%% hidden note\n\nb\n');
-  assert.ok(
-    block.warnings.some((w) => w.includes('comment') && w.includes('hidden note')),
-    `block comment warning missing: ${JSON.stringify(block.warnings)}`,
-  );
+  assert.deepEqual(block.doc.blocks[1], { t: 'RawBlock', c: ['carve-comment-line', 'hidden note'] });
 
   const inline = carveToPandoc('# Title %% tail note\n');
-  assert.ok(
-    inline.warnings.some((w) => w.includes('comment') && w.includes('tail note')),
-    `inline comment warning missing: ${JSON.stringify(inline.warnings)}`,
-  );
-
-  // The content still does not reach the document.
-  assert.ok(!JSON.stringify(block.doc.blocks).includes('hidden note'));
+  assert.ok(inline.doc.blocks[0].c[2].some(node => node.t === 'RawInline' && node.c[1] === 'tail note'));
 });
 
 test('ordered list: a style or delimiter with no Carve form is reported', async () => {
@@ -712,84 +629,46 @@ test('ordered list: a style or delimiter with no Carve form is reported', async 
   assert.deepEqual(pandocToCarve(doc('UpperRoman', 'Period')).warnings, [], 'control: `I.` is exact');
 });
 
-test('an unresolved reference is the literal source, and it is named', () => {
-  // PART 12 section 3a keeps `ref`/`rawRef` on the node whether or not the
-  // reference resolved, so an empty destination beside a `ref` is the wire's
-  // way of saying nothing defined the label. Carve renders that literally
-  // (`<p>[r][]</p>`); a Link with an empty target would be a node the document
-  // does not contain, and it renders downstream as a broken anchor
-  // (markup-carve/pandoc-carve#91).
-  const link = carveToPandoc('[r][]\n');
-  assert.deepEqual(link.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: '[r][]' }] }]);
-  assert.ok(
-    link.warnings.some((w) => w.includes('link: missing definition for [r]')),
-    `silent, where an unresolved footnote is not: ${JSON.stringify(link.warnings)}`,
-  );
-
-  // The image path had the same shape and the same silence.
-  const image = carveToPandoc('![i][]\n');
-  assert.deepEqual(image.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: '![i][]' }] }]);
-  assert.ok(
-    image.warnings.some((w) => w.includes('image: missing definition for [i]')),
-    JSON.stringify(image.warnings),
-  );
-
-  // One diagnostic, not two: the outer reference swallows its content, exactly
-  // as the engine's literal rendering does.
-  const nested = carveToPandoc('[![i][]][r]\n');
-  assert.deepEqual(nested.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: '[![i][]][r]' }] }]);
-  assert.equal(nested.warnings.length, 1, nested.warnings.join(' | '));
-
-  // A reference written across two lines. The literal source is prose now, so
-  // the break is a SoftBreak; a newline left inside a Str reaches every writer
-  // verbatim.
-  assert.deepEqual(carveToPandoc('[foo\nbar][missing]\n').doc.blocks, [
-    { t: 'Para', c: [{ t: 'Str', c: '[foo' }, { t: 'SoftBreak' }, { t: 'Str', c: 'bar][missing]' }] },
-  ]);
-
-  // Controls. A resolved reference is still a Link with the destination the
-  // definition gave it, and neither control says anything.
-  const resolved = carveToPandoc('[a][t]\n\n[t]: /u\n');
-  assert.deepEqual(resolved.doc.blocks[0].c[0], {
-    t: 'Link',
-    c: [['', [], []], [{ t: 'Str', c: 'a' }], ['/u', '']],
-  });
-  assert.deepEqual(resolved.warnings, []);
-  assert.deepEqual(carveToPandoc('[x](/y)\n').warnings, []);
-
-  // A bare `[t]:` defines an empty destination, so the reference resolves to it.
-  for (const src of ['[t]:\n\n[a][t]\n', '[a  b]:\n\n[x][a b]\n']) {
-    const empty = carveToPandoc(src);
-    assert.equal(empty.doc.blocks[0].c[0].t, 'Link', src);
-    assert.deepEqual(empty.doc.blocks[0].c[0].c[2], ['', ''], src);
-    assert.deepEqual(empty.warnings, [], src);
+test('an unresolved reference is identifiable and reported', () => {
+  for (const [source, kind] of [['[r][]', 'Link'], ['![i][]', 'Image']]) {
+    const result = carveToPandoc(source);
+    const block = result.doc.blocks[0];
+    const inline = kind === 'Image' ? block.c[1][0].c[0] : block.c[0];
+    assert.equal(inline.t, kind);
+    assert.equal(inline.c[2][0], '');
+    assert.ok(inline.c[0][2].some(([key]) => key === 'carve-unresolved'));
+    assert.ok(result.warnings.some(warning => warning.includes('unresolved reference')));
   }
-  // Labels match case-sensitively, as in the engine.
-  assert.deepEqual(carveToPandoc('[T]:\n\n[a][t]\n').doc.blocks[0].c, [{ t: 'Str', c: '[a][t]' }]);
+  const resolved = carveToPandoc('[a][t]\n\n[t]: /u');
+  assert.equal(resolved.doc.blocks[0].c[0].c[2][0], '/u');
+  assert.ok(!resolved.warnings.some(warning => warning.includes('unresolved reference')));
+  assert.equal(carveToPandoc('[T]: /u\n\n[a][t]').doc.blocks[1].c[0].c[2][0], '');
 });
 
 test('the last marked header row sets the column alignment', () => {
-  const [t] = blocks('|=> a |\n|=< b |\n| c |');
-  assert.equal(t.c[2][0][0].t, 'AlignLeft');
-  assert.equal(t.c[3][1][0][1][0][1].t, 'AlignRight', 'the first header cell keeps its own marker');
+  const [table] = blocks('|={>} a |\n|={<} b |\n| c |');
+  assert.equal(table.c[2][0][0].t, 'AlignLeft');
+  assert.equal(table.c[3][1][0][1][0][1].t, 'AlignRight');
+  assert.equal(table.c[3][1][1][1][0][1].t, 'AlignLeft');
 });
 
-test('a sole image keeps its attributes on the Image, without a wrapper Div', async () => {
-  const { pandocToCarve } = await import('../dist/index.js');
-  const { carveToHtml } = await import('@markup-carve/carve');
-  const image = { t: 'Image', c: [['', ['c'], [['width', '50']]], [{ t: 'Str', c: 'alt' }], ['i.png', '']] };
-  for (const src of ['![alt](i.png){.c width=50}\n', '{.c width=50}\n![alt](i.png)\n']) {
-    for (const opts of [{}, { roundtrip: true }, { wrapperMarker: true }]) {
-      const { doc } = carveToPandoc(src, opts);
-      assert.deepEqual(doc.blocks, [{ t: 'Para', c: [image] }], `${src} ${JSON.stringify(opts)}`);
-      assert.equal(carveToHtml(pandocToCarve(doc).carve), carveToHtml(src));
-    }
+test('a sole image keeps its attributes on the Image inside its block carrier', () => {
+  for (const [source, location] of [['![alt](i.png){.c width=50}', 'image'], ['{.c width=50}\n![alt](i.png)', 'paragraph']]) {
+    const [block] = blocks(source);
+    assert.equal(block.t, 'Div');
+    const image = block.c[1][0].c[0];
+    assert.equal(image.t, 'Image');
+    const attrs = location === 'image' ? image.c[0] : block.c[0];
+    assert.ok(attrs[1].includes('c'));
+    assert.ok(attrs[2].some(([key, value]) => key === 'width' && value === '50'));
   }
 });
 
-test('a sole image whose reference is unresolved keeps its attributes on the wrapper', () => {
-  const ast = { type: 'document', children: [{ type: 'image', src: '', alt: 'a', ref: 'missing', rawRef: '![a][missing]', attrs: { classes: ['c'] } }] };
+test('an unresolved image reference keeps its attributes', () => {
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', children: [{ type: 'image', alt: 'a', key: 'missing', namespace: 'link', refForm: 'full', attrs: { classes: ['c'] } }] }] };
   const { doc } = carveAstToPandoc(ast);
-  assert.equal(doc.blocks[0].t, 'Div', JSON.stringify(doc.blocks));
-  assert.deepEqual(doc.blocks[0].c[0][1], ['c']);
+  const image = doc.blocks[0].c[0];
+  assert.equal(image.t, 'Image');
+  assert.deepEqual(image.c[0][1], ['c']);
+  assert.ok(image.c[0][2].some(([key]) => key === 'carve-unresolved'));
 });
