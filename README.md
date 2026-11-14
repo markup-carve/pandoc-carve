@@ -1,5 +1,19 @@
 # pandoc-carve
 
+> **0.2 consumer branch (`next2`).** This branch uses the vendored, unreleased
+> Carve 0.2 engine for its primary API and CLI. It is an API evaluation tree,
+> with known conversion losses documented in the consumer report kept beside
+> this checkout. The 0.1 implementation remains in `src/legacy-index.ts`
+> for comparison; the older examples and CLI documentation below describe the
+> published 0.1 package.
+
+The 0.2 CLI accepts Carve source on stdin and emits Pandoc JSON by default:
+
+```bash
+node dist/cli-v2.js < document.crv > document.json
+node dist/cli-v2.js --from pandoc < document.json > document.crv
+```
+
 Bidirectional [Carve](https://github.com/markup-carve/carve) and Pandoc bridge.
 It exports Carve through Pandoc's writers and imports any format handled by a
 Pandoc reader.

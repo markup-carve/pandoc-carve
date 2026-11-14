@@ -11,7 +11,7 @@
 
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { carveAstToPandoc, carveToPandoc } from './index.js';
+import { carveAstToPandoc, carveToPandoc } from './legacy-index.js';
 import { carveToPandocWithIncludes, type IncludeConversionResult } from './includes.js';
 import type { ConvertResult } from './convert.js';
 import type { IncludeWarning } from '@markup-carve/carve';
@@ -254,7 +254,7 @@ async function importToCarve(args: Args): Promise<void> {
         json = result.stdout;
     }
 
-    const { pandocToCarve, PandocImportLimitError } = await import('./index.js');
+    const { pandocToCarve, PandocImportLimitError } = await import('./legacy-index.js');
     let converted: ReturnType<typeof pandocToCarve>;
     try {
         converted = pandocToCarve(json);

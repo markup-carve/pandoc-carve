@@ -2,7 +2,7 @@ import * as carve from '@markup-carve/carve';
 import { fileSystemResolver } from '@markup-carve/carve/node';
 import path from 'node:path';
 import { toCarveAst } from './ast-json.js';
-import { carveAstToPandoc } from './index.js';
+import { carveAstToPandoc } from './legacy-index.js';
 import { parseExtensions, type ParseOptions } from './parse-options.js';
 import type { ConvertOptions, ConvertResult } from './convert.js';
 

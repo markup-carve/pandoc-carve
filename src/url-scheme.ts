@@ -66,7 +66,7 @@ export const DANGEROUS_URL_SCHEMES: readonly string[] = [
  * first of those, and a `startsWith('javascript:')` check passes that document
  * while leaving the hole wide open.
  */
-export const SCHEME_PROBE_STRIP_RE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\s]+/gu;
+export const SCHEME_PROBE_STRIP_RE = /[\u0000-\u0020\u007f-\u00a0\u1680\u2000-\u200a\u2028-\u202f\u205f\u2066-\u2069\u3000\u202a-\u202e\ufeff\ufffd]+/gu;
 
 const DENIED = new Set(DANGEROUS_URL_SCHEMES.map((scheme) => scheme.toLowerCase()));
 
