@@ -200,7 +200,8 @@ test('ordered list: start, alpha and roman styles; bullet list; tasks', () => {
 
   const [tasks] = blocks('- [x] done\n- [_] todo');
   assert.equal(tasks.t, 'BulletList');
-  assert.deepEqual(tasks.c.map((item) => item[0].c[0].c[0][2]), [[['mark', 'x']], [['mark', '_']]]);
+  assert.deepEqual(tasks.c.map((item) => item[0].c[0].c), ['☒', '☐']);
+  assert.deepEqual(tasks.c.map((item) => item[0].c[2].c[0][2]), [[['mark', 'x']], [['mark', '_']]]);
 });
 
 test('ordered-list delimiter maps to Period/OneParen, absence meaning Period', async () => {

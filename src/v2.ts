@@ -139,7 +139,24 @@ function emit(n: Node, c: Context): P.PandocNode[] {
       const indent = first.value.match(/^ */u)?.[0].length ?? 0;
       return indent ? [P.Str('\u00a0'.repeat(indent) + stripBidi(first.value.slice(indent))), ...il(rest, c)] : il(x.children, c);
     }))];
-    case 'list': { const items = n.children.map(x => { const content = bl(x.children, c).map(b => n.spacing === 'tight' && b.t === 'Para' ? P.Plain(b.c as P.Inline[]) : b); if (x.task) { const marker = P.Span(P.attr('', ['carve-task'], [['mark', x.task.mark]]), []); if (content[0]?.t === 'Para' || content[0]?.t === 'Plain') content[0] = { ...content[0], c: [marker, ...content[0].c as P.Inline[]] }; else content.unshift(P.Plain([marker])); } return content; }); const list = n.marker.kind === 'bullet' ? P.BulletList(items) : P.OrderedList(n.marker.start ?? 1, n.marker.style === 'a' ? 'LowerAlpha' : n.marker.style === 'A' ? 'UpperAlpha' : n.marker.style === 'i' ? 'LowerRoman' : n.marker.style === 'I' ? 'UpperRoman' : n.attrs?.keyValues?.some(([key, value]) => key === 'carve-example' && value === '1') ? 'Example' : 'Decimal', items, n.attrs?.keyValues?.find(([key]) => key === 'carve-example-delimiter')?.[1] as P.ListNumberDelim ?? (n.marker.delimiter === ')' ? 'OneParen' : 'Period')); const alternateBullet = n.marker.kind === 'bullet' && n.marker.char !== '-'; const carriedAttrs = Boolean(n.attrs?.id || n.attrs?.classes?.length || n.attrs?.keyValues?.some(([key]) => key !== 'carve-example' && key !== 'carve-example-delimiter')); return carriedAttrs || alternateBullet ? [P.Div(P.attr(n.attrs?.id, ['carve-list', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(alternateBullet ? [['marker-char', n.marker.char ?? '-'] as [string, string]] : [])]), [list])] : [list]; }
+    case 'list': {
+      const items = n.children.map(item => {
+        const content = bl(item.children, c).map(block => n.spacing === 'tight' && block.t === 'Para' ? P.Plain(block.c as P.Inline[]) : block);
+        const marker = item.task
+          ? P.Span(P.attr(item.attrs?.id, ['carve-task', ...(item.attrs?.classes ?? [])], [...(item.attrs?.keyValues ?? []), ['mark', item.task.mark]]), [])
+          : item.attrs ? P.Span(P.attr(item.attrs.id, ['carve-list-item', ...(item.attrs.classes ?? [])], item.attrs.keyValues), []) : null;
+        if (marker) {
+          const prefix: P.Inline[] = item.task ? [P.Str(item.task.mark === 'x' ? '☒' : '☐'), P.Space, marker] : [marker];
+          if (content[0]?.t === 'Para' || content[0]?.t === 'Plain') content[0] = { ...content[0], c: [...prefix, ...content[0].c as P.Inline[]] };
+          else content.unshift(P.Plain(prefix));
+        }
+        return content;
+      });
+      const list = n.marker.kind === 'bullet' ? P.BulletList(items) : P.OrderedList(n.marker.start ?? 1, n.marker.style === 'a' ? 'LowerAlpha' : n.marker.style === 'A' ? 'UpperAlpha' : n.marker.style === 'i' ? 'LowerRoman' : n.marker.style === 'I' ? 'UpperRoman' : n.attrs?.keyValues?.some(([key, value]) => key === 'carve-example' && value === '1') ? 'Example' : 'Decimal', items, n.attrs?.keyValues?.find(([key]) => key === 'carve-example-delimiter')?.[1] as P.ListNumberDelim ?? (n.marker.delimiter === ')' ? 'OneParen' : 'Period'));
+      const alternateBullet = n.marker.kind === 'bullet' && n.marker.char !== '-';
+      const carriedAttrs = Boolean(n.attrs?.id || n.attrs?.classes?.length || n.attrs?.keyValues?.some(([key]) => key !== 'carve-example' && key !== 'carve-example-delimiter'));
+      return carriedAttrs || alternateBullet ? [P.Div(P.attr(n.attrs?.id, ['carve-list', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(alternateBullet ? [['marker-char', n.marker.char ?? '-'] as [string, string]] : [])]), [list])] : [list];
+    }
     case 'definition_list': { const entries: [P.Inline[], P.Block[][]][] = []; for (const x of n.children) { if (x.type === 'definition_term') entries.push([il(x.children, c), []]); if (x.type === 'definition_description' && entries.length) entries[entries.length - 1]![1].push(bl(x.children, c)); } return [P.DefinitionList(entries)]; }
     case 'table': return [table(n, c)];
     case 'frontmatter': return [P.RawBlock(`carve-frontmatter:${n.format}`, n.value)];
@@ -196,21 +213,30 @@ const readCaption = (value: string | undefined): CaptionNode | undefined => { if
 const withAttr = <T extends Node>(node: T, a: unknown): T => { const attrs = importAttr(a); return attrs ? { ...node, attrs } : node; };
 const inlineList = (xs: P.PandocNode[], warnings: string[]): Inline[] => xs.flatMap(x => importInline(x, warnings));
 const blockList = (xs: P.PandocNode[], warnings: string[]): Block[] => xs.flatMap(x => importBlock(x, warnings));
-function importItem(item: P.PandocNode[], warnings: string[]): { type: 'list_item'; children: Block[]; task?: { mark: ' ' | 'x' | '_' | '-' | '/' | '!' | '>' | '?';  } } {
-  const copy = item.map(x => ({ ...x }));
+function importItem(item: P.PandocNode[], warnings: string[]): Extract<Node, { type: 'list_item' }> {
+  const copy = item.map(node => ({ ...node }));
   const first = copy[0];
   let mark: ' ' | 'x' | '_' | '-' | '/' | '!' | '>' | '?' | undefined;
+  let attrs: Attrs | undefined;
   if ((first?.t === 'Para' || first?.t === 'Plain') && Array.isArray(first.c)) {
-    const head = first.c[0] as P.PandocNode | undefined;
-    if (head?.t === 'Span' && (head.c as [P.Attr, unknown])[0][1].includes('carve-task')) {
-      const candidate = Object.fromEntries((head.c as [P.Attr, unknown])[0][2])['mark'];
-      if ([' ', 'x', '_', '-', '/', '!', '>', '?'].includes(candidate ?? '')) mark = candidate as typeof mark;
-      const rest = first.c.slice(1);
-      first.c = rest;
-      if (rest.length === 0) copy.shift();
+    const inlines = first.c as P.PandocNode[];
+    const ballot = inlines[0]?.t === 'Str' && (inlines[0].c === '☒' || inlines[0].c === '☐') && inlines[1]?.t === 'Space';
+    const markerIndex = ballot ? 2 : 0;
+    const head = inlines[markerIndex];
+    if (head?.t === 'Span') {
+      const a = (head.c as [P.Attr, unknown])[0];
+      if (a[1].includes('carve-task') || a[1].includes('carve-list-item')) {
+        const fields = Object.fromEntries(a[2]);
+        const candidate = fields['mark'];
+        if (a[1].includes('carve-task') && [' ', 'x', '_', '-', '/', '!', '>', '?'].includes(candidate ?? '')) mark = candidate as typeof mark;
+        attrs = importAttr([a[0], a[1].filter(name => name !== 'carve-task' && name !== 'carve-list-item'), a[2].filter(([key]) => key !== 'mark')]);
+        first.c = inlines.slice(markerIndex + 1);
+      }
     }
+    if (mark === undefined && ballot) { mark = inlines[0]!.c === '☒' ? 'x' : ' '; first.c = inlines.slice(2); }
+    if (Array.isArray(first.c) && first.c.length === 0) copy.shift();
   }
-  return { type: 'list_item', children: blockList(copy, warnings), ...(mark === undefined ? {} : { task: { mark } }) };
+  return { type: 'list_item', children: blockList(copy, warnings), ...(mark === undefined ? {} : { task: { mark } }), ...(attrs ? { attrs } : {}) };
 }
 
 function importInline(node: P.PandocNode, warnings: string[]): Inline[] {

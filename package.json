@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/lint-v2.mjs",
     "examples:build": "npm run build && node scripts/build-examples.mjs",
-    "test": "npm run build && node --test test/v2.test.mjs test/e2e-v2.test.mjs test/cli-v2.test.mjs test/conversion-correctness.test.mjs test/html-equivalence.test.mjs test/smart-punctuation.test.mjs test/bidi-controls.test.mjs test/attribute-sanitize.test.mjs test/url-scheme.test.mjs test/heading-ids.test.mjs test/new-task-states.test.mjs test/inline-literal.test.mjs test/packaging.test.mjs test/no-git-dependencies.test.mjs test/roundtrip-grade.test.mjs test/unit.test.mjs test/equivalence.test.mjs test/djot-reader-and-inline-attrs.test.mjs test/ast-json.test.mjs test/new-ast-nodes.test.mjs",
+    "test": "npm run build && node --test test/v2.test.mjs test/e2e-v2.test.mjs test/cli-v2.test.mjs test/conversion-correctness.test.mjs test/html-equivalence.test.mjs test/smart-punctuation.test.mjs test/bidi-controls.test.mjs test/attribute-sanitize.test.mjs test/url-scheme.test.mjs test/heading-ids.test.mjs test/new-task-states.test.mjs test/inline-literal.test.mjs test/packaging.test.mjs test/no-git-dependencies.test.mjs test/roundtrip-grade.test.mjs test/unit.test.mjs test/equivalence.test.mjs test/djot-reader-and-inline-attrs.test.mjs test/ast-json.test.mjs test/new-ast-nodes.test.mjs test/task-states.test.mjs",
     "test:legacy": "npm run build && node --test test/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
