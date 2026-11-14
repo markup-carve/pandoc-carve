@@ -6,7 +6,7 @@ const stripDocumentEphemera = (value) => {
   if (Array.isArray(value)) return value.map(stripDocumentEphemera);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => key !== 'pos' && key !== 'srcByteLength')
+    .filter(([key]) => key !== 'pos' && key !== 'srcByteLength' && key !== 'stages')
     .map(([key, child]) => [key, stripDocumentEphemera(child)]));
 };
 
@@ -18,37 +18,16 @@ test('roundtrip provenance preserves adjacent inline and block comments exactly'
   assert.deepEqual(stripDocumentEphemera(pandocToCarveAst(converted.doc).ast), stripDocumentEphemera(original));
 });
 
-test('normal mode still drops comments and reports a stable diagnostic', () => {
+test('normal mode carries comments as typed Pandoc raw inlines', () => {
   const result = carveToPandoc('visible %% secret\n');
-  assert.equal(result.diagnostics[0].code, 'comment-dropped');
-  assert.equal(result.diagnostics[0].class, 'lossy');
-  assert.equal(result.diagnostics[0].severity, 'error');
-  assert.equal(result.diagnostics[0].sourceLocation.startLine, 1);
-  assert.deepEqual(result.warnings, result.diagnostics.map(({ message }) => message));
-});
-
-test('unknown inline and block nodes survive as versioned opaque data', () => {
-  const ast = {
-    type: 'document',
-    children: [
-      { type: 'future_block', feature: { version: 2 }, children: [{ type: 'paragraph', children: [{ type: 'text', value: 'block fallback' }] }] },
-      { type: 'paragraph', children: [{ type: 'future_inline', token: '雪', children: [{ type: 'text', value: 'inline fallback' }] }] },
-    ],
-  };
-  const result = carveAstToPandoc(ast, { roundtrip: true });
   assert.deepEqual(result.warnings, []);
-  assert.deepEqual(stripDocumentEphemera(pandocToCarveAst(result.doc).ast), ast);
+  assert.deepEqual(result.doc.blocks[0].c.at(-1), { t: 'RawInline', c: ['carve-comment-line', 'secret'] });
+  assert.equal(pandocToCarveAst(result.doc).ast.children[0].children.at(-1).type, 'comment');
 });
 
-test('normal unknown nodes remain readable and diagnosed', () => {
-  const result = carveAstToPandoc({ type: 'document', children: [{ type: 'future_block', value: 'read me' }] });
-  assert.equal(result.doc.blocks[0].t, 'Para');
-  assert.equal(result.diagnostics[0].code, 'unknown-carve-block');
-});
-
-test('known nodes never use the opaque path', () => {
-  const result = carveAstToPandoc({ type: 'document', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'known' }] }] }, { roundtrip: true });
-  assert.ok(!JSON.stringify(result.doc).includes('carve-provenance'));
+test('known nodes use native Pandoc nodes without a private provenance carrier', () => {
+  const result = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'known' }] }] });
+  assert.deepEqual(result.doc.blocks, [{ t: 'Para', c: [{ t: 'Str', c: 'known' }] }]);
 });
 
 test('malformed private data falls back to its visible content', () => {
@@ -60,17 +39,18 @@ test('malformed private data falls back to its visible content', () => {
   assert.equal(result.ast.children[0].children[0].children[0].value, 'safe');
 });
 
-test('roundtrip citation provenance retains typed fields and item order', () => {
-  const source = 'See [before -@doe, chapter 2; +@roe, pp. 7–9 after].\n';
-  const original = carveToCarveAst(source);
-  const converted = carveToPandoc(source, { roundtrip: true });
+test('citation groups retain typed fields and item order through Pandoc JSON', () => {
+  const original = { type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', children: [
+    { type: 'text', value: 'See ' },
+    { type: 'citation_group', raw: '[-@doe, chap. 2; +@roe, pp. 7–9]', children: [
+      { type: 'citation', namespace: 'citation', key: 'doe', mode: 'suppress-author', locator: { label: 'chapter', children: [{ type: 'text', value: '2' }] } },
+      { type: 'citation', namespace: 'citation', key: 'roe', mode: 'author-in-text', locator: { label: 'pages', children: [{ type: 'text', value: '7–9' }] } },
+    ] },
+  ] }] };
+  const converted = carveAstToPandoc(original);
   assert.ok(JSON.stringify(converted.doc).includes('"Cite"'), 'the native Cite remains available to citeproc');
-  assert.ok(!converted.diagnostics.some(({ code }) => code === 'citation-locator-flattened'));
-  assert.deepEqual(stripDocumentEphemera(pandocToCarveAst(converted.doc).ast), stripDocumentEphemera(original));
-});
-
-test('every emitted warning has a structured counterpart', () => {
-  const forward = carveAstToPandoc({ type: 'document', children: [{ type: 'future_block', value: 'x' }] });
-  assert.deepEqual(forward.warnings, forward.diagnostics.map(({ message }) => message));
-  assert.ok(forward.diagnostics.every(({ code, direction, severity }) => code && direction && severity));
+  const imported = pandocToCarveAst(converted.doc).ast.children[0].children.find((node) => node.type === 'citation_group');
+  assert.equal(imported.type, 'citation_group');
+  assert.deepEqual(imported.children.map((citation) => [citation.key, citation.mode, citation.locator.label]),
+    [['doe', 'suppress-author', 'chapter'], ['roe', 'author-in-text', 'pages']]);
 });

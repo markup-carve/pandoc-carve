@@ -43,7 +43,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | parity.test.mjs | 11 | 11 | 0 | 0 | 0 |
 | participants.test.mjs | 4 | 0 | 0 | 0 | 4 |
 | policy.test.mjs | 20 | 16 | 4: 0.1 `.smallcaps` source-class import alias | 0 | 0 |
-| provenance.test.mjs | 8 | 0 | 0 | 0 | 8 |
+| provenance.test.mjs | 8 | 5 | 2: 0.1 opaque unknown-node provenance; 1: 0.1 structured bridge diagnostics API | 0 | 0 |
 | raw-block-payload.test.mjs | 7 | 0 | 0 | 0 | 7 |
 | reverse-edge-cases.test.mjs | 8 | 0 | 0 | 0 | 8 |
 | reverse.test.mjs | 36 | 34 | 1: 0.1 private `wrapper=1` Div attribute lifting; 1: 0.1 private `wrapper=1` Span attribute lifting | 0 | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 468 | 75 | 24 | 163 |
+| Total | 730 | 473 | 78 | 24 | 155 |
 
-The 468 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 473 ported cases are in the current `npm test` gate. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
@@ -144,5 +144,11 @@ The seven removed `wrapper-marker.test.mjs` cases, each with its 0.1 feature rea
 - “pandoc HTML puts the attributes where Carve does”: the 0.1 `wrapper=1` marker was written to guide Pandoc HTML attribute placement.
 - “a Djot round trip through pandoc keeps the attributes”: the 0.1 `wrapper=1` marker was written for Pandoc's Djot writer and reader.
 - “the CLI flag”: the 0.1 `--wrapper-marker` CLI option is gone.
+
+The three removed `provenance.test.mjs` cases, each with its 0.1 feature reason:
+
+- “unknown inline and block nodes survive as versioned opaque data”: the 0.1 opaque provenance envelope for unknown node types is gone; the 0.2 tree validates its node types.
+- “normal unknown nodes remain readable and diagnosed”: the 0.1 unknown-node fallback and diagnostic are gone; the 0.2 tree rejects unknown node types.
+- “every emitted warning has a structured counterpart”: the 0.1 bridge's structured diagnostic object API is gone.
 
 A full `node --test test/*.test.mjs` run after the initial port reported 783 cases, 376 passes, and 407 failures. This run includes the legacy test files, the new 0.2 tests, and the new end-to-end tests. The failures are concentrated in 0.1 AST spellings, old CLI and diagnostics, table and citation mapping assumptions, and 0.1 source fixtures. Each pending failure needs a 0.2 rewrite or a one-line removal reason before the old implementation can be removed.
