@@ -7,8 +7,8 @@ math, and raw passthrough.
 
 Carve swaps the Markdown emphasis delimiters: \texttt{/italic/} is
 emphasis and \texttt{*bold*} is strong. A footnote reference looks like
-this.\footnote{Footnotes become Pandoc \texttt{Note} nodes and render
-  natively in LaTeX, Typst, DOCX, and the rest.}
+this.{\footnote{Footnotes become Pandoc \texttt{Note} nodes and render
+  natively in LaTeX, Typst, DOCX, and the rest.}}
 
 \subsection{Lists}\label{Lists}
 
@@ -59,7 +59,7 @@ Inline math: \(e^{i\pi} + 1 = 0\).
 
 A target-routed raw span reaches only the LaTeX writer and is dropped by
 every other format: \LaTeX. This is the pandoc-Markdown raw-span
-semantics that Carve's \texttt{\{=format\}} syntax was born from.
+semantics that Carve{'}s \texttt{\{=format\}} syntax was born from.
 
 \begin{quote}
 A blockquote closes the tour. Every node above maps to a Pandoc AST

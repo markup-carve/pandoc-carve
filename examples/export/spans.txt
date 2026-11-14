@@ -19,3 +19,4 @@ just HTML.
 +--------+------+------+
 
 : Sales by region (North 2024 spans both years; South spans two rows)
+{carve-caption="{\"type\":\"caption\",\"children\":[{\"type\":\"paragraph\",\"children\":[{\"type\":\"text\",\"value\":\"Sales by region (North 2024 spans both years; South spans two rows)\"}]}]}"}

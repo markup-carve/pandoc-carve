@@ -6,7 +6,8 @@ emphasis, **strong** text, links, lists, tables, footnotes, math, and
 raw passthrough.
 
 Carve swaps the Markdown emphasis delimiters: `/italic/` is emphasis and
-`*bold*` is strong. A footnote reference looks like this.[^1]
+`*bold*` is strong. A footnote reference looks like
+this.<span class="carve-footnote-ref" data-key="note">[^1]</span>
 
 ## Lists
 
@@ -32,7 +33,9 @@ Inline math: $`e^{i\pi} + 1 = 0`$.
 
 A target-routed raw span reaches only the LaTeX writer and is dropped by
 every other format: . This is the pandoc-Markdown raw-span semantics
-that Carve’s `{=format}` syntax was born from.
+that Carve<span class="carve-smart" kind="right_single_quote"
+data-source="'" data-glyph="’">’</span>s `{=format}` syntax was born
+from.
 
 > A blockquote closes the tour. Every node above maps to a Pandoc AST
 > node, so `pandoc` can then emit LaTeX, Typst, RST, DOCX, and dozens

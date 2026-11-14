@@ -4,7 +4,7 @@ author: Carve
 date: 2026-07-18
 ---
 
-# Introduction
+= Introduction
 
 This is a small, hand-written Carve document. It exercises the constructs
 that survive a round-trip through Pandoc into /every/ writer: emphasis,
@@ -16,7 +16,7 @@ Carve swaps the Markdown emphasis delimiters: `/italic/` is emphasis and
 [^note]: Footnotes become Pandoc `Note` nodes and render natively in LaTeX,
   Typst, DOCX, and the rest.
 
-## Lists
+== Lists
 
 - First item
 - Second item, with /emphasis/
@@ -26,15 +26,14 @@ Carve swaps the Markdown emphasis delimiters: `/italic/` is emphasis and
 1. Ordered one
 2. Ordered two
 
-## A table
+== A table
 
-| Format | Binary? | Text golden? |
-|--------|---------|--------------|
+|= Format |= Binary? |= Text golden? |
 | LaTeX  | no      | yes          |
 | Typst  | no      | yes          |
 | DOCX   | yes     | no           |
 
-## Math and raw passthrough
+== Math and raw passthrough
 
 Inline math: $`e^{i\pi} + 1 = 0`.
 

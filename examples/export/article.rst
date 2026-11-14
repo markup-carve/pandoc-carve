@@ -1,3 +1,9 @@
+.. raw:: carve-frontmatter:yaml
+
+   title: A Short Carve Article
+   author: Carve
+   date: 2026-07-18
+
 .. _Introduction:
 
 Introduction
@@ -10,6 +16,10 @@ raw passthrough.
 
 Carve swaps the Markdown emphasis delimiters: ``/italic/`` is emphasis
 and ``*bold*`` is strong. A footnote reference looks like this. [1]_
+
+.. raw:: carve-tree
+
+   {"type":"footnote","key":"note","namespace":"footnote","children":[{"type":"paragraph","children":[{"type":"text","value":"Footnotes become Pandoc "},{"type":"code","value":"Note"},{"type":"text","value":" nodes and render natively in LaTeX,"},{"type":"soft_break"},{"type":"text","value":"Typst, DOCX, and the rest."}]}]}
 
 .. _Lists:
 

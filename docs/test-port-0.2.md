@@ -23,7 +23,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | djot-reader-and-inline-attrs.test.mjs | 31 | 24 | 3: 0.1 inserted/deleted class aliases; 1: 0.1 emoji class import heuristic; 1: 0.1 bridge symbols option; 1: 0.1 wrapper-key marker; 1: 0.1 Djot symbol-name inference | 0 | 0 |
 | empty-list-item.test.mjs | 8 | 8 | 0 | 0 | 0 |
 | equivalence.test.mjs | 41 | 41 | 0 | 0 | 0 |
-| examples.test.mjs | 11 | 0 | 0 | 0 | 11 |
+| examples.test.mjs | 11 | 11 | 0 | 0 | 0 |
 | figure-boundaries.test.mjs | 2 | 2 | 0 | 0 | 0 |
 | figure-groups.test.mjs | 15 | 15 | 0 | 0 | 0 |
 | heading-ids.test.mjs | 3 | 2 | 1: 0.1 corpus heading oracle | 0 | 0 |
@@ -63,9 +63,9 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 516 | 78 | 24 | 112 |
+| Total | 730 | 527 | 78 | 24 | 101 |
 
-The 516 ported cases are in the current `npm test` gate. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 527 ported cases are in the current `npm test` gate. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
 
 The 16 removed `row-groups.test.mjs` cases, each with its 0.1 feature reason:
 
