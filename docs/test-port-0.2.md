@@ -18,7 +18,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | corpus-census.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | corpus-link-targets.test.mjs | 9 | 7 | 2: 0.1 spec-corpus divergent allowlist | 0 | 0 |
 | corpus.test.mjs | 10 | 10 | 0 | 0 | 0 |
-| diagnostic-code-coverage.test.mjs | 22 | 0 | 0 | 0 | 22 |
+| diagnostic-code-coverage.test.mjs | 22 | 17 | 2: 0.1 listTable extension; 1: 0.1 structured diagnostic classifier | 2: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
 | diagnostics-v2.test.mjs | 1 | 0 | 0 | 0 | 1 |
 | djot-reader-and-inline-attrs.test.mjs | 31 | 24 | 3: 0.1 inserted/deleted class aliases; 1: 0.1 emoji class import heuristic; 1: 0.1 bridge symbols option; 1: 0.1 wrapper-key marker; 1: 0.1 Djot symbol-name inference | 0 | 0 |
 | empty-list-item.test.mjs | 8 | 8 | 0 | 0 | 0 |
@@ -63,9 +63,15 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 567 | 93 | 24 | 46 |
+| Total | 730 | 584 | 96 | 26 | 24 |
 
-The 567 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 24 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 584 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+
+The three removed `diagnostic-code-coverage.test.mjs` cases, each with its 0.1 feature reason:
+
+- “a list-table with a short caption produces list-table-short-caption-dropped”: the 0.1 `listTable` extension is gone.
+- “a list-table rowspan across the head produces list-table-rowspan-clipped”: the 0.1 `listTable` extension is gone.
+- “the removed cell-flattening rule no longer claims its old code”: the 0.1 structured diagnostic classifier is gone.
 
 The 13 removed `cli.test.mjs` cases, each with its 0.1 feature reason:
 

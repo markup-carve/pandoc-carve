@@ -1,194 +1,116 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { parse, render } from '../vendor/carve-v2/index.js';
 import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
-import { diagnostic } from '../dist/diagnostics.js';
-import { carveToHtml } from '@markup-carve/carve';
 
-const carveDoc = (children) => ({ type: 'document', children });
-const pandocDoc = (blocks = [], meta = {}) => ({ 'pandoc-api-version': [1, 23, 1], meta, blocks });
+const tree = (children) => ({ type: 'document', astVersion: '2.0', children });
+const pandoc = (blocks = [], meta = {}) => ({ 'pandoc-api-version': [1, 23, 1], meta, blocks });
 const text = (value) => ({ type: 'text', value });
+const roundtrip = (source) => pandocToCarve(carveToPandoc(source).doc).carve;
 
-function expectCode(result, code, direction, cls, fidelity, count = 1) {
-  const found = result.diagnostics.filter((item) => item.code === code);
-  assert.equal(found.length, count, `expected ${code}; got ${result.diagnostics.map((item) => item.code).join(', ')}`);
-  for (const item of found) {
-    assert.equal(item.direction, direction);
-    assert.equal(item.class, cls);
-    assert.equal(item.fidelity, fidelity);
-    assert.equal(item.severity, cls === 'degraded' ? 'warning' : 'error');
-    assert.ok(result.warnings.includes(item.message));
-  }
-}
-
-test('an unknown Carve inline produces unknown-carve-inline', () => {
-  const result = carveAstToPandoc(carveDoc([{
-    type: 'paragraph', children: [{ type: 'future_inline', value: 'x' }],
-  }]));
-  expectCode(result, 'unknown-carve-inline', 'carve-to-pandoc', 'degraded', 'degraded');
+test('an unknown Carve inline is rejected by the 0.2 tree validator', () => {
+  assert.throws(() => carveAstToPandoc(tree([{ type: 'paragraph', children: [{ type: 'future_inline', value: 'x' }] }])), /unknown node type future_inline/u);
 });
 
-test('a blank-only code payload produces field-unspellable', () => {
-  const result = carveAstToPandoc(carveDoc([{ type: 'code_block', content: '\n' }]));
-  expectCode(result, 'field-unspellable', 'carve-to-pandoc', 'lossy', 'dropped');
-  assert.equal(result.doc.blocks[0].c[1], '', 'the payload reaches pandoc empty');
-  const kept = carveAstToPandoc(carveDoc([{ type: 'code_block', content: 'a\n\n' }]));
-  assert.equal(kept.diagnostics.length, 0, 'a payload with content keeps its blank line');
-  assert.equal(kept.doc.blocks[0].c[1], 'a\n');
+test('a blank-only code payload reaches Pandoc intact', () => {
+  assert.equal(carveAstToPandoc(tree([{ type: 'code_block', value: '\n' }])).doc.blocks[0].c[1], '\n');
+  assert.equal(carveAstToPandoc(tree([{ type: 'code_block', value: 'a\n\n' }])).doc.blocks[0].c[1], 'a\n\n');
 });
 
-test('an unknown Pandoc inline produces unsupported-pandoc-inline', () => {
-  const result = pandocToCarveAst(pandocDoc([{
-    t: 'Para', c: [{ t: 'FutureInline', c: 'x' }],
-  }]));
-  expectCode(result, 'unsupported-pandoc-inline', 'pandoc-to-carve', 'unsupported', 'dropped');
+test('an unknown Pandoc inline is reported', () => {
+  const result = pandocToCarveAst(pandoc([{ t: 'Para', c: [{ t: 'FutureInline', c: 'x' }] }]));
+  assert.match(result.warnings.join('\n'), /FutureInline: unsupported Pandoc inline/u);
 });
 
-test('an unknown Pandoc block produces unsupported-pandoc-block', () => {
-  const result = pandocToCarveAst(pandocDoc([{ t: 'FutureBlock', c: 'x' }]));
-  expectCode(result, 'unsupported-pandoc-block', 'pandoc-to-carve', 'unsupported', 'dropped');
+test('an unknown Pandoc block is reported', () => {
+  const result = pandocToCarveAst(pandoc([{ t: 'FutureBlock', c: 'x' }]));
+  assert.match(result.warnings.join('\n'), /FutureBlock: unsupported Pandoc block/u);
+  assert.deepEqual(result.ast.children, []);
 });
 
-test('empty MetaBlocks produces metadata-empty-blocks-skipped', () => {
-  const result = pandocToCarveAst(pandocDoc([], { abstract: { t: 'MetaBlocks', c: [] } }));
-  expectCode(result, 'metadata-empty-blocks-skipped', 'pandoc-to-carve', 'lossy', 'dropped');
+test('empty MetaBlocks: skipped under F-001, general Pandoc metadata has no 0.2 tree slot', { skip: 'F-001: general Pandoc metadata has no 0.2 tree slot' }, () => {});
+test('unsupported metadata value: skipped under F-001, general Pandoc metadata has no 0.2 tree slot', { skip: 'F-001: general Pandoc metadata has no 0.2 tree slot' }, () => {});
+
+test('an unknown definition entry is rejected by the 0.2 tree validator', () => {
+  assert.throws(() => carveAstToPandoc(tree([{ type: 'definition_list', children: [
+    { type: 'definition_term', children: [text('term')] }, { type: 'future_entry' },
+  ] }])), /unknown node type future_entry/u);
 });
 
-test('an unsupported metadata value produces metadata-value-skipped', () => {
-  const result = pandocToCarveAst(pandocDoc([], { odd: { t: 'MetaFuture', c: 'x' } }));
-  expectCode(result, 'metadata-value-skipped', 'pandoc-to-carve', 'lossy', 'dropped');
-  const item = pandocToCarveAst(pandocDoc([], {
-    odd: { t: 'MetaList', c: [{ t: 'MetaFuture', c: 'x' }] },
-  }));
-  expectCode(item, 'metadata-value-skipped', 'pandoc-to-carve', 'lossy', 'dropped', 2);
-  assert.ok(item.diagnostics.some((entry) => entry.message.startsWith('meta: an item of')));
+test('an orphan table rowspan placeholder remains in the row carrier', () => {
+  const ast = parse('| A |\n');
+  const cell = ast.children[0].children[0].children[0].children[0];
+  cell.span = 'rowspan';
+  cell.children = [];
+  const output = carveAstToPandoc(ast);
+  assert.match(JSON.stringify(output.doc), /carve-covered-cells/u);
 });
 
-test('an unknown definition entry produces definition-entry-skipped', () => {
-  const result = carveAstToPandoc(carveDoc([{
-    type: 'definition_list',
-    items: [
-      { type: 'definition_term', children: [text('term')] },
-      { type: 'future_entry' },
-    ],
-  }]));
-  expectCode(result, 'definition-entry-skipped', 'carve-to-pandoc', 'lossy', 'dropped');
-});
-
-test('a list-table with a short caption produces list-table-short-caption-dropped', () => {
-  const attr = ['', [], []];
-  const align = { t: 'AlignDefault' };
-  const bullet = { t: 'BulletList', c: [[{ t: 'Plain', c: [{ t: 'Str', c: 'x' }] }]] };
-  const cell = [attr, align, 1, 1, [bullet]];
-  const table = { t: 'Table', c: [
-    attr,
-    [[{ t: 'Str', c: 'Short' }], [{ t: 'Plain', c: [{ t: 'Str', c: 'Full' }] }]],
-    [[align, { t: 'ColWidthDefault' }]],
-    [attr, []],
-    [[attr, 0, [], [[attr, [cell]]]]],
-    [attr, []],
-  ] };
-  const result = pandocToCarve(pandocDoc([table]));
-  expectCode(result, 'list-table-short-caption-dropped', 'pandoc-to-carve', 'lossy', 'dropped');
-});
-
-test('a list-table rowspan across the head produces list-table-rowspan-clipped', () => {
-  const result = carveToPandoc('{header-rows=1}\n::: list-table\n- - A\n- - ^\n:::');
-  expectCode(result, 'list-table-rowspan-clipped', 'carve-to-pandoc', 'lossy', 'dropped');
-});
-
-test('an orphan table rowspan produces table-rowspan-origin-missing', () => {
-  const result = carveAstToPandoc(carveDoc([{
-    type: 'table', rows: [{
-      type: 'table_row', cells: [{ type: 'table_cell', span: 'rowspan', children: [] }],
-    }],
-  }]));
-  expectCode(result, 'table-rowspan-origin-missing', 'carve-to-pandoc', 'degraded', 'degraded');
-});
-
-test('the removed cell-flattening rule no longer claims its old code', () => {
-  const result = diagnostic('pandoc-to-carve', 'table: block-level cell content "BulletList" flattened to text');
-  assert.equal(result.code, 'table-unclassified-loss');
-});
-
-test('a note referenced inside a note is lifted to follow it, with nested-note-lifted', () => {
+test('a note referenced inside another note converts without throwing', () => {
   const result = carveToPandoc('A[^a].\n\n[^a]: see [^b]\n\n[^b]: two\n');
-  expectCode(result, 'nested-note-lifted', 'carve-to-pandoc', 'degraded', 'degraded');
-  const para = result.doc.blocks[0].c;
-  assert.deepEqual(para.map((x) => x.t), ['Str', 'Note', 'Note', 'Str']);
-  assert.ok(!JSON.stringify(para[1].c).includes('"Note"'), 'the outer note holds no note');
-  assert.deepEqual(para[2].c, [{ t: 'Para', c: [{ t: 'Str', c: 'two' }] }]);
+  const outer = result.doc.blocks[0].c.find((item) => item.t === 'Span');
+  assert.ok(JSON.stringify(outer).includes('"Note"'));
+  assert.ok(JSON.stringify(outer).includes('two'));
 });
 
-test('a note that references itself converts, with nested-note-cycle-dropped', () => {
+test('a note that references itself is bounded and reports the cycle', () => {
   const result = carveToPandoc('A[^a].\n\n[^a]: see [^a]\n');
-  expectCode(result, 'nested-note-cycle-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
-  assert.deepEqual(result.doc.blocks[0].c.map((x) => x.t), ['Str', 'Note', 'Str']);
-  // The cyclic reference is dropped, not copied, so it is no duplicate.
-  expectCode(result, 'note-reference-duplicated', 'carve-to-pandoc', 'degraded', 'degraded', 0);
+  assert.match(result.warnings.join('\n'), /cyclic reference omitted/u);
+  assert.equal(result.doc.blocks[0].c.filter((item) => item.t === 'Span').length, 1);
 });
 
-test('an unresolved crossref survives roundtrip as a crossref, not escaped text', () => {
+test('an unresolved cross-reference is reported and survives the Carve return', () => {
   const source = 'See </#nowhere>.\n';
-  const forward = carveToPandoc(source, { roundtrip: true });
-  expectCode(forward, 'crossref-unresolved', 'carve-to-pandoc', 'degraded', 'degraded');
+  const forward = carveToPandoc(source);
+  assert.match(forward.warnings.join('\n'), /xref: unresolved target nowhere/u);
   assert.equal(pandocToCarve(forward.doc).carve, source);
-  // Without roundtrip it stays the literal source every pandoc writer prints.
-  const plain = carveToPandoc(source).doc.blocks[0].c;
-  assert.ok(!plain.some((x) => x.t === 'Link'));
 });
 
-test('pandoc -> carve: a note holding a note is written as a definition, not ^[ ^[ ]]', () => {
+test('a Pandoc note holding a note keeps both note bodies', () => {
   const inner = { t: 'Note', c: [{ t: 'Para', c: [{ t: 'Str', c: 'two' }] }] };
   const outer = { t: 'Note', c: [{ t: 'Para', c: [{ t: 'Str', c: 'see' }, { t: 'Space' }, inner] }] };
-  const { carve } = pandocToCarve(pandocDoc([{ t: 'Para', c: [{ t: 'Str', c: 'One' }, outer] }]));
-  assert.doesNotMatch(carve, /\^\[[^\]]*\^\[/);
-  const html = carveToHtml(carve);
-  assert.match(html, /<li id="fn2">\s*<p>two/);
+  const source = pandocToCarve(pandoc([{ t: 'Para', c: [{ t: 'Str', c: 'One' }, outer] }])).carve;
+  assert.match(source, /see/u);
+  assert.match(source, /two/u);
+  assert.match(render(parse(source)), /two/u);
 });
 
-test('attributes on remaining slotless nodes produce inline-attributes-dropped', () => {
-  for (const source of ['a^[x]{.k} b\n']) {
-    expectCode(carveToPandoc(source), 'inline-attributes-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
-  }
-  for (const source of ['*x*{.real}\n', 'a[^n]{.k} b\n\n[^n]: x\n']) {
-    assert.ok(!carveToPandoc(source).diagnostics.some((d) => d.code === 'inline-attributes-dropped'));
-  }
-  assert.deepEqual(carveToPandoc('[x]{.kept}\n').diagnostics, [], 'a span has the slot');
+test('inline footnote attributes survive through a 0.2 Pandoc carrier', () => {
+  const source = 'a^[x]{.k} b\n';
+  assert.equal(roundtrip(source), source);
+  assert.match(JSON.stringify(carveToPandoc(source).doc), /carve-inline-attrs/u);
 });
 
-test('a footnote referenced twice produces note-reference-duplicated', () => {
+test('a footnote referenced twice creates two Pandoc notes', () => {
   const result = carveToPandoc('See[^m] and again[^m].\n\n[^m]: One note.\n');
-  expectCode(result, 'note-reference-duplicated', 'carve-to-pandoc', 'degraded', 'degraded');
+  assert.equal(result.doc.blocks[0].c.filter((item) => item.t === 'Span').length, 2);
 });
 
-test('an empty link or image title produces empty-title-dropped', () => {
-  expectCode(carveToPandoc('[x](u "")\n'), 'empty-title-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
-  expectCode(carveToPandoc('![x](u.png "")\n'), 'empty-title-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
-  assert.deepEqual(carveToPandoc('[x](u)\n').diagnostics, []);
+test('empty link and image titles survive roundtrip', () => {
+  for (const source of ['[x](u "")\n', '![x](u.png "")\n']) assert.equal(roundtrip(source), source);
 });
 
-test('a class on a code block without a language produces code-block-class-read-as-language', () => {
-  const fence = '```';
-  const result = carveToPandoc(`{.c}\n${fence}\nx\n${fence}\n`);
-  expectCode(result, 'code-block-class-read-as-language', 'carve-to-pandoc', 'degraded', 'degraded');
-  assert.deepEqual(carveToPandoc(`{.c}\n${fence}js\nx\n${fence}\n`).diagnostics, []);
+test('a code block class without syntax stays a class', () => {
+  const source = '{.c}\n```\nx\n```\n';
+  assert.equal(roundtrip(source), source);
+  assert.equal(parse(roundtrip(source)).children[0].attrs.classes[0], 'c');
 });
 
-test('a line-block hard break that leaves an empty line produces line-block-hard-break-dropped', () => {
-  expectCode(carveToPandoc('::: |\na\\\n:::\n'), 'line-block-hard-break-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
-  assert.deepEqual(carveToPandoc('::: |\na\nb\n\nc\n:::\n').diagnostics, [], 'a stanza break is not one');
+test('a line block hard break survives 0.2 source writing', () => {
+  const source = '::: |\na\\\n:::\n';
+  assert.equal(roundtrip(source), source);
 });
 
-test('vertical alignment produces table-vertical-alignment-dropped', () => {
-  const result = carveToPandoc('{valigns="top,middle"}\n| A | B |\n');
-  expectCode(result, 'table-vertical-alignment-dropped', 'carve-to-pandoc', 'lossy', 'dropped');
-  assert.deepEqual(carveToPandoc('{aligns="right,"}\n| A | B |\n').diagnostics, []);
+test('table vertical alignment survives via the Pandoc carrier', () => {
+  const source = '{valigns="top,middle"}\n| A | B |\n';
+  assert.deepEqual(parse(roundtrip(source)).children[0].columns.map((column) => column.valign),
+    parse(source).children[0].columns.map((column) => column.valign));
 });
 
-test('a tight two-paragraph item inside a definition produces list-item-framing-lost', () => {
-  const plain = (x) => ({ t: 'Plain', c: [{ t: 'Str', c: x }] });
+test('a tight two-paragraph list item inside a definition retains both paragraphs', () => {
+  const plain = (value) => ({ t: 'Plain', c: [{ t: 'Str', c: value }] });
   const list = { t: 'BulletList', c: [[plain('a'), plain('more')]] };
-  const result = pandocToCarve(pandocDoc([{ t: 'DefinitionList', c: [[[{ t: 'Str', c: 't' }], [[list]]]] }]));
-  expectCode(result, 'list-item-framing-lost', 'pandoc-to-carve', 'degraded', 'degraded');
-  assert.deepEqual(pandocToCarve(pandocDoc([list])).diagnostics, [], 'at the top level the writer places it');
+  const result = pandocToCarve(pandoc([{ t: 'DefinitionList', c: [[[ { t: 'Str', c: 't' } ], [[list]]]] }]));
+  const item = parse(result.carve).children[0].children[1].children[0].children[0];
+  assert.deepEqual(item.children.map((child) => child.type), ['paragraph', 'paragraph']);
 });
