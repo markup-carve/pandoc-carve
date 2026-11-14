@@ -30,7 +30,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | html-equivalence.test.mjs | 3 | 3 | 0 | 0 | 0 |
 | import-limits.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | import.test.mjs | 5 | 5 | 0 | 0 | 0 |
-| includes.test.mjs | 9 | 0 | 0 | 0 | 9 |
+| includes.test.mjs | 9 | 1 | 8: 0.1 file-backed include expansion API | 0 | 0 |
 | inline-literal.test.mjs | 5 | 3 | 2: 0.1 unclosed literal crossed a line boundary | 0 | 0 |
 | loss-audit.test.mjs | 7 | 0 | 0 | 0 | 7 |
 | metadata-yaml12.test.mjs | 1 | 0 | 0 | 1: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
@@ -63,9 +63,20 @@ This is the observed case census from running each of the 58 old files alone on 
 | url-scheme.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | wrapper-marker.test.mjs | 9 | 2 | 7: 0.1 private `wrapperMarker` option and `wrapper=1` carrier | 0 | 0 |
 
-| Total | 730 | 584 | 96 | 26 | 24 |
+| Total | 730 | 585 | 104 | 26 | 15 |
 
-The 584 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+The 585 ported cases are in the current `npm test` gate. The corpus-link rewrite adds one 0.2 nested-link regression check. The import-limits rewrite expands its one observed top-level failure into four active 0.2 checks. The row-groups rewrite adds three 0.2-specific checks, the table-body rewrite adds two checks, and the metadata rewrites add three checks for verbatim frontmatter and typed metadata. The stated drop reasons are the only intentional removals. The 26 skipped cases name finding F-001 in `_FINDINGS.md` at the workspace root. The remaining files continue to test the old API, 0.1 syntax, or 0.1 internal tree and diagnostic shapes; their passing cases in the ungated full run do not yet count as 0.2 coverage.
+
+The eight removed `includes.test.mjs` cases, each with its 0.1 feature reason:
+
+- “file-backed conversion expands nested includes and returns dependencies”: 0.1 file-backed include expansion API is absent from the 0.2 engine.
+- “file-backed conversion reports warnings suppressed by the engine cap”: 0.1 include expansion warning cap is absent from the 0.2 engine.
+- “the file-backed path does not change a document without directives”: 0.1 file-backed include expansion API is absent from the 0.2 engine.
+- “containment failures stay literal and return a stable warning”: 0.1 include resolver containment API is absent from the 0.2 engine.
+- “nested cycles warn instead of recursing”: 0.1 recursive include expansion is absent from the 0.2 engine.
+- “a symlink cannot escape the containment root”: 0.1 file-system include resolver is absent from the 0.2 engine.
+- “include root and source path must be absolute and contained”: 0.1 file-backed include expansion API is absent from the 0.2 engine.
+- “a region include brings only the named region”: 0.1 region include expansion is absent from the 0.2 engine.
 
 The three removed `diagnostic-code-coverage.test.mjs` cases, each with its 0.1 feature reason:
 
