@@ -1,7 +1,7 @@
 /* The Carve 0.2 tree is the bridge's interchange contract. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTree } from '../vendor/carve/index.js';
+import { validateTree } from '@markup-carve/carve';
 import { carveAstToPandoc, carveToCarveAst, carveToPandoc } from '../dist/index.js';
 
 const nodesOfType = (value, type, found = []) => {

@@ -24,12 +24,13 @@ test('no test source carries a literal control byte where an escape belongs', ()
   assert.deepEqual(offenders, []);
 });
 
-test('the vendored 0.2 engine records its source identity', () => {
+test('the vendored 0.2 engine data comes from the pinned engine commit', () => {
   const source = JSON.parse(readFileSync(new URL('../vendor/carve/SOURCE.json', import.meta.url), 'utf8'));
+  const pin = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).dependencies['@markup-carve/carve'];
   assert.equal(source.repository, 'markup-carve/carve-js');
   assert.equal(source.branch, 'next2');
   assert.match(source.commit, /^[0-9a-f]{40}$/u);
-  assert.ok(existsSync(new URL('../vendor/carve/index.js', import.meta.url)));
+  assert.equal(pin, `github:markup-carve/carve-js#${source.commit}`);
   assert.ok(existsSync(new URL('../vendor/carve/ast-schema.json', import.meta.url)));
 });
 

@@ -1,6 +1,6 @@
-/** Carve 0.2 bridge. The vendored engine is a single import to swap at release. */
-import { parse, treesEqual, validateTree, writeWithDiagnostics } from '../vendor/carve/index.js';
-import type { Node, DocumentNode, Block, Inline, Attrs, TableNode, TableRowNode, TableCellNode, CaptionNode } from '../vendor/carve/index.js';
+/** Carve 0.2 bridge. */
+import { parse, SMART_PUNCTUATION, treesEqual, validateTree, writeWithDiagnostics } from '@markup-carve/carve';
+import type { Node, DocumentNode, Block, Inline, Attrs, TableNode, TableRowNode, TableCellNode, CaptionNode } from '@markup-carve/carve';
 import * as P from './pandoc.js';
 import { hasDeniedScheme } from './url-scheme.js';
 import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
@@ -9,6 +9,9 @@ export { treesEqual };
 export type { DocumentNode, Node };
 type Result = { doc: P.PandocDoc; warnings: string[] };
 type Context = { warnings: string[]; notes: Map<string, Block[]>; activeNotes: Set<string>; links: Map<string, [string, string]>; targets: Map<string, P.Inline[]>; noteCount: number };
+type SmartKind = Extract<Inline, { type: 'smart_punctuation' }>['kind'];
+const SMART = new Map(SMART_PUNCTUATION.map((entry) => [entry.kind, entry]));
+const smartPunctuation = (kind: SmartKind): Inline => { const { glyph, source } = SMART.get(kind)!; return { type: 'smart_punctuation', kind, glyph, source }; };
 const impossible = (node: never): never => { throw new Error(`unhandled node ${JSON.stringify(node)}`); };
 const attr = (a?: Attrs): P.Attr => P.attr(a?.id, a?.classes, a?.keyValues);
 const languageAttr = (n: Node): P.Attr => P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.lang ? [['lang', n.lang] as [string, string]] : []), ...(n.dir ? [['dir', n.dir] as [string, string]] : [])]);
@@ -334,7 +337,7 @@ function importInline(node: P.PandocNode, warnings: string[]): Inline[] {
       generated.generatedNotes.push({ type: 'footnote', namespace: 'footnote', key, children: blocks });
       return [{ type: 'footnote_ref', namespace: 'footnote', key }];
     }
-    case 'Quoted': return [{ type: 'smart_punctuation', kind: c[0].t === 'SingleQuote' ? 'left_single_quote' : 'left_double_quote', glyph: c[0].t === 'SingleQuote' ? '‘' : '“', source: c[0].t === 'SingleQuote' ? "'" : '"' }, ...inlineList(c[1], warnings), { type: 'smart_punctuation', kind: c[0].t === 'SingleQuote' ? 'right_single_quote' : 'right_double_quote', glyph: c[0].t === 'SingleQuote' ? '’' : '”', source: c[0].t === 'SingleQuote' ? "'" : '"' }];
+    case 'Quoted': { const single = c[0].t === 'SingleQuote'; return [smartPunctuation(single ? 'left_single_quote' : 'left_double_quote'), ...inlineList(c[1], warnings), smartPunctuation(single ? 'right_single_quote' : 'right_double_quote')]; }
     case 'Cite': {
       const records = c[0] as P.Citation[];
       const display = (nodes: P.PandocNode[]): string => nodes.map(node => node.t === 'Str' ? String(node.c) : node.t === 'Space' || node.t === 'SoftBreak' ? ' ' : Array.isArray(node.c) ? display(node.c as P.PandocNode[]) : '').join('');

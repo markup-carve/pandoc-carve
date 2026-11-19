@@ -1,17 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SMART_GLYPHS, SMART_KIND_NAMES, SMART_SOURCES, parse, render, treesEqual } from '../vendor/carve/index.js';
+import { SMART_PUNCTUATION, parse, render, treesEqual } from '@markup-carve/carve';
 import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const strings = value => Array.isArray(value) ? value.flatMap(strings) : !value || typeof value !== 'object' ? [] : value.t === 'Str' ? [value.c] : strings(value.c);
 
 test('every current smart-punctuation kind exports its engine glyph', () => {
-  assert.equal(SMART_KIND_NAMES.length, SMART_GLYPHS.length);
-  assert.ok(SMART_KIND_NAMES.length >= 18);
-  for (let i = 0; i < SMART_KIND_NAMES.length; i++) {
-    const kind = SMART_KIND_NAMES[i];
-    const glyph = SMART_GLYPHS[i];
-    const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', children: [{ type: 'smart_punctuation', kind, source: SMART_SOURCES[i], glyph }] }] };
+  assert.ok(SMART_PUNCTUATION.length >= 18);
+  for (const { kind, glyph, source } of SMART_PUNCTUATION) {
+    const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', children: [{ type: 'smart_punctuation', kind, source, glyph }] }] };
     assert.ok(strings(carveAstToPandoc(ast).doc.blocks).includes(glyph), kind);
   }
 });

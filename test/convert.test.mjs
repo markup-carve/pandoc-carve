@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { parse, treesEqual, validateTree } from '../vendor/carve/index.js';
+import { parse, treesEqual, validateTree } from '@markup-carve/carve';
 import { carveToPandoc, carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import * as P from '../dist/pandoc.js';
 

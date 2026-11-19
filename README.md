@@ -21,13 +21,11 @@ With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the 
 
 ## Engine
 
-The Carve engine is vendored in `vendor/carve`: an esbuild bundle of `src/index.ts` from carve-js `next2`, plus its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit. To move the pin, check out carve-js at the new commit, run `npm ci` there, then:
+The Carve engine is the npm git dependency `@markup-carve/carve`, pinned to a carve-js `next2` commit in `package.json`. `vendor/carve` holds the engine's data the tests read at that commit: its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit, and a test checks it against the pin. To move the pin, change the commit in `package.json`, run `npm install`, check out carve-js at the same commit, then:
 
 ```bash
 node scripts/vendor-carve.mjs /path/to/carve-js
 ```
-
-The bundle stands in for an npm git dependency: carve-js `next2` does not build when installed from git (markup-carve/carve-js#5085), and its public entry does not export `treesEqual` or the smart-punctuation tables this bridge uses (markup-carve/carve-js#5088).
 
 ## API
 

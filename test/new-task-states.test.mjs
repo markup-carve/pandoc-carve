@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, treesEqual } from '../vendor/carve/index.js';
+import { parse, treesEqual } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 for (const [mark, name] of [['/', 'progress'], ['!', 'blocked'], ['_', 'open alias']]) {

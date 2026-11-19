@@ -23,8 +23,10 @@ for (const empty of [false, true]) {
     assert.deepEqual(groups.map((group) => group.children.length), empty ? [0, 0, 0] : [1, 1, 1]);
     const warnings = pandocToCarve(pandoc).warnings;
     if (empty) {
-      // The 0.2 writer has no spelling for a table whose head, body and foot are all empty; it reports the whole table.
-      assert.ok(warnings.some((w) => w.startsWith('structure-unspellable') && w.includes('table node')), warnings.join(' | '));
+      // C2-L-036, C2-W-066: a row-less table is written delimited, which holds no head, no foot and no body attributes.
+      assert.ok(warnings.some((w) => w.startsWith('structure-unspellable') && w.includes('table_head node')), warnings.join(' | '));
+      assert.ok(warnings.some((w) => w.startsWith('structure-unspellable') && w.includes('table_foot node')), warnings.join(' | '));
+      assert.ok(warnings.some((w) => w.startsWith('field-unspellable') && w.includes('attrs of a table_body')), warnings.join(' | '));
       return;
     }
     assert.ok(warnings.some((w) => w.includes('table_head') && w.includes('attrs')), warnings.join(' | '));
