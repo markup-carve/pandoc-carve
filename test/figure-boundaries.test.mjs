@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const str = (value) => ({ t: 'Str', c: value });
 const image = (attr) => ({ t: 'Image', c: [attr, [str('Alternative')], ['p.png', '']] });
@@ -46,4 +46,14 @@ test('Pandoc keeps Figure and Image attributes on their respective 0.2 nodes', (
     assert.equal(again.c[0][0], outer[0]);
     assert.equal(pandocImages(again)[0].c[0][0], inner[0]);
   }
+});
+
+test('a captioned image paragraph with an id and language comes back as one paragraph', () => {
+  const caption = { type: 'caption', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Cap' }] }] };
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'paragraph', role: 'image', attrs: { id: 'f', classes: ['c'], keyValues: [['lang', 'de'], ['dir', 'ltr']] }, children: [{ type: 'image', src: 'b.png', alt: 'a' }], caption }] };
+  const node = pandocToCarveAst(carveAstToPandoc(ast).doc).ast.children[0];
+  assert.deepEqual([node.type, node.role, node.attrs?.id], ['paragraph', 'image', 'f']);
+  assert.deepEqual(node.attrs.classes, ['c']);
+  assert.deepEqual(new Map(node.attrs.keyValues), new Map([['lang', 'de'], ['dir', 'ltr']]));
+  assert.equal(node.caption.children[0].children[0].value, 'Cap');
 });

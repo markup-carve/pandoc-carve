@@ -429,8 +429,15 @@ function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
       for (const child of children) if (child.type === 'paragraph' && child.children.length === 1 && child.children[0]?.type === 'image') child.role = 'image';
       const attrs: P.Attr = [a[0], a[1].filter(name => name !== 'carve-figure-group'), a[2].filter(([key]) => key !== 'carve-caption')];
       const only = children.length === 1 ? children[0] : undefined;
-      if (!a[1].includes('carve-figure-group') && only && ((only.type === 'paragraph' && only.role !== undefined) || only.type === 'block_quote' || only.type === 'code_block' || only.type === 'include') && !only.caption && (!only.attrs || (!attrs[0] && !attrs[1].length && !attrs[2].length))) {
-        return [only.attrs ? { ...only, ...(caption ? { caption } : {}) } : withAttr({ ...only, ...(caption ? { caption } : {}) }, attrs)];
+      if (!a[1].includes('carve-figure-group') && only && ((only.type === 'paragraph' && only.role !== undefined) || only.type === 'block_quote' || only.type === 'code_block' || only.type === 'include') && !only.caption) {
+        // Export splits one node's attributes between the Figure and the block's own carrier (lang, dir); merge them back unless they clash.
+        const inner = only.attrs ?? {};
+        const clash = (attrs[0] && inner.id) || attrs[2].some(([key]) => inner.keyValues?.some(([other]) => other === key));
+        if (!clash) {
+          const merged: P.Attr = [attrs[0] || inner.id || '', [...attrs[1], ...(inner.classes ?? [])], [...attrs[2], ...(inner.keyValues ?? [])]];
+          const { attrs: _drop, ...bare } = only;
+          return [withAttr({ ...bare, ...(caption ? { caption } : {}) } as Block, merged)];
+        }
       }
       return [withAttr({ type: 'figure_group', children, ...(caption ? { caption } : {}) }, attrs)];
     }
