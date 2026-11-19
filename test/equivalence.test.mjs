@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { render } from '../vendor/carve-v2/index.js';
+import { render } from '../vendor/carve/index.js';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
 import { shortfall } from './helpers.mjs';
 

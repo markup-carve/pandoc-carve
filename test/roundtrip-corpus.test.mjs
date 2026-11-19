@@ -1,18 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { parse, render } from '../vendor/carve-v2/index.js';
+import { parse, render } from '../vendor/carve/index.js';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
 import { normalizeHtml } from './html-equivalence.mjs';
 
-const path = new URL('../vendor/carve-v2/examples.json', import.meta.url);
+const path = new URL('../vendor/carve/examples.json', import.meta.url);
 const examples = JSON.parse(readFileSync(path, 'utf8'));
 const corpus = examples.filter((example) => !example.flags?.length);
 const id = (example) => `${example.file}#${example.number}`;
 
-// The 0.2 writer cannot spell a multirow CSV table head as a pipe table.
-// Both losses are reported on the return leg. Remove an entry when it passes.
-const knownLossy = new Set(['syntax-blocks.md#217', 'syntax-blocks.md#230']);
+// The 0.2 writer cannot spell a CSV cell with a quote or a line break as a pipe table cell
+// (field-unspellable, reported on the return leg). Remove an entry when it passes.
+const knownLossy = new Set(['syntax-blocks.md#234']);
 
 function measure() {
   const lossy = [];
@@ -39,8 +39,8 @@ test('the 0.2 round trip corpus is vendored', () => {
 });
 
 test('the round trip is measured against the whole 0.2 corpus', () => {
-  assert.equal(examples.length, 371);
-  assert.equal(corpus.length, 367);
+  assert.equal(examples.length, 505);
+  assert.equal(corpus.length, 476);
   assert.deepEqual(result.threw, []);
 });
 

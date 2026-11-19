@@ -24,7 +24,8 @@ test('a captioned quote keeps its attributes through the 0.2 tree', () => {
   const { doc } = carveToPandoc(source);
   const { ast, warnings } = pandocToCarveAst(doc);
   assert.deepEqual(warnings, []);
-  assert.equal(ast.children[0].type, 'figure');
+  // C2-A-082 to C2-A-084: a caption sits in the slot of its block; the figure node is gone.
+  assert.equal(ast.children[0].type, 'block_quote');
   assert.deepEqual(ast.children[0].attrs.classes, ['c']);
   assert.equal(pandocToCarve(doc).carve, source);
 });

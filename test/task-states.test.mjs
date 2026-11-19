@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { render, validateTree } from '../vendor/carve-v2/index.js';
+import { render, validateTree } from '../vendor/carve/index.js';
 import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
 import { findPandoc, pandocRender } from './helpers.mjs';
 

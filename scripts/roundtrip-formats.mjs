@@ -2,8 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { parse, treesEqual } from '../vendor/carve-v2/index.js';
-import { carveAstToPandoc, pandocToCarveAst } from '../dist/v2.js';
+import { parse, treesEqual } from '../vendor/carve/index.js';
+import { carveAstToPandoc, pandocToCarveAst } from '../dist/convert.js';
 import { grade } from './roundtrip-grade.mjs';
 
 const root = resolve(import.meta.dirname, '..');

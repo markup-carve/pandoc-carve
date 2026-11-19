@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
-const cli = new URL('../dist/cli-v2.js', import.meta.url).pathname;
+const cli = new URL('../dist/cli.js', import.meta.url).pathname;
 const run = (args, input) => spawnSync(process.execPath, [cli, '-', ...args], { input, encoding: 'utf8' });
 const attr = ['', [], []];
 const plain = (value) => ({ t: 'Plain', c: [{ t: 'Str', c: value }] });

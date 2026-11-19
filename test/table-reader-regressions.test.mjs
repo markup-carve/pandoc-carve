@@ -26,7 +26,9 @@ test('a Typst table inside an alignment Div and captionless Figure remains a tab
 test('blank rows keep their cells and position as a table row', () => {
   const { ast, warnings } = pandocToCarveAst(load('latex-blank-row'));
   const table = findTables(ast)[0];
-  assert.deepEqual(cells(table)[1].map((c) => c.children), [[], []]);
+  // C2-A-091: a cell holds at least one child; a blank cell is one empty cell_paragraph.
+  const blank = [{ type: 'cell_paragraph', children: [] }];
+  assert.deepEqual(cells(table)[1].map((c) => c.children), [blank, blank]);
   assert.deepEqual(warnings, []);
 });
 

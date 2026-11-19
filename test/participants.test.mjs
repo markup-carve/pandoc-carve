@@ -25,12 +25,12 @@ test('no test source carries a literal control byte where an escape belongs', ()
 });
 
 test('the vendored 0.2 engine records its source identity', () => {
-  const source = JSON.parse(readFileSync(new URL('../vendor/carve-v2/SOURCE.json', import.meta.url), 'utf8'));
+  const source = JSON.parse(readFileSync(new URL('../vendor/carve/SOURCE.json', import.meta.url), 'utf8'));
   assert.equal(source.repository, 'markup-carve/carve-js');
   assert.equal(source.branch, 'next2');
   assert.match(source.commit, /^[0-9a-f]{40}$/u);
-  assert.ok(existsSync(new URL('../vendor/carve-v2/index.js', import.meta.url)));
-  assert.ok(existsSync(new URL('../vendor/carve-v2/ast-schema.json', import.meta.url)));
+  assert.ok(existsSync(new URL('../vendor/carve/index.js', import.meta.url)));
+  assert.ok(existsSync(new URL('../vendor/carve/ast-schema.json', import.meta.url)));
 });
 
 test('a short population count is a finding, and a sufficient one is not', () => {

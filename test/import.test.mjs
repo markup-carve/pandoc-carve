@@ -5,12 +5,12 @@ import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { render as carveToHtml } from '../vendor/carve-v2/index.js';
+import { render as carveToHtml } from '../vendor/carve/index.js';
 import { pandocToCarve } from '../dist/index.js';
 import { findPandoc } from './helpers.mjs';
 
 const pandoc = findPandoc();
-const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli-v2.js');
+const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
 
 function pandocToJson(from, input) {
   const result = spawnSync(pandoc, ['-f', from, '-t', 'json'], {

@@ -29,9 +29,9 @@ Carve swaps the Markdown emphasis delimiters: `/italic/` is emphasis and
 == A table
 
 |= Format |= Binary? |= Text golden? |
-| LaTeX  | no      | yes          |
-| Typst  | no      | yes          |
-| DOCX   | yes     | no           |
+| LaTeX | no | yes |
+| Typst | no | yes |
+| DOCX | yes | no |
 
 == Math and raw passthrough
 

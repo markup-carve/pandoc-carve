@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { render, validateTree } from '../vendor/carve-v2/index.js';
+import { render, validateTree } from '../vendor/carve/index.js';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const doc = blocks => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });

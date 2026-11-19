@@ -24,11 +24,11 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "pandoc-carve": "./dist/cli-v2.js"
+    "pandoc-carve": "./dist/cli.js"
   },
   "files": [
     "dist",
-    "vendor/carve-v2"
+    "vendor/carve"
   ],
   "publishConfig": {
     "access": "public"
@@ -39,7 +39,7 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "node scripts/lint-v2.mjs",
+    "lint": "node scripts/lint.mjs",
     "examples:build": "npm run build && node scripts/build-examples.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
     "prepublishOnly": "npm run build"

@@ -22,6 +22,11 @@ for (const empty of [false, true]) {
     assert.deepEqual(groups.map((group) => group.attrs), input.children[0].children.map((group) => group.attrs));
     assert.deepEqual(groups.map((group) => group.children.length), empty ? [0, 0, 0] : [1, 1, 1]);
     const warnings = pandocToCarve(pandoc).warnings;
+    if (empty) {
+      // The 0.2 writer has no spelling for a table whose head, body and foot are all empty; it reports the whole table.
+      assert.ok(warnings.some((w) => w.startsWith('structure-unspellable') && w.includes('table node')), warnings.join(' | '));
+      return;
+    }
     assert.ok(warnings.some((w) => w.includes('table_head') && w.includes('attrs')), warnings.join(' | '));
     assert.ok(warnings.some((w) => w.includes('table_foot') && w.includes('attrs')), warnings.join(' | '));
   });

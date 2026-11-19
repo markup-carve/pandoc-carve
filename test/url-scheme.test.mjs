@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_DENIED_SCHEMES, isUrlAllowed, urlScheme } from '../vendor/carve-v2/index.js';
+import { DEFAULT_DENIED_SCHEMES, isUrlAllowed, urlScheme } from '../vendor/carve/index.js';
 import { carveToPandoc } from '../dist/index.js';
 import { DANGEROUS_URL_SCHEMES, probeScheme, hasDeniedScheme, blankDeniedDestination } from '../dist/url-scheme.js';
 

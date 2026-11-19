@@ -11,12 +11,12 @@ test('0.2 table body boundaries are section nodes in the tree', () => {
   assert.equal(pandoc.c[4][0][3].length, 2);
 });
 
-test('0.1 positional body keys remain ordinary 0.2 table attributes', () => {
+// C2-B-230: body-rows, body-header-rows and body-header-cols are table keys in 0.2 and give one table_body each.
+test('body partition keys give one body per entry and survive Pandoc', () => {
   const source = '{body-rows=1,1 body-header-rows=0,0 body-header-cols=1,0}\n| a | 1 |\n| b | 2 |\n';
   const table = carveToCarveAst(source).children[0];
-  assert.equal(table.children.filter((node) => node.type === 'table_body').length, 1);
-  assert.deepEqual(table.attrs.keyValues, [
-    ['body-rows', '1,1'], ['body-header-rows', '0,0'], ['body-header-cols', '1,0'],
-  ]);
-  assert.deepEqual(pandocToCarveAst(carveToPandoc(source).doc).ast.children[0].attrs.keyValues, table.attrs.keyValues);
+  assert.deepEqual(table.children.map((node) => [node.type, node.rowHeadColumns]), [['table_body', 1], ['table_body', 0]]);
+  assert.equal(table.attrs, undefined);
+  const back = pandocToCarveAst(carveToPandoc(source).doc).ast.children[0];
+  assert.deepEqual(back.children.map((node) => [node.type, node.rowHeadColumns]), [['table_body', 1], ['table_body', 0]]);
 });

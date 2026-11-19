@@ -85,15 +85,17 @@ test('a subfigure-shaped Pandoc Figure imports as figure_group', () => {
   const [figure] = ast.children;
   assert.equal(figure.type, 'figure_group');
   assert.equal(figure.attrs.id, 'fig-x');
-  assert.deepEqual(figure.children.map((child) => child.type), ['figure', 'figure']);
+  // C2-A-082 to C2-A-084: each panel is a captioned image paragraph, not a figure node.
+  assert.deepEqual(figure.children.map((child) => [child.type, child.role]), [['paragraph', 'image'], ['paragraph', 'image']]);
   assert.deepEqual(figure.children.map((child) => child.attrs.id), ['fig-a', 'fig-b']);
   assert.equal(figure.caption.children[0].children[0].value, 'Group');
   assert.deepEqual(warnings, []);
 });
 
-test('control: a single-target Pandoc Figure stays a figure', () => {
+// C2-A-082 to C2-A-084: a single-target Figure is the captioned image paragraph.
+test('control: a single-target Pandoc Figure stays one captioned block', () => {
   const { ast } = pandocToCarveAst(foreign([{ t: 'Plain', c: [image('x.png', 'x')] }]));
-  assert.equal(ast.children[0].type, 'figure');
+  assert.deepEqual([ast.children[0].type, ast.children[0].role, Boolean(ast.children[0].caption)], ['paragraph', 'image', true]);
 });
 
 test('a Figure-wrapped table panel keeps its wrapper ID', () => {

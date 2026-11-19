@@ -1,4 +1,4 @@
-import { render, treesEqual } from '../vendor/carve-v2/index.js';
+import { render, treesEqual } from '../vendor/carve/index.js';
 
 // Each source-only equivalence has one deliberately narrow rule. The order is
 // significant: references resolve before definitions can be discarded.

@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parse } from '../vendor/carve-v2/index.js';
-import { pandocToCarveAst } from '../dist/v2.js';
+import { parse } from '../vendor/carve/index.js';
+import { pandocToCarveAst } from '../dist/convert.js';
 
 const root = resolve(import.meta.dirname, '..');
-const slots = JSON.parse(readFileSync(join(root, 'vendor/carve-v2/node-slots.json'), 'utf8')).nodes;
+const slots = JSON.parse(readFileSync(join(root, 'vendor/carve/node-slots.json'), 'utf8')).nodes;
 const words = value => (value.match(/[\p{L}\p{N}]+/gu) ?? []).map(x => x.toLowerCase());
 const htmlText = value => value.replace(/<[^>]*>/gu, ' ').replace(/&(?:amp|lt|gt|quot|apos|nbsp);/gu, ' ');
 function childAt(node, path) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse } from '../vendor/carve-v2/index.js';
+import { parse } from '../vendor/carve/index.js';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
 
 test('string-only conversion keeps a 0.2 include directive unresolved', () => {
