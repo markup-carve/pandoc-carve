@@ -87,23 +87,25 @@ test('captioned quote is a Figure around a BlockQuote', () => {
   assert.equal(carveToPandoc('> To be').doc.blocks[0].t, 'BlockQuote');
 });
 
+// C2-A-082 to C2-A-084: a caption sits in the slot of its block; the figure node is gone.
 test('quote figure keeps its short caption', () => {
-  const ast = document([{ type: 'figure', children: [{ type: 'block_quote', children: [paragraph([text('q')])] }],
+  const ast = document([{ type: 'block_quote', children: [paragraph([text('q')])],
     caption: { type: 'caption', children: [paragraph([text('Author')])], short: [text('short')] } }]);
   const result = carveAstToPandoc(ast);
   assert.deepEqual(result.doc.blocks[0].c[1][0], [{ t: 'Str', c: 'short' }]);
 });
 
-test('quote figure and inner quote keep separate attributes', () => {
-  const ast = document([{ type: 'figure', attrs: { id: 'outer', classes: ['fancy'], keyValues: [['b', '3']] },
-    children: [{ type: 'block_quote', attrs: { id: 'inner', classes: ['kept'], keyValues: [['a', '1']] }, children: [paragraph([text('q')])] }],
+// C2-A-082 to C2-A-084: one captioned quote node holds one attribute set; Pandoc's Figure carries it.
+test('captioned quote attributes reach the Pandoc Figure', () => {
+  const ast = document([{ type: 'block_quote', attrs: { id: 'outer', classes: ['fancy'], keyValues: [['b', '3']] },
+    children: [paragraph([text('q')])],
     caption: { type: 'caption', children: [paragraph([text('Author')])] } }]);
   const [figure] = carveAstToPandoc(ast).doc.blocks;
   assert.equal(figure.c[0][0], 'outer');
   assert.deepEqual(figure.c[0][1], ['fancy']);
   assert.deepEqual(figure.c[0][2].filter(([key]) => key !== 'carve-caption'), [['b', '3']]);
   assert.ok(figure.c[0][2].some(([key]) => key === 'carve-caption'));
-  assert.deepEqual(figure.c[2][0].c[0], ['inner', ['carve-block-quote', 'kept'], [['a', '1']]]);
+  assert.equal(figure.c[2][0].t, 'BlockQuote');
 });
 
 test('ruby fallback shows base text and annotation', () => {
@@ -129,7 +131,7 @@ test('ruby attributes wrap the flattened fallback', () => {
 test('unknown block extension exposes its declared fallback', () => {
   const ast = { ...document([{ type: 'block_extension', name: 'org.example.diagram', version: '1', children: [],
     fallback: [{ type: 'code_block', value: 'graph TD;', syntax: 'mermaid' }] }]),
-    extensions: [{ name: 'org.example.diagram', required: false, version: '1' }] };
+    extensions: [{ name: 'org.example.diagram', required: false, version: '1', slots: [] }] };
   const result = carveAstToPandoc(ast);
   assert.equal(result.doc.blocks[0].t, 'Div');
   assert.equal(result.doc.blocks[0].c[1][0].t, 'CodeBlock');

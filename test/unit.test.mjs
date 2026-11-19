@@ -114,7 +114,8 @@ test('a crossref reaches an id spelled in either normalization form', () => {
   for (const [id, target] of [[nfd, nfd], ['caf\u00e9', nfd]]) {
     const [para] = blocks(`{id="${id}"}\n# Hello\n\n</#${target}>\n`).filter((b) => b.t === 'Para');
     const link = para.c.find((x) => x.t === 'Link');
-    assert.equal(link.c[2][0], `#${target}`, `${JSON.stringify(id)} <- ${JSON.stringify(target)}`);
+    // C2-I-097: ids match under NFC and the href names the target's own id.
+    assert.equal(link.c[2][0], `#${id}`, `${JSON.stringify(id)} <- ${JSON.stringify(target)}`);
     assert.ok(link.c[0][2].some(([key]) => key === 'carve-xref'));
   }
 });
@@ -211,7 +212,8 @@ test('ordered-list delimiter maps to Period and OneParen in a 0.2 tree', () => {
   }] });
   assert.equal(carveAstToPandoc(list(')')).doc.blocks[0].c[0][2].t, 'OneParen');
   assert.equal(carveAstToPandoc(list('.')).doc.blocks[0].c[0][2].t, 'Period');
-  assert.equal(carveAstToPandoc(list(undefined)).doc.blocks[0].c[0][2].t, 'Period');
+  // C2-A-056, C2-A-058: an ordered marker always carries its delimiter; a tree without one is refused.
+  assert.throws(() => carveAstToPandoc(list(undefined)), /no ordered delimiter/u);
 });
 
 test('import records the Pandoc list delimiter on the 0.2 marker', () => {
@@ -296,9 +298,11 @@ test('structural short captions map to Pandoc without changing the full caption'
   const doc = {
     type: 'document',
     astVersion: '2.0',
+    // C2-A-082 to C2-A-084: the caption sits on the image paragraph; the figure node is gone.
     children: [{
-      type: 'figure',
-      children: [{ type: 'paragraph', children: [{ type: 'image', src: '/i.png', alt: 'alt' }] }],
+      type: 'paragraph',
+      role: 'image',
+      children: [{ type: 'image', src: '/i.png', alt: 'alt' }],
       caption: { type: 'caption', children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Full caption' }] }], short: [{ type: 'text', value: 'Navigation label' }] },
     }],
   };

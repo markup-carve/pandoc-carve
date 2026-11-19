@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, render } from '../vendor/carve-v2/index.js';
+import { parse, render } from '../vendor/carve/index.js';
 import { carveToPandoc } from '../dist/index.js';
 import { isDangerousAttrName, renderedAttrValue } from '../dist/attribute-sanitize.js';
 

@@ -7,17 +7,27 @@ This `next2` branch evaluates the draft Carve 0.2 tree with a vendored `carve-js
 Build with `npm ci && npm run build`, then run the branch CLI:
 
 ```bash
-node dist/cli-v2.js examples/export/article.crv -t latex -o article.tex
-node dist/cli-v2.js examples/export/article.crv -t typst -o article.typ
-node dist/cli-v2.js examples/export/article.crv -t docx -o article.docx
-node dist/cli-v2.js examples/export/article.crv -t html -o article.html
-node dist/cli-v2.js examples/export/article.crv -t epub -o article.epub
-node dist/cli-v2.js examples/import/paper.tex -f latex -o paper.crv
-node dist/cli-v2.js examples/import/notes.rst -f rst -o notes.crv
-node dist/cli-v2.js report.docx -f docx -o report.crv
+node dist/cli.js examples/export/article.crv -t latex -o article.tex
+node dist/cli.js examples/export/article.crv -t typst -o article.typ
+node dist/cli.js examples/export/article.crv -t docx -o article.docx
+node dist/cli.js examples/export/article.crv -t html -o article.html
+node dist/cli.js examples/export/article.crv -t epub -o article.epub
+node dist/cli.js examples/import/paper.tex -f latex -o paper.crv
+node dist/cli.js examples/import/notes.rst -f rst -o notes.crv
+node dist/cli.js report.docx -f docx -o report.crv
 ```
 
 With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. The CLI uses `pandoc` for formats other than JSON. It accepts stdin with `-` and writes stdout unless `-o` is supplied.
+
+## Engine
+
+The Carve engine is vendored in `vendor/carve`: an esbuild bundle of `src/index.ts` from carve-js `next2`, plus its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit. To move the pin, check out carve-js at the new commit, run `npm ci` there, then:
+
+```bash
+node scripts/vendor-carve.mjs /path/to/carve-js
+```
+
+The bundle stands in for an npm git dependency: carve-js `next2` does not build when installed from git (markup-carve/carve-js#5085), and its public entry does not export `treesEqual` or the smart-punctuation tables this bridge uses (markup-carve/carve-js#5088).
 
 ## API
 

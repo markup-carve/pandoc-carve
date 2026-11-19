@@ -48,7 +48,8 @@ The document's typed title, subtitle, authors, date, and bibliography fields map
 | `delete` followed by `insert` | Two classed `Span` nodes |
 | `link`, `image`, `xref`, `autolink` | `Link` or `Image` with bridge attributes where needed |
 | `list`, `definition_list`, `table` | `BulletList` or `OrderedList`, `DefinitionList`, `Table` |
-| `figure`, `figure_group`, `caption` | `Figure` and its caption, with a carrier for 0.2 details |
+| captioned `paragraph` (image or math), `block_quote`, `code_block`, `include`; `figure_group`, `caption` | `Figure` around the block and its caption, with a carrier for 0.2 details. A Pandoc `Figure` around one such block comes back as that block with its caption; any other `Figure` becomes a `figure_group` |
+| `table_body` | `TableBody`. A body's header rows are body rows of header cells; Pandoc's intermediate head rows come back the same way |
 | `footnote_ref`, `inline_footnote` | `Note`, with a carrier for reference identity |
 | `frontmatter`, `include`, source definitions | Raw or classed carriers in Pandoc JSON |
 

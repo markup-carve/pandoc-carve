@@ -12,7 +12,7 @@ const counts = format => Object.values(data.cells).reduce((sum, row) => {
 const order = ['exact', 'same-meaning', 'same-rendering', 'same-text', 'lossy-by-nature', 'lossy', 'error'];
 const lines = [
   '# Carve 0.2 consumer report', '',
-  `Pandoc 3.14; engine ${JSON.parse(readFileSync(join(root, 'vendor/carve-v2/SOURCE.json'), 'utf8')).commit}; 99 Carve probes, 17 formats, 66 reverse Pandoc pairs.`, '',
+  `Pandoc 3.14; engine ${JSON.parse(readFileSync(join(root, 'vendor/carve/SOURCE.json'), 'utf8')).commit}; 99 Carve probes, 17 formats, 66 reverse Pandoc pairs.`, '',
   '## Test port', '',
   'The current 58-file census is **730 observed cases: 96 ported, 6 dropped with reasons, 628 pending**. The original URL-policy file aborted during a top-level 0.1 private import, so its 14 declared tests appear as one observed failure. [The table](pandoc-carve/docs/test-port-0.2.md) records every file and each intentional drop. The ungated full run after the initial port had 783 cases, 376 passing and 407 failing. Most failures still assert 0.1 tree fields, old CLI diagnostics, or 0.1 source forms; table and citation cases also expose bridge work. The old implementation and 0.1 dependency remain until those cases are handled.', '',
   ...testPort.split('\n').filter(line => line.startsWith('| ') && !line.includes('Total')).slice(0).map(line => line),

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { treesEqual } from '../vendor/carve-v2/index.js';
+import { treesEqual } from '../vendor/carve/index.js';
 import { carveAstToPandoc, pandocToCarveAst, pandocToCarve, carveToPandoc, carveToCarveAst } from '../dist/index.js';
 
 const text = value => ({ type: 'text', value });

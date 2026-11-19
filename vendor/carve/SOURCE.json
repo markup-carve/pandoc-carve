@@ -1,0 +1,6 @@
+{
+  "repository": "markup-carve/carve-js",
+  "branch": "next2",
+  "commit": "125128f4e6005ddc17fc9f25983075dfee931854",
+  "entry": "src/index.ts"
+}

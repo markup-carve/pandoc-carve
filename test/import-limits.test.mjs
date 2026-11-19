@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
-const cli = new URL('../dist/cli-v2.js', import.meta.url).pathname;
+const cli = new URL('../dist/cli.js', import.meta.url).pathname;
 const doc = (blocks) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks });
 const str = (c) => ({ t: 'Str', c });
 const quotes = (depth) => {

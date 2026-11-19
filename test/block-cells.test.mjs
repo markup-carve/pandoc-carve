@@ -75,7 +75,8 @@ test("block cells: a body's intermediate header rows stay in that body", () => {
     [['', [], []], []],
   ] }] };
   const { ast, warnings } = pandocToCarveAst(doc);
-  assert.equal(body(ast.children[0]).headRows, 1);
+  // C2-A-088: no headRows field; the intermediate head row keeps its header cells.
+  assert.equal(body(ast.children[0]).headRows, undefined);
   assert.equal(cell(ast.children[0], 0, 0).header, true);
   assert.equal(cell(ast.children[0], 1, 0).children[0].type, 'list');
   assert.deepEqual(warnings, []);
@@ -93,7 +94,8 @@ test('block cells: an empty cell alongside a block cell stays empty', { skip: !p
 +---+--------+
 `;
   const node = table(read(src, 'markdown'));
-  assert.deepEqual(cell(node, 0, 0).children, []);
+  // C2-A-091: a cell holds at least one child; an empty cell is one empty cell_paragraph.
+  assert.deepEqual(cell(node, 0, 0).children, [{ type: 'cell_paragraph', children: [] }]);
   assert.equal(cell(node, 0, 1).children[0].type, 'list');
 });
 
@@ -124,5 +126,6 @@ test('block cells: merged body groups and their attributes are reported', () => 
   assert.deepEqual(ast.children[0].children[0].attrs.classes, ['g1']);
   assert.deepEqual(warnings, []);
   const sourceWarnings = pandocToCarve(doc).warnings;
-  assert.ok(sourceWarnings.some((w) => w.includes('structure-unspellable') && w.includes('table_body')), sourceWarnings.join(' | '));
+  // C2-B-230: the writer spells the body partition; the body's attributes remain unspellable.
+  assert.ok(sourceWarnings.some((w) => w.includes('field-unspellable') && w.includes('attrs') && w.includes('table_body')), sourceWarnings.join(' | '));
 });

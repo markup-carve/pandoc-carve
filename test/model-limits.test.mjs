@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { treesEqual } from '../vendor/carve-v2/index.js';
+import { treesEqual } from '../vendor/carve/index.js';
 import { carveToCarveAst, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
 
 test('a body header outside the leading run uses a cell carrier', () => {

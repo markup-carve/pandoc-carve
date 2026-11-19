@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { render as carveToHtml } from '../vendor/carve-v2/index.js';
+import { render as carveToHtml } from '../vendor/carve/index.js';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const roundtrip = (src) => pandocToCarve(carveToPandoc(src, { roundtrip: true }).doc).carve;
@@ -286,7 +286,8 @@ test('a captioned quote round-trips to identical Carve source', () => {
   assert.equal(carve, src);
 });
 
-test('the exchange AST carries a captioned quote as a figure', () => {
+// C2-A-082 to C2-A-084: the figure node is gone; the caption sits in the quote's own slot.
+test('the exchange AST carries a captioned quote with its caption slot', () => {
   // PART 9 §4b: the generic captioned wrapper, target and all. The withdrawn
   // §4a shape put the caption in an `attribution` field on the quote itself
   // (carve#1213); `resources/ast-schema.json` has no such property, and an
@@ -294,10 +295,9 @@ test('the exchange AST carries a captioned quote as a figure', () => {
   // would emit an AST no engine will read back.
   const { ast, warnings } = pandocToCarveAst(carveToPandoc('> q\n^ Hamlet\n').doc);
   assert.deepEqual(warnings, []);
-  const [figure] = ast.children;
-  assert.equal(figure.type, 'figure');
-  assert.equal(figure.children[0].type, 'block_quote');
-  assert.deepEqual(figure.caption.children[0].children, [{ type: 'text', value: 'Hamlet' }]);
+  const [quote] = ast.children;
+  assert.equal(quote.type, 'block_quote');
+  assert.deepEqual(quote.caption.children[0].children, [{ type: 'text', value: 'Hamlet' }]);
   assert.ok(!JSON.stringify(ast).includes('attribution'), 'no attribution field');
 });
 
@@ -352,13 +352,15 @@ test('a figure host with attributes keeps its Div child in the 0.2 tree', () => 
       },
     ],
   };
+  // C2-A-082 to C2-A-084: the captioned Div is a figure_group panel, which the writer spells without loss.
   const { carve, warnings } = pandocToCarve(doc);
-  assert.ok(warnings.some((warning) => warning.includes('structure-unspellable')), warnings.join(' | '));
-  assert.ok(carve.includes('wise'), carve);
+  assert.deepEqual(warnings, []);
+  assert.equal(carve, ':::: figure\n{#inner}\n::: kept\n> wise\n:::\n::::\n^ Author\n');
 
+  // C2-A-082 to C2-A-084: a div takes no caption slot, so the captioned Div becomes a figure_group panel.
   const { ast } = pandocToCarveAst(doc);
   const [figure] = ast.children;
-  assert.equal(figure.type, 'figure');
+  assert.equal(figure.type, 'figure_group');
   assert.equal(figure.children[0].type, 'div');
   assert.equal(figure.children[0].attrs.id, 'inner');
   assert.equal(figure.children[0].children[0].type, 'block_quote');
@@ -369,7 +371,7 @@ test('a figure host with attributes keeps its Div child in the 0.2 tree', () => 
   const two = structuredClone(doc);
   two.blocks[0].c[2][0].c[1].push({ t: 'Para', c: [{ t: 'Str', c: 'more' }] });
   const [wider] = pandocToCarveAst(two).ast.children;
-  assert.equal(wider.type, 'figure');
+  assert.equal(wider.type, 'figure_group');
   assert.equal(wider.caption.children[0].children[0].value, 'Author');
   assert.deepEqual(wider.children[0].children.map((block) => block.type), ['block_quote', 'paragraph']);
 });

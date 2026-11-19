@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { carveToPandoc } from '../dist/index.js';
 
-const examples = JSON.parse(readFileSync(new URL('../vendor/carve-v2/examples.json', import.meta.url), 'utf8'));
+const examples = JSON.parse(readFileSync(new URL('../vendor/carve/examples.json', import.meta.url), 'utf8'));
 const cases = examples.filter((example) => !example.flags?.length);
 const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 const decodeEntities = (value) => value.replace(/&(#x[0-9a-fA-F]+|#\d+|\w+);/gu, (whole, body) => {
@@ -53,8 +53,8 @@ function disagreement(source, html) {
 }
 
 test('the vendored 0.2 example oracle is present and complete', () => {
-  assert.equal(examples.length, 371);
-  assert.equal(cases.length, 367);
+  assert.equal(examples.length, 505);
+  assert.equal(cases.length, 476);
 });
 
 const probes = [

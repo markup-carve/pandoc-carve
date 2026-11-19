@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { render as carveToHtml } from '../vendor/carve-v2/index.js';
+import { render as carveToHtml } from '../vendor/carve/index.js';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { normalizeHtml } from './html-equivalence.mjs';
 

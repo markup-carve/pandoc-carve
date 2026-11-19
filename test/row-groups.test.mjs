@@ -14,7 +14,8 @@ function tableAst() {
     children: [
       group('table_head', [['Region', 'Total', true]]),
       group('table_body', [['North', '11']], { rowHeadColumns: 1 }),
-      group('table_body', [['South region', 'Total', true], ['South', '22']], { headRows: 1 }),
+      // C2-A-088: table_body has no headRows; the header cells of its first row carry the fact.
+      group('table_body', [['South region', 'Total', true], ['South', '22']]),
       group('table_foot', [['All', '33']]),
     ],
   }] };
@@ -47,10 +48,11 @@ test('an explicit partition reaches pandoc as head, two bodies and a foot', () =
   const [, , , head, bodies, foot] = parts(doc);
   assert.deepEqual(warnings, []);
   assert.equal(head[1].length, 1);
-  assert.deepEqual(bodies.map((body) => [body[1], body[2].length, body[3].length]), [[1, 0, 1], [0, 1, 1]]);
+  // C2-A-088: no head-row count, so a body's header row travels as a body row of header cells.
+  assert.deepEqual(bodies.map((body) => [body[1], body[2].length, body[3].length]), [[1, 0, 1], [0, 0, 2]]);
   assert.equal(foot[1].length, 1);
   assert.equal(head[1][0][1][0][4][0].c[0].c, 'Region');
-  assert.equal(bodies[1][2][0][1][0][4][0].c[0].c, 'South');
+  assert.equal(bodies[1][3][1][1][0][4][0].c[0].c, 'South');
 });
 
 test('a body group carries its own attrs to the pandoc TableBody', () => {
@@ -63,17 +65,16 @@ test('a short caption survives on a table that also carries sections', () => {
   assert.deepEqual(parts(carveAstToPandoc(tableAst()).doc)[1][0], [S('Totals')]);
 });
 
-test('a body header row remains separate from the table head', () => {
-  const bodies = parts(carveAstToPandoc(tableAst()).doc)[4];
-  assert.equal(bodies[1][2].length, 1);
-  assert.equal(bodies[1][3].length, 1);
+test('a body header row remains separate from the table head (C2-A-088)', () => {
+  const [, , , head, bodies] = parts(carveAstToPandoc(tableAst()).doc);
+  assert.equal(head[1].length, 1);
+  assert.equal(bodies[1][3].length, 2);
+  assert.equal(bodies[1][3][0][1][0][0][2].some(([key]) => key === 'carve-header'), true);
 });
 
-test('an explicit zero body head count survives a Pandoc round trip', () => {
-  const ast = tableAst();
-  sections(ast)[1].headRows = 0;
-  const back = pandocToCarveAst(carveAstToPandoc(ast).doc).ast;
-  assert.equal(sections(back)[1].headRows, 0);
+test('a body carries no head-row count through a Pandoc round trip (C2-A-088)', () => {
+  const back = pandocToCarveAst(carveAstToPandoc(tableAst()).doc).ast;
+  assert.equal(sections(back).some((group) => 'headRows' in group), false);
 });
 
 test('a body row retains its header cell flag in the Pandoc carrier', () => {
@@ -81,11 +82,11 @@ test('a body row retains its header cell flag in the Pandoc carrier', () => {
   assert.equal(sections(back)[2].children[0].children[0].header, true);
 });
 
-test('a rowspan crossing a body boundary is reported', () => {
+// C2-B-174: no row span crosses into the next body; the reader refuses such a tree before conversion.
+test('a rowspan crossing a body boundary is refused', () => {
   const ast = tableAst();
   sections(ast)[1].children[0].children[0].rowspan = 2;
-  const { warnings } = carveAstToPandoc(ast);
-  assert.ok(warnings.some((w) => w.includes('rowspan crosses table_body boundary')), warnings.join(' | '));
+  assert.throws(() => carveAstToPandoc(ast), /row span reaches past the last row of its group/u);
 });
 
 // Pandoc to Carve tree: the 0.2 structure holds the groups directly.
@@ -94,7 +95,9 @@ test('pandoc bodies, foot and row-head columns become section nodes', () => {
   assert.deepEqual(groups.map((g) => g.type), ['table_head', 'table_body', 'table_body', 'table_foot']);
   assert.deepEqual(groups.map((g) => g.children.length), [1, 1, 2, 1]);
   assert.equal(groups[1].rowHeadColumns, 1);
-  assert.equal(groups[2].headRows, 1);
+  // C2-A-088: Pandoc's intermediate head row becomes a row of header cells, with no headRows field.
+  assert.equal(groups[2].headRows, undefined);
+  assert.equal(groups[2].children[0].children[0].header, true);
   assert.deepEqual(groups[2].attrs, { id: 'north-2', classes: ['totals'] });
 });
 
@@ -124,7 +127,8 @@ test('the sections survive a full Carve AST to Pandoc to Carve AST round trip', 
   assert.deepEqual(sections(ast).map((g) => g.type), ['table_head', 'table_body', 'table_body', 'table_foot']);
   assert.deepEqual(sections(ast).map((g) => g.children.length), [1, 1, 2, 1]);
   assert.equal(sections(ast)[1].rowHeadColumns, 1);
-  assert.equal(sections(ast)[2].headRows, 1);
+  // C2-A-088: the header flag of the body's first row carries what headRows did.
+  assert.equal(sections(ast)[2].children[0].children[0].header, true);
 });
 
 test('the AST path keeps the table node and each body boundary', () => {
@@ -165,12 +169,12 @@ test('a foot row may carry a header cell flag in the Carve AST', () => {
   assert.equal(sections(back)[3].children[0].children[0].header, true);
 });
 
-// Source has fewer table section spellings than the 0.2 tree; diagnostics say so.
-test('the source writer reports body fields it cannot spell', () => {
+// C2-B-230 / C2-W-136: the writer spells bodies, body header rows and row-head columns; only body attrs stay unspellable.
+test('the source writer spells the body partition and reports body attrs', () => {
   const { carve, warnings } = pandocToCarve(fixture());
-  assert.match(carve, /^\{footer-rows=1\}/u);
-  assert.ok(warnings.some((w) => w.includes('headRows') && w.includes('table_body')), warnings.join(' | '));
-  assert.ok(warnings.some((w) => w.includes('rowHeadColumns') && w.includes('table_body')), warnings.join(' | '));
+  assert.match(carve, /^\{footer-rows=1 body-rows=1,1 body-header-rows=0,1 body-header-cols=1,0\}/u);
+  assert.ok(warnings.some((w) => w.includes('attrs') && w.includes('table_body')), warnings.join(' | '));
+  assert.ok(!warnings.some((w) => w.includes('rowHeadColumns') || w.includes('headRows')), warnings.join(' | '));
 });
 
 test('a foot remains a foot through the supported footer-rows source spelling', () => {

@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { carveToCarveAst, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
 
-const examplePath = new URL('../vendor/carve-v2/examples.json', import.meta.url);
-const schemaPath = new URL('../vendor/carve-v2/ast-schema.json', import.meta.url);
+const examplePath = new URL('../vendor/carve/examples.json', import.meta.url);
+const schemaPath = new URL('../vendor/carve/ast-schema.json', import.meta.url);
 const examples = JSON.parse(readFileSync(examplePath, 'utf8'));
 const corpus = examples.filter((example) => !example.flags?.length);
 const id = (example) => `${example.file}#${example.number}`;
@@ -30,8 +30,8 @@ test('the 0.2 spec corpus and schema are vendored', () => {
 });
 
 test('the whole 0.2 example corpus is being read', () => {
-  assert.equal(examples.length, 371);
-  assert.equal(corpus.length, 367);
+  assert.equal(examples.length, 505);
+  assert.equal(corpus.length, 476);
   assert.equal(new Set(examples.map(id)).size, examples.length);
 });
 

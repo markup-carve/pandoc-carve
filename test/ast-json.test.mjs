@@ -1,7 +1,7 @@
 /* The Carve 0.2 tree is the bridge's interchange contract. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTree } from '../vendor/carve-v2/index.js';
+import { validateTree } from '../vendor/carve/index.js';
 import { carveAstToPandoc, carveToCarveAst, carveToPandoc } from '../dist/index.js';
 
 const nodesOfType = (value, type, found = []) => {
@@ -93,12 +93,13 @@ test('parsed document validates against the vendored 0.2 tree contract', () => {
   assert.doesNotThrow(() => validateTree(carveToCarveAst(SOURCE)));
 });
 
-test('captioned quote is a figure with caption and quote child', () => {
-  const [figure] = carveToCarveAst('> To be, or not to be.\n^ Hamlet\n').children;
-  validateTree({ type: 'document', astVersion: '2.0', children: [figure] });
-  assert.equal(figure.type, 'figure');
-  assert.equal(figure.children[0].type, 'block_quote');
-  assert.equal(figure.caption.children[0].children[0].value, 'Hamlet');
+// C2-A-082 to C2-A-084: a caption sits in the slot of its block; the figure node is gone.
+test('captioned quote is a block_quote with its caption in its slot', () => {
+  const [quote] = carveToCarveAst('> To be, or not to be.\n^ Hamlet\n').children;
+  validateTree({ type: 'document', astVersion: '2.0', children: [quote] });
+  assert.equal(quote.type, 'block_quote');
+  assert.equal(quote.children[0].type, 'paragraph');
+  assert.equal(quote.caption.children[0].children[0].value, 'Hamlet');
   assert.equal(carveToCarveAst('> To be, or not to be.\n').children[0].type, 'block_quote');
 });
 

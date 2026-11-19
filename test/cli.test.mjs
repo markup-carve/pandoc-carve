@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const cli = new URL('../dist/cli-v2.js', import.meta.url).pathname;
+const cli = new URL('../dist/cli.js', import.meta.url).pathname;
 const run = (args, input, env = {}) => spawnSync(process.execPath, [cli, ...args], {
   input, encoding: 'utf8', env: { ...process.env, ...env },
 });

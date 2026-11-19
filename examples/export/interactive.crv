@@ -17,6 +17,7 @@ visible caption so a print reader can still tell the panels apart.
 ::: tab [Installation]
 Run `npm install @markup-carve/pandoc-carve`.
 :::
+
 ::: tab [Usage]
 Call the /converter/ on your `.crv` source.
 :::
@@ -27,14 +28,15 @@ Call the /converter/ on your `.crv` source.
 Same grouping mechanism, code panels instead of prose. Each fence keeps its
 language (so syntax highlighting survives every writer); the panels stack.
 
-:::: code-group
-``` js [config.js]
+::: code-group
+```js [config.js]
 export default { port: 3000 };
 ```
-``` json [config.json]
+
+```json [config.json]
 { "port": 3000 }
 ```
-::::
+:::
 
 == Spoiler
 
@@ -56,7 +58,7 @@ A disclosure carries its title and body through as a labelled block.
 The diagram source is never lost - it stays a fenced code block that a Markdown
 host can re-render, and a build step can pre-render to an image for PDF.
 
-``` mermaid
+```mermaid
 graph TD; A[Carve] --> B[Pandoc]; B --> C[LaTeX];
 ```
 

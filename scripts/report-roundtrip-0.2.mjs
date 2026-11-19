@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { parse } from '../vendor/carve-v2/index.js';
+import { parse } from '../vendor/carve/index.js';
 import { meaningRules } from './roundtrip-grade.mjs';
 import { classifyLosses } from './classify-roundtrip-0.2.mjs';
 

@@ -19,7 +19,7 @@ This is the observed case census from running each of the 58 old files alone on 
 | corpus-link-targets.test.mjs | 9 | 7 | 2: 0.1 spec-corpus divergent allowlist | 0 | 0 |
 | corpus.test.mjs | 10 | 10 | 0 | 0 | 0 |
 | diagnostic-code-coverage.test.mjs | 22 | 17 | 2: 0.1 listTable extension; 1: 0.1 structured diagnostic classifier | 2: F-001 general Pandoc metadata has no 0.2 tree slot | 0 |
-| diagnostics-v2.test.mjs | 1 | 1 | 0 | 0 | 0 |
+| diagnostics.test.mjs | 1 | 1 | 0 | 0 | 0 |
 | djot-reader-and-inline-attrs.test.mjs | 31 | 24 | 3: 0.1 inserted/deleted class aliases; 1: 0.1 emoji class import heuristic; 1: 0.1 bridge symbols option; 1: 0.1 wrapper-key marker; 1: 0.1 Djot symbol-name inference | 0 | 0 |
 | empty-list-item.test.mjs | 8 | 8 | 0 | 0 | 0 |
 | equivalence.test.mjs | 41 | 41 | 0 | 0 | 0 |

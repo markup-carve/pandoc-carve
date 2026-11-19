@@ -6,7 +6,8 @@ const str = (value) => ({ t: 'Str', c: value });
 const image = (attr) => ({ t: 'Image', c: [attr, [str('Alternative')], ['p.png', '']] });
 const figure = (outerAttr, imageAttr) => ({ t: 'Figure', c: [outerAttr, [null, [{ t: 'Plain', c: [str('Caption')] }]], [{ t: 'Plain', c: [image(imageAttr)] }]] });
 const document = (block) => ({ 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [block] });
-const imageNode = (figureNode) => figureNode.children[0].children[0];
+// C2-A-082 to C2-A-084: the captioned image paragraph is the node itself, with no figure around it.
+const imageNode = (paragraphNode) => paragraphNode.children[0];
 const pandocImages = (value) => Array.isArray(value) ? value.flatMap(pandocImages) : value && typeof value === 'object' ? [...(value.t === 'Image' ? [value] : []), ...pandocImages(value.c)] : [];
 
 test('Carve sends alternative text and caption to separate Pandoc slots', () => {
