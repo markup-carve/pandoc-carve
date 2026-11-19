@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, render, treesEqual } from '../vendor/carve/index.js';
+import { parse, render, treesEqual } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
 const roundTrip = source => pandocToCarve(carveToPandoc(source).doc).carve;

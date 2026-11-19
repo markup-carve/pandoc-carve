@@ -4,7 +4,7 @@ pandoc 3.14. 99 Carve probes × 17 readable formats; 66 Pandoc rich/degraded pai
 
 ## Verdict ladder
 
-The first true rung wins: **exact** uses the vendored engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy-by-nature** retains readable words and critical content facts while the target loses a source role or attribute; **lossy** loses words or critical content; **error** records the failing stage.
+The first true rung wins: **exact** uses the engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy-by-nature** retains readable words and critical content facts while the target loses a source role or attribute; **lossy** loses words or critical content; **error** records the failing stage.
 
 The same-meaning rules, in script order, are:
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { parse, treesEqual } from '../vendor/carve/index.js';
+import { parse, treesEqual } from '@markup-carve/carve';
 import { grade, meaningTree } from '../scripts/roundtrip-grade.mjs';
 
 test('source provenance is the only heading-id equivalence', () => {

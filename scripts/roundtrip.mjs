@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { parse, treesEqual } from '../vendor/carve/index.js';
+import { parse, treesEqual } from '@markup-carve/carve';
 import { carveAstToPandoc, pandocToCarve } from '../dist/convert.js';
 
 const root = resolve(import.meta.dirname, '..');

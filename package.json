@@ -27,8 +27,7 @@
     "pandoc-carve": "./dist/cli.js"
   },
   "files": [
-    "dist",
-    "vendor/carve"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"
@@ -52,7 +51,9 @@
     "issues": "https://github.com/markup-carve/pandoc-carve/issues",
     "source": "https://github.com/markup-carve/pandoc-carve"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@markup-carve/carve": "github:markup-carve/carve-js#32a638230abcc321dfcab8c814106f16a2a8093e"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "ajv": "^8.20.0",

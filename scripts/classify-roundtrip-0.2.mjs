@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parse } from '../vendor/carve/index.js';
+import { parse } from '@markup-carve/carve';
 import { pandocToCarveAst } from '../dist/convert.js';
 
 const root = resolve(import.meta.dirname, '..');

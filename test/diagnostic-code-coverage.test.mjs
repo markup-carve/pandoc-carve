@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parse, render } from '../vendor/carve/index.js';
+import { parse, render } from '@markup-carve/carve';
 import { carveAstToPandoc, carveToPandoc, pandocToCarveAst, pandocToCarve } from '../dist/index.js';
 
 const tree = (children) => ({ type: 'document', astVersion: '2.0', children });

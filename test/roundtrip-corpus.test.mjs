@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { parse, render } from '../vendor/carve/index.js';
+import { parse, render } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
 import { normalizeHtml } from './html-equivalence.mjs';
 

@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { parse, treesEqual } from '../vendor/carve/index.js';
+import { parse, treesEqual } from '@markup-carve/carve';
 import { carveAstToPandoc, pandocToCarveAst } from '../dist/convert.js';
 import { grade } from './roundtrip-grade.mjs';
 

@@ -5,7 +5,7 @@ import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { render as carveToHtml } from '../vendor/carve/index.js';
+import { render as carveToHtml } from '@markup-carve/carve';
 import { pandocToCarve } from '../dist/index.js';
 import { findPandoc } from './helpers.mjs';
 

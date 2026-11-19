@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { parse } from '../vendor/carve/index.js';
+import { parse } from '@markup-carve/carve';
 import { meaningRules } from './roundtrip-grade.mjs';
 import { classifyLosses } from './classify-roundtrip-0.2.mjs';
 
@@ -73,7 +73,7 @@ const gaps = rank();
 const md = [];
 md.push('# Carve 0.2 format round trips', '', `${data.version}. ${probes.length} Carve probes × ${names.length} readable formats; ${reverseNames.length} Pandoc rich/degraded pairs in the reverse direction.`, '',
   '## Verdict ladder', '',
-  'The first true rung wins: **exact** uses the vendored engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy-by-nature** retains readable words and critical content facts while the target loses a source role or attribute; **lossy** loses words or critical content; **error** records the failing stage.', '',
+  'The first true rung wins: **exact** uses the engine’s `treesEqual`; **same-meaning** applies only the source/provenance rules below; **same-rendering** compares vendored HTML after collapsing whitespace between tags and dropping generated heading IDs; **same-text** compares plain text block by block; **lossy-by-nature** retains readable words and critical content facts while the target loses a source role or attribute; **lossy** loses words or critical content; **error** records the failing stage.', '',
   'The same-meaning rules, in script order, are:', '',
   ...meaningRules.map(([description], i) => `${i + 1}. ${description}.`), '',
   'These rules do not remove text, block structure, emphasis family, link destinations, images, table cells, math, code content or language, footnote content, task state, attribute values, or classes. The vendored engine’s equality already ignores positions and computed resolution fields.', '',
