@@ -31,7 +31,8 @@
     "pandoc-carve": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "vendor/carve/ast-schema.json"
   ],
   "publishConfig": {
     "access": "public"
@@ -56,11 +57,11 @@
     "source": "https://github.com/markup-carve/pandoc-carve"
   },
   "dependencies": {
-    "@markup-carve/carve": "github:markup-carve/carve-js#fb2718493f3bcb70b4a26d05ae2ee084ec978552"
+    "@markup-carve/carve": "github:markup-carve/carve-js#fb2718493f3bcb70b4a26d05ae2ee084ec978552",
+    "ajv": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "ajv": "^8.20.0",
     "parse5": "^7.3.0",
     "typescript": "^5.8.0"
   }

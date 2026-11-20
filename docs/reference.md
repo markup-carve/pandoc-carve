@@ -11,6 +11,7 @@ pandoc-carve doc.crv -t docx -o doc.docx
 pandoc-carve report.docx -f docx -o report.crv
 pandoc-carve - -f json < report.json
 pandoc-carve - -f carve-json -t json < document-tree.json
+pandoc-carve - -f carve-ast-json -t docx -o out.docx < document-tree.json
 ```
 
 With Carve input, the default output is Pandoc JSON. With Pandoc input, the default output is Carve source. Use `-` for stdin, `-o` for a file, `-f` to select an input format, and `-t` to select an output format. Formats other than JSON require the `pandoc` executable; `--pandoc PATH` names it (default `$PANDOC`, then `pandoc`). `-s` asks Pandoc for a standalone document, and every argument after `--` goes to Pandoc verbatim, in both directions:
@@ -21,6 +22,26 @@ pandoc-carve doc.crv -t latex -s -- --toc --template=paper.tex
 ```
 
 `--fail-on-loss` exits with code 3 if the bridge reports a warning or an include fails; converted output is still written. A missing Pandoc executable exits with code 2. An unknown option is an error. `--help` prints the option summary.
+
+`-f carve-ast-json` accepts a bare 2.0 document or a 2.0 interchange envelope and validates it against the vendored tree schema. The older `-f carve-json` spelling remains available. A thematic break with the `page-break` class becomes a page break in DOCX, ODT, and LaTeX/PDF. Other writers receive a plain thematic break. Pandoc JSON retains a `carve-page-break` carrier so the bridge can round trip the class. Pandoc's DOCX reader does not restore the original Carve class after a page break has been written to DOCX.
+
+### Offline conversion
+
+`--offline` enables Pandoc's sandbox and prevents remote image fetching. Every image must be supplied by `--resource-root DIR` or, in the Node API, by a `resolveImage` callback. The root must be absolute; image paths cannot escape it, including through symlinks. The bridge embeds image bytes as data URIs before Pandoc runs. A missing image fails conversion. `--offline` rejects Pandoc passthrough arguments because they can invoke external filters or override the sandbox. The option also rejects remote input filenames. Sandboxed Pandoc may require a build with embedded data files for some writers.
+
+```js
+import { carveToPandoc } from '@markup-carve/pandoc-carve';
+import { preparePandocForWriter } from '@markup-carve/pandoc-carve/node';
+
+const { doc } = carveToPandoc('![Chart](chart.png)');
+const ready = preparePandocForWriter(doc, 'docx', {
+  offline: true,
+  resolveImage: (source) => source === 'chart.png'
+    ? { bytes: chartPngBytes, mimeType: 'image/png' } : undefined,
+});
+```
+
+The library prepares Pandoc JSON and does not start Pandoc. The host must invoke Pandoc with `--sandbox` when using this option. Pandoc's sandbox does not cover external PDF engines or filters, so an offline PDF service must also constrain its PDF engine outside this package.
 
 ### Includes
 

@@ -21,6 +21,27 @@ node dist/cli.js examples/export/article.crv -t html -s -o article.html -- --toc
 
 With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. The CLI uses `pandoc` for formats other than JSON. PDF output requires `-o` so Pandoc can select its PDF writer from the filename. It accepts stdin with `-` and writes stdout unless `-o` is supplied. `-s` produces a standalone document, `--pandoc PATH` names the Pandoc executable, and arguments after `--` go to Pandoc verbatim. A named Carve file expands its includes from its folder; `--include-root DIR` sets an absolute containment root (and enables includes on stdin), `--no-includes` turns expansion off. See the [reference](docs/reference.md) for the details.
 
+## Non-JS hosts (PHP, Rust)
+
+Pass a Carve 2.0 AST JSON document from a PHP or Rust host to the CLI. The CLI validates it against the vendored 2.0 tree schema before conversion. For example, a PHP host can encode a tree and export DOCX:
+
+```php
+<?php
+$tree = Carve::parse("# Report\n");
+$json = Carve::encodeTree($tree);
+$process = proc_open('pandoc-carve -f carve-ast-json -t docx -o report.docx', [
+    0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
+], $pipes);
+fwrite($pipes[0], $json);
+fclose($pipes[0]);
+$stderr = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+if (proc_close($process) !== 0) throw new RuntimeException($stderr);
+```
+
+`--offline --resource-root /absolute/images` embeds local image bytes from that directory and rejects image targets it cannot resolve. Use `--offline` without a root when the document has no images. The Node API also accepts a `resolveImage` callback for hosts that store image bytes elsewhere. See the [reference](docs/reference.md#offline-conversion).
+
 ## Engine
 
 The Carve engine is the npm git dependency `@markup-carve/carve`, pinned to a carve-js `next2` commit in `package.json`. `vendor/carve` holds the engine's data the tests read at that commit: its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit, and a test checks it against the pin. To move the pin, change the commit in `package.json`, run `npm install`, check out carve-js at the same commit, then:
