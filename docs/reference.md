@@ -13,9 +13,20 @@ pandoc-carve - -f json < report.json
 pandoc-carve - -f carve-json -t json < document-tree.json
 ```
 
-With Carve input, the default output is Pandoc JSON. With Pandoc input, the default output is Carve source. Use `-` for stdin, `-o` for a file, `-f` to select an input format, and `-t` to select an output format. Formats other than JSON require the `pandoc` executable. `--fail-on-loss` exits with code 3 if the bridge reports a warning; converted output is still written. A missing Pandoc executable exits with code 2. `--help` prints the option summary.
+With Carve input, the default output is Pandoc JSON. With Pandoc input, the default output is Carve source. Use `-` for stdin, `-o` for a file, `-f` to select an input format, and `-t` to select an output format. Formats other than JSON require the `pandoc` executable; `--pandoc PATH` names it (default `$PANDOC`, then `pandoc`). `-s` asks Pandoc for a standalone document, and every argument after `--` goes to Pandoc verbatim, in both directions:
 
-Carve 0.2 recognizes `{{ path }}` as an `include` tree node. This bridge keeps that node unresolved and reports a warning; it does not read files from an include directive.
+```bash
+pandoc-carve doc.crv -t html -s -o doc.html
+pandoc-carve doc.crv -t latex -s -- --toc --template=paper.tex
+```
+
+`--fail-on-loss` exits with code 3 if the bridge reports a warning or an include fails; converted output is still written. A missing Pandoc executable exits with code 2. An unknown option is an error. `--help` prints the option summary.
+
+### Includes
+
+A named Carve file expands its `{{ path }}` includes through the carve-js include resolver, from the file's folder. No include reads a file outside the containment root, which is the input file's folder unless `--include-root DIR` names another absolute directory. Stdin expands includes only with `--include-root`. `--no-includes` leaves every include as an unresolved `carve-include` div with a warning. An include that cannot be read stays unresolved and is reported on stderr with its `include-*` code and the file relative to the root (`[include-root]/part.crv`). The include options apply to Carve source only.
+
+The string API (`carveToPandoc`) never reads files. `carveToPandocWithIncludes(source, { includeRoot, sourcePath })` from `@markup-carve/pandoc-carve/node` is the CLI path; it returns `doc`, `warnings`, `includeDiagnostics`, `suppressedIncludeDiagnostics` and `dependencies`. An included file's frontmatter is not part of the host document.
 
 ## JavaScript API
 

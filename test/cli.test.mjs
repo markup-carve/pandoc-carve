@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -94,4 +94,91 @@ test('cli: no arguments shows usage', () => {
   const result = run([]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Usage/u);
+});
+
+const includeFixture = (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'doc.crv'), 'Intro\n\n{{ part.crv }}\n');
+  writeFileSync(join(dir, 'part.crv'), 'Included *text*\n');
+  return dir;
+};
+
+test('cli: -s writes a standalone document', (t) => {
+  const dir = includeFixture(t);
+  const result = run(['-t', 'html', '-s', join(dir, 'doc.crv')]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /<!DOCTYPE html>/u);
+  assert.doesNotMatch(run(['-t', 'html', join(dir, 'doc.crv')]).stdout, /<!DOCTYPE/u);
+});
+
+test('cli: a named file expands its includes', (t) => {
+  const dir = includeFixture(t);
+  const result = run(['-t', 'html', join(dir, 'doc.crv')]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '<p>Intro</p>\n<p>Included <strong>text</strong></p>\n');
+  assert.equal(result.stderr, '');
+});
+
+test('cli: --no-includes leaves the include unexpanded', (t) => {
+  const dir = includeFixture(t);
+  const result = run(['-t', 'html', '--no-includes', join(dir, 'doc.crv')]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /class="carve-include" data-path="part\.crv"/u);
+  assert.match(result.stderr, /include: unresolved/u);
+});
+
+test('cli: stdin expands includes only with --include-root', (t) => {
+  const dir = includeFixture(t);
+  const source = '{{ part.crv }}\n';
+  assert.match(run(['-', '-t', 'json'], source).stdout, /carve-include/u);
+  const result = run(['-', '-t', 'json', '--include-root', dir], source);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /"Strong"/u);
+  assert.doesNotMatch(result.stdout, /carve-include/u);
+});
+
+test('cli: --include-root is absolute and applies to Carve source only', (t) => {
+  const dir = includeFixture(t);
+  const relative = run([join(dir, 'doc.crv'), '-t', 'json', '--include-root', 'relative']);
+  assert.equal(relative.status, 1);
+  assert.match(relative.stderr, /--include-root must be an absolute path/u);
+  const imported = run(['-', '-f', 'json', '--no-includes'], JSON.stringify(doc([])));
+  assert.equal(imported.status, 1);
+  assert.match(imported.stderr, /only apply to Carve source input/u);
+});
+
+test('cli: an include outside the root is reported and fails the loss gate', (t) => {
+  const dir = includeFixture(t);
+  writeFileSync(join(dir, 'doc.crv'), '{{ ../outside.crv }}\n');
+  const result = run([join(dir, 'doc.crv'), '-t', 'json', '--fail-on-loss']);
+  assert.equal(result.status, 3, result.stderr);
+  assert.match(result.stderr, /include-outside-root/u);
+});
+
+test('cli: arguments after -- and --pandoc reach Pandoc', (t) => {
+  const dir = includeFixture(t);
+  const fake = join(dir, 'fake-pandoc.mjs');
+  writeFileSync(fake, `#!${process.execPath}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n`);
+  chmodSync(fake, 0o755);
+  const exported = run([join(dir, 'doc.crv'), '-t', 'latex', '-s', '--pandoc', fake, '--', '--toc', '-V', 'x=y'], undefined, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(exported.status, 0, exported.stderr);
+  assert.deepEqual(JSON.parse(exported.stdout), ['-f', 'json', '-t', 'latex', '-s', '--toc', '-V', 'x=y']);
+  const imported = run(['-', '-f', 'markdown', '-t', 'json', '--pandoc', fake, '--', '--tab-stop=2'], 'x\n');
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.deepEqual(JSON.parse(imported.stdout), ['-f', 'markdown', '-t', 'json', '--tab-stop=2']);
+});
+
+test('cli: --toc after -- builds a table of contents', (t) => {
+  const dir = includeFixture(t);
+  writeFileSync(join(dir, 'doc.crv'), '= One\n\n= Two\n');
+  const result = run([join(dir, 'doc.crv'), '-t', 'html', '-s', '--', '--toc']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /id="TOC"/u);
+});
+
+test('cli: an unknown option is an error', () => {
+  const result = run(['-', '-t', 'json', '--roundtrip'], 'x\n');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unknown option: --roundtrip/u);
 });

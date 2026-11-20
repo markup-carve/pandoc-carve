@@ -86,6 +86,8 @@ The eight removed `includes.test.mjs` cases, each with its 0.1 feature reason:
 - “include root and source path must be absolute and contained”: 0.1 file-backed include expansion API is absent from the 0.2 engine.
 - “a region include brings only the named region”: 0.1 region include expansion is absent from the 0.2 engine.
 
+Include expansion came back on the 0.2 resolver (pandoc-carve#299): `includes.test.mjs` and `cli.test.mjs` cover it again, against the include behavior documented on `main`. The census above records the port as it happened.
+
 The three removed `diagnostic-code-coverage.test.mjs` cases, each with its 0.1 feature reason:
 
 - “a list-table with a short caption produces list-table-short-caption-dropped”: the 0.1 `listTable` extension is gone.
