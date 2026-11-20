@@ -5,6 +5,7 @@ import { includeDependencies, parseWithDiagnostics, type Diagnostic, type Includ
 import { fileSystemResolver } from '@markup-carve/carve/node';
 import { carveAstToPandoc } from './convert.js';
 import type { PandocDoc } from './pandoc.js';
+export { preparePandocForWriter, type WriterOptions } from './prepare.js';
 
 export interface IncludeConversionOptions {
   /** Absolute containment root; no include reads a file outside it. */
