@@ -23,7 +23,7 @@ pandoc-carve doc.crv -t latex -s -- --toc --template=paper.tex
 
 `--fail-on-loss` exits with code 3 if the bridge reports a warning or an include fails; converted output is still written. A missing Pandoc executable exits with code 2. An unknown option is an error. `--help` prints the option summary.
 
-`-f carve-ast-json` accepts a bare 2.0 document or a 2.0 interchange envelope and validates it against the vendored tree schema. The older `-f carve-json` spelling remains available. A thematic break with the `page-break` class becomes a page break in DOCX, ODT, and LaTeX/PDF. Other writers receive a plain thematic break. Pandoc JSON retains a `carve-page-break` carrier so the bridge can round trip the class. Pandoc's DOCX reader does not restore the original Carve class after a page break has been written to DOCX.
+`-f carve-ast-json` accepts a bare 2.0 document or a 2.0 interchange envelope and validates it against the vendored tree schema. The older `-f carve-json` spelling remains available. A thematic break with the `page-break` class becomes a page break in DOCX, ODT, and LaTeX/PDF. The ODT writer adds a hard page break paragraph style to the archive. Other writers receive a plain thematic break. Pandoc JSON retains a `carve-page-break` carrier so the bridge can round trip the class. Pandoc's DOCX reader does not restore the original Carve class after a page break has been written to DOCX.
 
 ### Offline conversion
 

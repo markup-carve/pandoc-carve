@@ -30,7 +30,7 @@ function localImage(source: string, root: string): { bytes: Uint8Array; mimeType
 export function preparePandocForWriter(doc: PandocDoc, format: string, options: WriterOptions = {}): PandocDoc {
   if (options.resourceRoot !== undefined && !path.isAbsolute(options.resourceRoot)) throw new Error('resourceRoot must be an absolute path');
   const raw = format === 'docx' ? ['openxml', '<w:p><w:r><w:br w:type="page"/></w:r></w:p>']
-    : format === 'odt' ? ['opendocument', '<text:p><text:soft-page-break/></text:p>']
+    : format === 'odt' ? ['opendocument', '<text:p text:style-name="CarvePageBreak"/>']
       : format === 'latex' || format === 'pdf' ? ['latex', '\\newpage'] : undefined;
   const visit = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(visit);

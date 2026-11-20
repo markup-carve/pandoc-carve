@@ -58,7 +58,8 @@
   },
   "dependencies": {
     "@markup-carve/carve": "github:markup-carve/carve-js#fb2718493f3bcb70b4a26d05ae2ee084ec978552",
-    "ajv": "^8.20.0"
+    "ajv": "^8.20.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

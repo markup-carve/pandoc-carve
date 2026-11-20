@@ -57,12 +57,13 @@ test('page breaks reach real DOCX, ODT, and LaTeX writers', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pandoc-host-'));
   for (const [format, entry, pattern] of [
     ['docx', 'word/document.xml', /w:type="page"/u],
-    ['odt', 'content.xml', /text:soft-page-break/u],
+    ['odt', 'content.xml', /text:style-name="CarvePageBreak"/u],
   ]) {
     const output = join(dir, `out.${format}`);
     const result = run(['-f', 'carve-ast-json', '-t', format, '-o', output], tree([page]));
     assert.equal(result.status, 0, result.stderr);
     assert.match(execFileSync('unzip', ['-p', output, entry], { encoding: 'utf8' }), pattern);
+    if (format === 'odt') assert.match(execFileSync('unzip', ['-p', output, 'styles.xml'], { encoding: 'utf8' }), /fo:break-before="page"/u);
   }
   const latex = run(['-f', 'carve-ast-json', '-t', 'latex'], tree([page]));
   assert.equal(latex.status, 0, latex.stderr);
