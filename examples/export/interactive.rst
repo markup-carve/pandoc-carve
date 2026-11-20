@@ -21,15 +21,15 @@ extension it becomes a clickable tab button; here, with no extension, it
 degrades to a visible caption so a print reader can still tell the
 panels apart.
 
-.. admonition::
+.. container:: tabs
 
-   .. admonition::
+   .. container:: tab
 
       **Installation**
 
       Run ``npm install @markup-carve/pandoc-carve``.
 
-   .. admonition::
+   .. container:: tab
 
       **Usage**
 
@@ -44,7 +44,7 @@ Same grouping mechanism, code panels instead of prose. Each fence keeps
 its language (so syntax highlighting survives every writer); the panels
 stack.
 
-.. admonition::
+.. container:: code-group
 
    .. code:: js
 
@@ -62,7 +62,7 @@ Spoiler
 A quoted title survives as a caption; the “hide until revealed”
 interaction is meaningless offline, so the body is simply shown.
 
-.. admonition::
+.. container:: spoiler
 
    **Answer**
 
@@ -73,7 +73,7 @@ interaction is meaningless offline, so the body is simply shown.
 Disclosure
 ----------
 
-.. admonition::
+.. container:: details
 
    **Show details**
 

@@ -22,8 +22,8 @@
       "import": "./dist/index.js"
     },
     "./node": {
-      "types": "./dist/includes.d.ts",
-      "import": "./dist/includes.js"
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
     },
     "./package.json": "./package.json"
   },
@@ -31,16 +31,19 @@
     "pandoc-carve": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "vendor/carve/ast-schema.json"
   ],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/clean-dist.mjs && tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "node scripts/lint.mjs",
     "examples:build": "npm run build && node scripts/build-examples.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
     "prepublishOnly": "npm run build"
@@ -54,11 +57,12 @@
     "source": "https://github.com/markup-carve/pandoc-carve"
   },
   "dependencies": {
-    "@markup-carve/carve": "^0.1.17"
+    "@markup-carve/carve": "github:markup-carve/carve-js#fb2718493f3bcb70b4a26d05ae2ee084ec978552",
+    "ajv": "^8.20.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "ajv": "^8.20.0",
     "parse5": "^7.3.0",
     "typescript": "^5.8.0"
   }

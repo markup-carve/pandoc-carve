@@ -1,5 +1,10 @@
-[ Header
-    1 ( "Introduction" , [] , [] ) [ Str "Introduction" ]
+[ RawBlock
+    (Format "carve-frontmatter:yaml")
+    "title: A Short Carve Article\nauthor: Carve\ndate: 2026-07-18\n"
+, Header
+    1
+    ( "Introduction" , [] , [ ( "carve-generated-id" , "1" ) ] )
+    [ Str "Introduction" ]
 , Para
     [ Str "This"
     , Space
@@ -101,41 +106,50 @@
     , Str "like"
     , Space
     , Str "this."
-    , Note
-        [ Para
-            [ Str "Footnotes"
-            , Space
-            , Str "become"
-            , Space
-            , Str "Pandoc"
-            , Space
-            , Code ( "" , [] , [] ) "Note"
-            , Space
-            , Str "nodes"
-            , Space
-            , Str "and"
-            , Space
-            , Str "render"
-            , Space
-            , Str "natively"
-            , Space
-            , Str "in"
-            , Space
-            , Str "LaTeX,"
-            , SoftBreak
-            , Str "Typst,"
-            , Space
-            , Str "DOCX,"
-            , Space
-            , Str "and"
-            , Space
-            , Str "the"
-            , Space
-            , Str "rest."
+    , Span
+        ( "" , [ "carve-footnote-ref" ] , [ ( "key" , "note" ) ] )
+        [ Note
+            [ Para
+                [ Str "Footnotes"
+                , Space
+                , Str "become"
+                , Space
+                , Str "Pandoc"
+                , Space
+                , Code ( "" , [] , [] ) "Note"
+                , Space
+                , Str "nodes"
+                , Space
+                , Str "and"
+                , Space
+                , Str "render"
+                , Space
+                , Str "natively"
+                , Space
+                , Str "in"
+                , Space
+                , Str "LaTeX,"
+                , SoftBreak
+                , Str "Typst,"
+                , Space
+                , Str "DOCX,"
+                , Space
+                , Str "and"
+                , Space
+                , Str "the"
+                , Space
+                , Str "rest."
+                ]
             ]
         ]
     ]
-, Header 2 ( "Lists" , [] , [] ) [ Str "Lists" ]
+, RawBlock
+    (Format "carve-tree")
+    "{\"type\":\"footnote\",\"key\":\"note\",\"namespace\":\"footnote\",\"children\":[{\"type\":\"paragraph\",\"children\":[{\"type\":\"text\",\"value\":\"Footnotes become Pandoc \"},{\"type\":\"code\",\"value\":\"Note\"},{\"type\":\"text\",\"value\":\" nodes and render natively in LaTeX,\"},{\"type\":\"soft_break\"},{\"type\":\"text\",\"value\":\"Typst, DOCX, and the rest.\"}]}]}"
+, Header
+    2
+    ( "Lists" , [] , [ ( "carve-generated-id" , "1" ) ] )
+    [ Str "Lists" ]
 , BulletList
     [ [ Plain [ Str "First" , Space , Str "item" ] ]
     , [ Plain
@@ -161,7 +175,9 @@
     , [ Plain [ Str "Ordered" , Space , Str "two" ] ]
     ]
 , Header
-    2 ( "A-table" , [] , [] ) [ Str "A" , Space , Str "table" ]
+    2
+    ( "A-table" , [] , [ ( "carve-generated-id" , "1" ) ] )
+    [ Str "A" , Space , Str "table" ]
 , Table
     ( "" , [] , [] )
     (Caption Nothing [])
@@ -265,7 +281,10 @@
     (TableFoot ( "" , [] , [] ) [])
 , Header
     2
-    ( "Math-and-raw-passthrough" , [] , [] )
+    ( "Math-and-raw-passthrough"
+    , []
+    , [ ( "carve-generated-id" , "1" ) ]
+    )
     [ Str "Math"
     , Space
     , Str "and"
@@ -332,7 +351,17 @@
     , SoftBreak
     , Str "that"
     , Space
-    , Str "Carve\8217s"
+    , Str "Carve"
+    , Span
+        ( ""
+        , [ "carve-smart" ]
+        , [ ( "kind" , "right_single_quote" )
+          , ( "source" , "'" )
+          , ( "glyph" , "\8217" )
+          ]
+        )
+        [ Str "\8217" ]
+    , Str "s"
     , Space
     , Code ( "" , [] , [] ) "{=format}"
     , Space

@@ -1,3103 +1,501 @@
-/**
- * Carve AST -> Pandoc JSON AST.
- *
- * Walks the SERIALIZED AST that PART 12 of the Carve spec defines - the shape
- * `spec/resources/ast-schema.json` pins, as written by any engine's
- * `--to-json` - and emits a Pandoc document (api-version 1.23.1). It is not the
- * runtime tree of any particular implementation: `src/ast-json.ts` maps that on
- * the way in, so every node type and field name switched on below is spec
- * surface. Anything that cannot be mapped faithfully degrades to a classed
- * Span/Div and reports a warning - nothing degrades silently.
- */
-
-import type { CarveAstDocument } from './ast-json.js';
+/** Carve 0.2 bridge. */
+import { parse, SMART_PUNCTUATION, treesEqual, validateTree, writeWithDiagnostics } from '@markup-carve/carve';
+import type { Node, DocumentNode, Block, Inline, Attrs, TableNode, TableRowNode, TableCellNode, CaptionNode } from '@markup-carve/carve';
 import * as P from './pandoc.js';
-import { readRowGroups } from './row-groups.js';
-import { diagnostic, migrationReport, type ConversionDiagnostic, type MigrationReport } from './diagnostics.js';
-import { provenanceAttr } from './provenance.js';
-import { blankDeniedDestination, probeScheme } from './url-scheme.js';
+import { hasDeniedScheme } from './url-scheme.js';
 import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js';
-import { SMART_PUNCTUATION_GLYPHS, fromAstJson, resolve } from '@markup-carve/carve';
 
-// The Carve AST is plain data; we type the parts we read.
-interface CNode {
-    type: string;
-    [key: string]: unknown;
-}
-
-interface CAttrs {
-    id?: string;
-    classes?: string[];
-    keyValues?: Record<string, string>;
-    order?: string[];
-}
-
-export interface ConvertResult {
-    doc: P.PandocDoc;
-    warnings: string[];
-    diagnostics: ConversionDiagnostic[];
-    report: MigrationReport;
-}
-
-export interface ConvertOptions {
-    /** Interpret U+E000 as the old generated-space marker in external AST input.
-     * Use only for known legacy producers; literal U+E000 cannot be recovered.
-     */
-    legacySpaceSentinels?: boolean;
-    /**
-     * Stamp attr-wrapper Divs with a `carve-block` key-value marker so the
-     * reverse direction can restore the attrs onto the inner block. Off by
-     * default: the marker would otherwise leak into pandoc writer output
-     * (e.g. `carve-block="paragraph"` on an HTML div).
-     */
-    roundtrip?: boolean;
-    /**
-     * Lead an attr-wrapper Div around a `Para`, `BlockQuote`, list or rule with
-     * `wrapper="1"`, Pandoc's own marker: its HTML and Djot writers then put
-     * the attributes on the block itself. Off by default because the
-     * Markdown-family, MediaWiki and Textile writers print the marker and the
-     * Jira writer turns the Div into a panel. `roundtrip` turns it on.
-     */
-    wrapperMarker?: boolean;
-    /**
-     * Resolve `:name:` symbols to replacement text (mirrors the renderer's
-     * symbols map). Unresolved symbols degrade to a classed Span + warning.
-     */
-    symbols?: Record<string, string>;
-    /**
-     * Convert `::: list-table` blocks to real Pandoc tables (the listTable
-     * extension's semantics) instead of the degraded Div-of-lists form.
-     * Pandoc cells hold full blocks, so nothing is flattened.
-     *
-     * ON by default, because the REVERSE direction writes a list-table
-     * unprompted: `pandocToCarve` reaches for it whenever a pandoc table has a
-     * cell holding blocks or row-head columns, which a pipe table cannot spell.
-     * With this off, that table came back as a `Div` of nested lists - the
-     * bridge lost, on the way in, a construct it had itself chosen on the way
-     * out. Set it false to get the literal `Div` a processor without the
-     * extension enabled would render.
-     */
-    listTable?: boolean;
-    /**
-     * Parse Carve source to the exchange AST's `children`, for the one place a
-     * conversion has to read source rather than a tree: block content in
-     * metadata (`abstract: |`), whose value is Carve markup inside a YAML
-     * string.
-     *
-     * Supplied as a hook rather than imported, because this module converts a
-     * SERIALIZED AST from any engine and has no engine of its own. Without it
-     * a block scalar is reported and skipped, which is what it always did.
-     */
-    parseBlocks?: (source: string) => unknown[];
-}
-
-interface Ctx {
-    /** The source the tree was parsed from, as code points, when known. */
-    sourcePoints: string[] | undefined;
-    warnings: string[];
-    diagnostics: ConversionDiagnostic[];
-    footnoteDefs: Record<string, CNode[]>;
-    /**
-     * Crossref target id -> the inline content a `</#id>` resolves to.
-     *
-     * Populated in pass 1 (`collectCrossrefTargets`, run before any block is
-     * converted), from two kinds of target: a heading's own children (id
-     * explicit or slugged), and a numbered figure/table caption's computed
-     * "Label N" text (id from its own `{#id}`).
-     */
-    crossrefTargets: Map<string, CNode[]>;
-    /**
-     * A heading's RENDERED text (NFC, whitespace collapsed) to its id.
-     *
-     * A COLLAPSED reference reaches a heading by that text - `[Some Heading][]`
-     * links to it with no definition anywhere, matched exactly, case included -
-     * which is resolution the engine performs after the parse, so the node the
-     * bridge receives still carries an empty `href`. Without this map every one
-     * of them was reported as a missing definition and emitted as literal
-     * source, so the link was simply gone.
-     *
-     * The FULL form is deliberately not here: `[text][Some Heading]` does NOT
-     * reach a heading, measured on the engine - it needs a definition like any
-     * other reference.
-     */
-    headingIdByText: Map<string, string>;
-    /** Link reference labels defined with an empty destination (`[r]:`), as lookup keys. */
-    emptyDefinitions: Set<string>;
-    /** The labels of the note definitions referenced so far. */
-    citedNotes: Set<string>;
-    /** The labels of the note definitions being expanded, to stop a cycle. */
-    openNotes: Set<string>;
-    /** How many notes the conversion is inside of. */
-    noteDepth: number;
-    /** Notes referenced inside the current note, to follow it (see liftedNote). */
-    liftedNotes: P.Inline[];
-    /** Every heading's id, explicit or derived (pass 1). */
-    headingIds: Map<CNode, string>;
-    /**
-     * The crossref targets that are NUMBERED CAPTIONS rather than headings.
-     *
-     * `</#id>` resolves against both, and only one of them survives the
-     * crossing. A heading resolves by id, which is stable. A numbered caption
-     * resolves because it holds a `#` PLACEHOLDER - and pandoc has no
-     * placeholder, so the caption must go out with a literal number, after
-     * which it is an ordinary caption and the crossref pointing at it resolves
-     * to nothing. Re-reading `</#fig-sun>` therefore rendered the crossref as
-     * its own source text, with the link gone.
-     *
-     * Such a crossref is written as a plain link to the same id instead. It
-     * renders identically - the number is already resolved into the text - and
-     * it is stable, because nothing about a plain link depends on the target
-     * still being numbered. See markup-carve/carve#758 for the wider question
-     * of resolution results crossing a boundary.
-     */
-    captionTargets: Set<string>;
-    /** true while emitting blocks of a tight list item */
-    tight: boolean;
-    /**
-     * True while a crossref's target heading is being inlined.
-     *
-     * A crossref resolves ONE LEVEL: the link text is the target heading's
-     * content with any crossref inside it dropped. `# A </#a>` - a heading
-     * referencing its own id - is the corpus case, and without this the
-     * resolution re-enters itself until the stack runs out.
-     */
-    inCrossref: boolean;
-    /**
-     * Inside a link's own label, where no further anchor may be emitted.
-     *
-     * PART 12 section 3a publishes a nested `link` or `autolink` as the node the
-     * author wrote and makes "links never nest" a rule for the RENDER seam: a
-     * consumer walking a link's children "must not emit a nested anchor for it".
-     * Pandoc's `Link` is an anchor, so this is that seam.
-     */
-    inLink: boolean;
-    /**
-     * How many captions of each kind have been numbered so far.
-     *
-     * `^ Figure #: text` asks for a literal number in the caption; the engine
-     * keeps an independent sequence per LABEL, not per element kind, so
-     * `Figure #`, `Listing #`, `Figure #` on three figures numbers them
-     * Figure 1, Listing 1, Figure 2. The parse tree
-     * carries only the `caption_number` PLACEHOLDER - the value is assigned at
-     * render time - so a consumer that wants the number has to keep the count
-     * itself.
-     */
-    captionCounts: Map<string, number>;
-    /** The caption LABEL currently being converted, for `caption_number`. */
-    captionKind: string | undefined;
-    /**
-     * True while converting a PANEL of a composite figure, or anything inside
-     * one.
-     *
-     * PART 9 §4c: the group is ONE numbering unit, so a panel draws nothing
-     * from the document sequence - and neither does anything the panel
-     * contains. A `#` in a panel caption "stays LITERAL, the visible failure
-     * this language prefers to a silent one". Suppressing the DRAW matters as
-     * much as suppressing the digit: a panel that consumed a number would
-     * shift every later caption in the document by one.
-     */
-    inPanel: boolean;
-    roundtrip: boolean;
-    wrapperMarker: boolean;
-    symbols: Record<string, string>;
-    listTable: boolean;
-    /**
-     * Notes closed so far, which is what pandoc's `citationNoteNum` counts.
-     *
-     * Pandoc's markdown reader stamps every `Cite` with the note number in
-     * force where it stands: a citation in running text before any note gets 1,
-     * one standing after two notes gets 3, and one INSIDE a note gets that
-     * note's own number - the counter moves when the note CLOSES, not when it
-     * opens. Reproducing that here is what makes a citation survive
-     * pandoc -> Carve -> pandoc unchanged; the field is pandoc's own
-     * bookkeeping, not authored content, so there is nothing in the Carve AST
-     * to carry and nothing to add to it.
-     */
-    noteCount: number;
-    parseBlocks: ((source: string) => unknown[]) | undefined;
-    /** Literal block scalars lifted out of the frontmatter, by sentinel. */
-    blockScalars: Map<string, string>;
-}
-
-function warn(ctx: Ctx, msg: string, details?: Record<string, unknown>, sourceLocation?: unknown): void {
-    ctx.warnings.push(msg);
-    ctx.diagnostics.push(diagnostic('carve-to-pandoc', msg, details, sourceLocation));
-}
-
-/**
- * A destination with a PART 9 §25 scheme blanked, and said out loud.
- *
- * The engine's writers blank it and the AST keeps what the author wrote, so
- * without this the scheme reaches pandoc intact and `pandoc -f json -t html`
- * puts it straight back into an `href` (markup-carve/pandoc-carve#157). Only
- * schemes the engine denies are touched, and it denies none that a LaTeX or
- * Typst document has a legitimate use for.
- *
- * `lossy`, not `normalized`: the author's destination does not survive, and
- * `--fail-on-loss` is the switch a caller who would rather stop than lose it
- * already reaches for.
- */
-function safeDestination(ctx: Ctx, url: string, kind: 'link' | 'image'): string {
-    const blanked = blankDeniedDestination(url);
-    if (blanked === url) return url;
-    warn(
-        ctx,
-        `url: a denied scheme on a ${kind} destination is blanked - ` +
-            `"${truncateForWarning(url)}"`,
-        { scheme: probeScheme(url), destination: url, construct: kind },
-    );
-    return blanked;
-}
-
-/**
- * A warning carries enough of the dropped content to find it in the source,
- * and not a whole fenced block.
- */
-function truncateForWarning(content: string): string {
-    const flat = content.replace(/\s+/g, ' ').trim();
-    return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
-}
-
-/**
- * PART 10 section 1: a name written in several cases is one HTML attribute.
- * The engine keeps each spelling as its own key and moves the spelling written
- * last to the end, and `order` lists each spelling at its first write.
- */
-function foldedAttrs(ctx: Ctx, a: CAttrs, generatedId?: string): { id: string | undefined; classes: string[]; keyValues: [string, string][] } {
-    const own = a.keyValues ?? {};
-    const groups = new Map<string, { name: string; value: string; values: string[] }>();
-    for (const name of [...(a.order ?? []), ...Object.keys(own)]) {
-        if (!Object.hasOwn(own, name) || groups.has(name.toLowerCase())) continue;
-        groups.set(name.toLowerCase(), { name, value: '', values: [] });
+export { treesEqual };
+export type { DocumentNode, Node };
+type Result = { doc: P.PandocDoc; warnings: string[] };
+type Context = { warnings: string[]; notes: Map<string, Block[]>; activeNotes: Set<string>; links: Map<string, [string, string]>; targets: Map<string, P.Inline[]>; noteCount: number };
+type SmartKind = Extract<Inline, { type: 'smart_punctuation' }>['kind'];
+const SMART = new Map(SMART_PUNCTUATION.map((entry) => [entry.kind, entry]));
+const smartPunctuation = (kind: SmartKind): Inline => { const { glyph, source } = SMART.get(kind)!; return { type: 'smart_punctuation', kind, glyph, source }; };
+const impossible = (node: never): never => { throw new Error(`unhandled node ${JSON.stringify(node)}`); };
+const attr = (a?: Attrs): P.Attr => P.attr(a?.id, a?.classes, a?.keyValues);
+const languageAttr = (n: Node): P.Attr => P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.lang ? [['lang', n.lang] as [string, string]] : []), ...(n.dir ? [['dir', n.dir] as [string, string]] : [])]);
+const BIDI_CONTROL_RE = /[\u202a-\u202e\u2066-\u2069]/gu;
+const stripBidi = (value: string): string => value.replace(BIDI_CONTROL_RE, '');
+const words = (s: string): P.Inline[] => stripBidi(s).split(/( +)/u).filter(Boolean).map(x => /^ +$/u.test(x) ? P.Space : P.Str(x));
+const literalInlines = (s: string): P.Inline[] => stripBidi(s).split(/(\r?\n|[ \t]+)/u).filter(Boolean).flatMap(x => /\r?\n/u.test(x) ? [P.SoftBreak] : /^[ \t]+$/u.test(x) ? [...x].map(() => P.Space) : [P.Str(x)]);
+const captionText = (xs: Inline[]): string => xs.map(node => node.type === 'text' ? node.value : 'children' in node ? captionText(node.children as Inline[]) : '').join('');
+const flattenNestedLinks = (xs: Inline[]): Inline[] => xs.flatMap(node => node.type === 'link' ? flattenNestedLinks(node.children) : node.type === 'autolink' ? [{ type: 'text', value: node.text ?? node.href }] : [node]);
+const il = (xs: Inline[], c: Context): P.Inline[] => {
+  const out: P.Inline[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    const node = xs[i]!;
+    if (node.type === 'comment') { out.push(P.RawInline(`carve-comment-${node.form}`, node.value)); continue; }
+    if (node.type === 'smart_punctuation' && (node.kind === 'left_single_quote' || node.kind === 'left_double_quote')) {
+      const close = node.kind === 'left_single_quote' ? 'right_single_quote' : 'right_double_quote';
+      let depth = 1;
+      let end = i + 1;
+      for (; end < xs.length; end++) {
+        const next = xs[end];
+        if (next?.type !== 'smart_punctuation') continue;
+        if (next.kind === node.kind) depth++;
+        if (next.kind === close && --depth === 0) break;
+      }
+      if (end < xs.length) {
+        out.push({ t: 'Quoted', c: [{ t: node.kind === 'left_single_quote' ? 'SingleQuote' : 'DoubleQuote' }, il(xs.slice(i + 1, end), c)] });
+        i = end;
+        continue;
+      }
     }
-    for (const [name, value] of Object.entries(own)) {
-        const group = groups.get(name.toLowerCase())!;
-        group.value = value;
-        group.values.push(value);
-    }
-    let id = a.id;
-    const idKey = groups.get('id');
-    if (idKey && a.id === undefined) id = idKey.value;
-    else if (idKey && idKey.value !== a.id) {
-        // The JSON AST cannot order `ID=` against `#id`: `{#a ID=b}` and
-        // `{#a ID=b #c}` are the same shape, so the shorthand is kept.
-        warn(ctx, `attribute: "${idKey.name}" and #id both set the id - the AST does not say which came last, "${a.id}" is kept`, {
-            attribute: idKey.name,
-            value: idKey.value,
-            kept: a.id,
-        });
-    }
-    id ??= generatedId;
-    let classes = [...(a.classes ?? [])];
-    const classKey = groups.get('class');
-    if (classKey) {
-        const tokens = classKey.values.flatMap((v) => v.split(/[\t\n\f\r ]+/).filter((t) => t !== ''));
-        const order = a.order ?? [];
-        const keyAt = order.findIndex((t) => t.toLowerCase() === 'class');
-        const keyFirst = keyAt !== -1 && order.indexOf('.class') > keyAt;
-        classes = keyFirst ? [...tokens, ...classes] : [...classes, ...tokens];
-    }
-    groups.delete('id');
-    groups.delete('class');
-    // Classes are deduplicated, first occurrence kept (CARVE-P4-002).
-    return { id, classes: [...new Set(classes)], keyValues: [...groups.values()].map((g) => [g.name, g.value]) };
-}
-
-/** `generatedId` is a slug the author did not write; an id-spelled key beats it. */
-function toAttr(ctx: Ctx, attrs: unknown, generatedId?: string): P.Attr {
-    const a = foldedAttrs(ctx, (attrs ?? {}) as CAttrs, generatedId);
-    const kvs: [string, string][] = [];
-    for (const [name, value] of a.keyValues) {
-        if (isDangerousAttrName(name)) {
-            warn(ctx, `attribute: unsafe name "${name}" is dropped`, { attribute: name });
-            continue;
-        }
-        const safe = renderedAttrValue(name, value);
-        if (safe !== value) {
-            warn(ctx, `attribute: unsafe value for "${name}" is blanked`, { attribute: name, value });
-        }
-        kvs.push([name, safe]);
-    }
-    return P.attr(a.id, a.classes, kvs);
-}
-
-/**
- * POLICY: Carve has no small-caps node, and `.smallcaps` is the span that
- * stands in for one - in both directions. `reverse.ts` writes that class for a
- * pandoc `SmallCaps`; this reads it back, so the construct survives
- * Pandoc -> Carve -> Pandoc instead of arriving at the LaTeX/Typst/DOCX writers
- * as a bare `Span` they render without any small-caps at all.
- *
- * The rule is pandoc's own, not an invention here: its markdown reader turns
- * `[x]{.smallcaps}` into `SmallCaps`, strips the class, and keeps whatever
- * other attributes the span had by wrapping the result in a `Span`. Matched
- * exactly, case included (`.SmallCaps` is an ordinary class to pandoc too), so
- * a document that goes through pandoc-flavored markdown and one that goes
- * through this bridge produce the same tree.
- */
-function smallCapsOrSpan(a: P.Attr, xs: P.Inline[]): P.Inline {
-    const [id, classes, kvs] = a;
-    if (!classes.includes('smallcaps')) return P.Span(a, xs);
-    const rest = classes.filter((c) => c !== 'smallcaps');
-    const caps = P.SmallCaps(xs);
-    if (!id && rest.length === 0 && kvs.length === 0) return caps;
-    return P.Span([id, rest, kvs], [caps]);
-}
-
-/**
- * Fallback heading slug, for a tree the engine's own resolver refuses. Mirrors
- * the engine's rule: NFC, invisible controls dropped, each run of non-
- * alphanumeric ASCII one `-`, an `s-` prefix before a leading digit.
- */
-function slugify(text: string): string {
-    const s = text
-        .normalize('NFC')
-        .replace(/[\u202a-\u202e\u2066-\u2069\u200b-\u200d\u2060\ufeff\u00ad]/gu, '')
-        .replace(/[^0-9A-Za-z\u{80}-\u{10FFFF}]+/gu, '-')
-        .replace(/^-+|-+$/g, '');
-    if (s === '') return 's';
-    return /^\p{N}/u.test(s) ? `s-${s}` : s;
-}
-
-const HEADING_TAG = 'data-pandoc-carve-heading';
-
-/**
- * The id the engine's `resolve()` gives every heading, keyed by the node.
- *
- * Asking the resolver rather than re-deriving: it owns the slug rule, the
- * dedup suffix and the id namespace shared with explicit ids on other
- * elements. Each heading in a copy is tagged so the answer maps back even
- * though ingest moves footnote bodies around. Empty when the resolver refuses
- * the tree; pass 1 then falls back to {@link slugify}.
- */
-function resolvedHeadingIds(ast: CarveAstDocument): Map<CNode, string> {
-    const byTag: CNode[] = [];
-    const copy = (value: unknown): unknown => {
-        if (Array.isArray(value)) return value.map(copy);
-        if (!value || typeof value !== 'object') return value;
-        const out: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(value)) out[k] = copy(v);
-        if ((value as CNode).type === 'heading') {
-            const attrs = (out.attrs ?? {}) as CAttrs;
-            out.attrs = { ...attrs, keyValues: { ...(attrs.keyValues ?? {}), [HEADING_TAG]: String(byTag.length) } };
-            byTag.push(value as CNode);
-        }
-        return out;
-    };
-    const ids = new Map<CNode, string>();
-    try {
-        const tagged = copy(ast);
-        if (byTag.length === 0) return ids;
-        const resolved = resolve(fromAstJson(tagged as Parameters<typeof fromAstJson>[0]));
-        const stack: unknown[] = [resolved];
-        while (stack.length) {
-            const value = stack.pop();
-            if (Array.isArray(value)) stack.push(...value);
-            else if (value && typeof value === 'object') {
-                const node = value as CNode;
-                const attrs = node.attrs as CAttrs | undefined;
-                const tag = node.type === 'heading' ? attrs?.keyValues?.[HEADING_TAG] : undefined;
-                const original = tag === undefined ? undefined : byTag[Number(tag)];
-                if (original && attrs?.id) ids.set(original, attrs.id);
-                stack.push(...Object.values(node));
-            }
-        }
-    } catch {
-        ids.clear();
-    }
-    return ids;
-}
-
-function plainText(nodes: CNode[]): string {
-    let out = '';
-    for (const n of nodes) {
-        if (typeof n.value === 'string') out += n.value;
-        // An inline literal renders as visible prose (PART 9 SS27), so its
-        // verbatim content IS text and must reach heading slugs - carve-js
-        // folds it into its own heading ids for the same reason. Other
-        // `content`-carrying nodes stay excluded on purpose: a comment renders
-        // nothing at all, and math/raw are not plain prose.
-        else if (n.type === 'literal_inline' && typeof n.content === 'string') out += n.content;
-        else if (Array.isArray(n.children)) out += plainText(n.children as CNode[]);
-    }
-    return out;
-}
-
-/** True when an attribute block carries anything worth preserving. */
-function hasAttrs(a: CAttrs | undefined): boolean {
-    return Boolean(a && (a.id || a.classes?.length || Object.keys(a.keyValues ?? {}).length));
-}
-
-function hasLabel(n: CNode): n is CNode & { label: string } {
-    return typeof n.label === 'string' && n.label.length > 0;
-}
-
-/**
- * A fenced div's grouping `[label]` rendered as a caption Para, or [] when the
- * node has none. Normative graceful-degradation rule: a `[label]` that no group
- * extension consumes (tabs/code-group are extensions; this bridge runs none)
- * MUST survive as a visible caption, else a reader of the LaTeX/Typst/DOCX
- * output cannot tell the panels apart. The reference HTML renderer emits
- * `<p class="div-label">`; here it is a bold line - the same slot the quoted
- * title uses, and title comes first when a block carries both.
- *
- * In roundtrip mode the label is preserved structurally instead (see
- * `labelKv`), so the reverse importer can rebuild the `[label]` grouping token
- * exactly; a flattened caption Para would be indistinguishable from a title.
- */
-function labelCaption(ctx: Ctx, n: CNode): P.Block[] {
-    return !ctx.roundtrip && hasLabel(n) ? [P.Para([P.Strong(labelInlines(ctx, n.label))])] : [];
-}
-
-/**
- * A container label is an inline run (`CARVE-P9-041`), held as text on the
- * node. It is parsed as a paragraph behind an escaped `.`, which no inline
- * construct can absorb and which keeps a leading `#` or `-` from opening a
- * block; the `.` is then taken back off.
- */
-function labelInlines(ctx: Ctx, label: string): P.Inline[] {
-    if (!ctx.parseBlocks || /[\r\n]/.test(label)) return textInlines(label);
-    let parsed: CNode[];
-    try {
-        parsed = ctx.parseBlocks(`\\.${label}`) as CNode[];
-    } catch {
-        return textInlines(label);
-    }
-    const para = parsed.length === 1 && parsed[0]?.type === 'paragraph' ? parsed[0] : undefined;
-    const nodes = [...((para?.children as CNode[] | undefined) ?? [])];
-    const first = nodes[0];
-    if (first?.type === 'text' && String(first.value ?? '').startsWith('.')) {
-        const rest = String(first.value).slice(1);
-        if (rest) nodes[0] = { ...first, value: rest };
-        else nodes.shift();
-    } else if (first?.type === 'escaped_text' && first.value === '.') {
-        nodes.shift();
-    } else {
-        return textInlines(label);
-    }
-    return inlines(ctx, nodes);
-}
-
-/**
- * Roundtrip-only kv that carries the grouping `[label]` for exact re-import.
- * The `.` in the key is deliberate: Carve's attribute grammar rejects dotted
- * keys, so a document can never carry a user-authored `carve.label` attribute
- * that the reverse importer would mistake for this internal marker.
- */
-function labelKv(ctx: Ctx, n: CNode): [string, string][] {
-    // An empty label still renders (an empty caption line), so it crosses too.
-    return ctx.roundtrip && typeof n.label === 'string' ? [['carve.label', n.label]] : [];
-}
-
-// Glyphs for the smart-typography kinds that do not carry one on the node.
-// A quote's glyph is locale-dependent and is chosen during parsing, so the node
-// records it; the rest are fixed and resolvable from the kind.
-//
-// Imported, not copied. This table used to be duplicated here because the
-// engine exported it from `ast.ts` and not from the package root (carve#355,
-// now closed and the export landed). The copy drifted exactly as a copy does:
-// it was two entries short - `leftwards_double_arrow` and
-// `left_right_double_arrow` - so `<==` and `<=>` fell through to the author's
-// source run instead of their glyph, and the reverse writer then escaped the
-// leading `<` of what it saw as literal text. Importing removes the whole
-// drift class rather than the two entries the corpus happened to catch.
-
-function smartPunctuationText(n: CNode): string {
-    const glyph = n.glyph as string | undefined;
-    if (glyph) return glyph;
-    const kind = String(n.kind ?? '');
-    return SMART_PUNCTUATION_GLYPHS[kind] ?? String(n.value ?? '');
-}
-
-/** Split text into Str/Space the way pandoc readers do. */
-function textInlines(raw: string): P.Inline[] {
-    const value = raw;
-    const out: P.Inline[] = [];
-    const parts = value.split(/( +)/);
-    for (const part of parts) {
-        if (part === '') continue;
-        if (/^ +$/.test(part)) out.push(P.Space);
-        else out.push(P.Str(part));
-    }
-    return out;
-}
-
-/** A text node's inlines. A CSV cell keeps a quoted line break in its text. */
-function proseInlines(raw: string): P.Inline[] {
-    return raw.split(/\r?\n/).flatMap((line, at) => [...(at > 0 ? [P.SoftBreak] : []), ...textInlines(line)]);
-}
-
-// Like textInlines, but preserves the exact number of spaces by emitting one
-// Space per space character instead of one per run. Prose collapsing is correct
-// for ordinary text, but an inline literal captures its content VERBATIM, so
-// `` !`a  b` `` must not reach a writer as "a b".
-function verbatimInlines(raw: string): P.Inline[] {
-    const value = raw;
-    const out: P.Inline[] = [];
-    // A LITERAL MAY SPAN A LINE BREAK, and a newline left inside a Str reaches
-    // every writer verbatim - the same defect the missing-reference fallback
-    // above already fixed. `!` + "b\nc d" produced Str("b\nc"), which is not a
-    // shape pandoc's model admits: a Str holds no whitespace, breaks are nodes.
-    // Split on the newline first, then on spaces within each line.
-    value.split(/\r?\n/).forEach((line, at) => {
-        if (at > 0) out.push(P.SoftBreak);
-        for (const part of line.split(/( )/)) {
-            if (part === '') continue;
-            if (part === ' ') out.push(P.Space);
-            else out.push(P.Str(part));
-        }
-    });
-    return out;
-}
-
-/**
- * The label a caption numbers under - the word before its `#`.
- *
- * The engine keeps one sequence PER LABEL, not per element kind: `Figure #`,
- * `Listing #`, `Figure #` on three figures numbers them Figure 1, Listing 1,
- * Figure 2. Keying on figure-versus-table would have made that Listing 2.
- */
-function captionLabel(nodes: CNode[] | undefined): string | undefined {
-    if (!Array.isArray(nodes)) return undefined;
-    const at = nodes.findIndex((x) => x?.type === 'caption_number');
-    if (at <= 0) return undefined;
-    // ALL the text before the placeholder, markup included.
-    //
-    // docs-extensions.md: "the label is the text before it". Three narrower
-    // readings were wrong, each caught in review:
-    //   - the element kind      `Listing #` after `Figure #` numbered 2, not 1
-    //   - the last word         `Supplementary Figure` merged into `Figure`
-    //   - only `text` nodes     `*Figure*` fell to a generic counter, where
-    //                           the engine shares the `Figure` sequence and
-    //                           numbers it 2
-    // So the label is the flattened inline TEXT, which is what the resolver
-    // compares.
-    const label = nodes.slice(0, at).map(inlineText).join('').trim();
-    return label || undefined;
-}
-
-/**
- * The text content of an inline node, markup flattened away.
- *
- * Carve's inline nodes do not agree on where their text lives: most use
- * `value`, a literal inline uses `content`, a symbol carries its resolved
- * glyph. Reading only `value` sent `!`Figure`` to a generic counter, where the
- * engine shares the `Figure` sequence - the fourth narrowing this function
- * needed, all four found in review.
- */
-function inlineText(n: CNode | undefined): string {
-    if (!n || typeof n !== 'object') return '';
-    for (const key of ['value', 'content', 'glyph', 'text'] as const) {
-        const v = (n as Record<string, unknown>)[key];
-        if (typeof v === 'string') return v;
-    }
-    const kids = (n.children as CNode[] | undefined) ?? [];
-    return kids.map(inlineText).join('');
-}
-
-// --- Inlines ---
-
-function inlines(ctx: Ctx, nodes: CNode[] | undefined): P.Inline[] {
-    if (!nodes) return [];
-    // A continuation join at either edge of a cell joins nothing and renders
-    // no space (corpus 856-4: `+ c | ^ |`).
-    let from = 0;
-    let to = nodes.length;
-    while (from < to && nodes[from]?.type === 'cell_wrap') from++;
-    while (to > from && nodes[to - 1]?.type === 'cell_wrap') to--;
-    const out: P.Inline[] = [];
-    for (const n of pairQuotes(from === 0 && to === nodes.length ? nodes : nodes.slice(from, to))) out.push(...inline(ctx, n));
-    return joinAdjacentStr(out);
-}
-
-/**
- * The synthetic node a matched pair of quote marks becomes, between
- * {@link pairQuotes} and the `Quoted` it converts to. Not a Carve type and
- * never serialized - the name is deliberately unspellable so it cannot collide
- * with a node type an engine might add.
- */
-const QUOTED = '__pandocQuoted';
-
-const QUOTE_OPENS: Record<string, P.QuoteType> = {
-    left_double_quote: 'DoubleQuote',
-    left_single_quote: 'SingleQuote',
+    out.push(...emit(node, c));
+  }
+  return out;
 };
-const QUOTE_CLOSES: Record<string, P.QuoteType> = {
-    right_double_quote: 'DoubleQuote',
-    right_single_quote: 'SingleQuote',
+const bl = (xs: Block[], c: Context): P.Block[] => xs.flatMap(x => emit(x, c));
+// C2-N-075: an expanded include reads as its children; an included file's frontmatter is not part of the host.
+const expanded = (xs: Node[]): Block[] => xs.flatMap(x => x.type === 'frontmatter' ? [] : x.type === 'include' && x.children !== undefined && !x.caption ? expanded(x.children) : [x as Block]);
+const cap = (x: CaptionNode | undefined, c: Context): P.Inline[] | null => x ? bl(x.children, c).flatMap(b => (b.t === 'Plain' || b.t === 'Para') ? b.c as P.Inline[] : []) : null;
+const alignment = (x?: string): P.Alignment => x === 'left' ? 'AlignLeft' : x === 'right' ? 'AlignRight' : x === 'center' ? 'AlignCenter' : 'AlignDefault';
+const safeTarget = (value: string, c: Context): string => { if (hasDeniedScheme(value)) { c.warnings.push('destination-denied: URL scheme is not allowed in Pandoc output'); return ''; } return value; };
+const titleCarrier = (title?: Inline[]): [string, string][] => title === undefined ? [] : [['carve-title', JSON.stringify(title, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)]];
+const captionCarrier = (caption?: CaptionNode): [string, string][] => caption === undefined ? [] : [['carve-caption', JSON.stringify(caption, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)]];
+const openingBlocks = (title: Inline[] | undefined, groupLabel: string | undefined, c: Context): P.Block[] => [
+  ...(title === undefined ? [] : [P.Para([P.Strong(il(title, c))])]),
+  ...(groupLabel === undefined ? [] : [P.Para([P.Strong(words(groupLabel))])]),
+];
+const inlineAttr = (n: Inline, child: P.Inline): P.Inline => n.attrs ? P.Span(P.attr(n.attrs.id, ['carve-inline-attrs', ...(n.attrs.classes ?? [])], [...(n.attrs.keyValues ?? []), ['carve-inline-type', n.type]]), [child]) : child;
+function cell(x: TableCellNode, c: Context, headerSection: boolean): P.PCell { return { attr: P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...(x.span ? [['carve-span', x.span] as [string, string]] : []), ...(x.scope ? [['carve-scope', x.scope] as [string, string]] : []), ...(x.valign ? [['carve-valign', x.valign] as [string, string]] : []), ...(x.headerIds ? [['carve-header-ids', JSON.stringify(x.headerIds)] as [string, string]] : []), ...(x.header && !headerSection ? [['carve-header', '1'] as [string, string]] : [])]), align: alignment(x.align), rowSpan: x.rowspan ?? 1, colSpan: x.colspan ?? 1, blocks: x.children.flatMap(n => n.type === 'cell_paragraph' ? [P.Plain(il(n.children, c))] : emit(n, c)) }; }
+function rows(xs: (TableRowNode | { type: 'comment' })[], c: Context, headerSection = false): P.PRow[] { return xs.flatMap(x => {
+  if (x.type !== 'table_row') return [];
+  const covered = x.children.flatMap((cell, index) => cell.span ? [{ index, cell: JSON.parse(JSON.stringify(cell, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)) }] : []);
+  const extras: [string, string][] = covered.length ? [['carve-covered-cells', JSON.stringify(covered)]] : [];
+  return [P.row(x.children.filter(y => y.span === undefined).map(y => cell(y, c, headerSection)), P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...extras]))];
+}); }
+function table(x: TableNode, c: Context): P.Block {
+  const heads = x.children.filter(n => n.type === 'table_head');
+  const bodies = x.children.filter(n => n.type === 'table_body');
+  const feet = x.children.filter(n => n.type === 'table_foot');
+  for (const section of x.children) {
+    if (section.type !== 'table_head' && section.type !== 'table_body' && section.type !== 'table_foot') continue;
+    const sectionRows = section.children.filter(n => n.type === 'table_row');
+    sectionRows.forEach((row, rowIndex) => row.children.forEach((cell, colIndex) => {
+      if ((cell.rowspan ?? 1) > sectionRows.length - rowIndex) c.warnings.push(`table_cell: rowspan crosses ${section.type} boundary at row ${rowIndex + 1}, col ${colIndex + 1}`);
+    }));
+  }
+  const columnFacts = x.columns.some(n => n.resolvedAlign !== undefined || n.valign !== undefined || n.resolvedValign !== undefined) ? [['carve-columns', JSON.stringify(x.columns.map(n => ({ align: n.align, width: n.width, valign: n.valign, resolvedValign: n.resolvedValign })))] as [string, string]] : [];
+  return P.Table(P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...columnFacts, ...captionCarrier(x.caption)]), cap(x.caption, c), x.columns.map(n => alignment(n.resolvedAlign ?? n.align)), heads.flatMap(n => rows(n.children, c, true)), bodies.map(n => ({ attr: attr(n.attrs), rowHeadColumns: n.rowHeadColumns, headRows: [], bodyRows: rows(n.children.filter(y => y.type === 'table_row'), c) })), feet.flatMap(n => rows(n.children, c)), x.caption?.short ? il(x.caption.short, c) : null, x.columns.map(n => n.width ?? null), attr(heads[0]?.attrs), attr(feet[0]?.attrs));
+}
+/** Every public 0.2 node has an explicit case; a new type is a compiler error. */
+function emit(n: Node, c: Context): P.PandocNode[] {
+  if ('value' in n && typeof n.value === 'string' && BIDI_CONTROL_RE.test(n.value)) c.warnings.push(`${n.type}: bidi control stripped`);
+  BIDI_CONTROL_RE.lastIndex = 0;
+  for (const [key, value] of n.attrs?.keyValues ?? []) {
+    if (isDangerousAttrName(key)) c.warnings.push(`${n.type}: unsafe attribute name ${key} removed`);
+    else if (renderedAttrValue(key, value) !== value) c.warnings.push(`${n.type}: unsafe attribute value ${key} blanked`);
+  }
+  if (((n.lang !== undefined || n.dir !== undefined) && !['span', 'paragraph', 'line_block'].includes(n.type)) || n.data !== undefined || (n.metadata !== undefined && n.type !== 'document')) c.warnings.push(`${n.type}: language, direction, data, or metadata may not survive Pandoc JSON`);
+  if (n.type === 'image' && (n.decorative !== undefined || n.resourceId !== undefined || n.targetKind !== undefined)) c.warnings.push('image: decorative, resource, or target kind field has no Pandoc slot');
+  if (n.type === 'link' && n.targetKind !== undefined) c.warnings.push('link: target kind has no Pandoc slot');
+  if ((n.type === 'div' || n.type === 'admonition' || n.type === 'directive' || n.type === 'code_block') && n.title !== undefined) c.warnings.push(`${n.type}: title uses a bridge-specific Pandoc attribute`);
+  if (n.type === 'document' && (n.extensions !== undefined || n.resources !== undefined)) c.warnings.push('document: extensions and resource manifest have no Pandoc slot');
+  // C2-A: a caption sits in the slot of its block; Pandoc carries it as a Figure around that block.
+  if ((n.type === 'paragraph' || n.type === 'block_quote' || n.type === 'code_block' || n.type === 'include') && n.caption) {
+    const { caption, attrs: figureAttrs, ...inner } = n;
+    return [P.Figure(P.attr(figureAttrs?.id, figureAttrs?.classes, [...(figureAttrs?.keyValues ?? []), ...captionCarrier(caption)]), cap(caption, c), emit(inner as Node, c), caption.short ? il(caption.short, c) : null)];
+  }
+  switch (n.type) {
+    case 'document': return n.children.flatMap(x => emit(x, c));
+    case 'text': return words(n.value);
+    case 'soft_break': return [P.SoftBreak];
+    case 'hard_break': return [P.LineBreak];
+    case 'non_breaking_space': return [P.Str('\u00a0')];
+    case 'emphasis': return [inlineAttr(n, P.Emph(il(n.children, c)))];
+    case 'strong': return [inlineAttr(n, P.Strong(il(n.children, c)))];
+    case 'underline': return [inlineAttr(n, P.Underline(il(n.children, c)))];
+    case 'strike': return [inlineAttr(n, P.Strikeout(il(n.children, c)))];
+    case 'subscript': return [inlineAttr(n, P.Subscript(il(n.children, c)))];
+    case 'superscript': return [inlineAttr(n, P.Superscript(il(n.children, c)))];
+    case 'small_caps': return [inlineAttr(n, P.SmallCaps(il(n.children, c)))];
+    case 'span': return [P.Span(languageAttr(n), il(n.children, c))];
+    case 'highlight': return [P.Span(P.attr(n.attrs?.id, ['mark', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
+    case 'delete': return [P.Span(P.attr(n.attrs?.id, ['carve-delete', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
+    case 'insert': return [P.Span(P.attr(n.attrs?.id, ['carve-insert', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
+    case 'code': return [P.Code(attr(n.attrs), stripBidi(n.value))];
+    case 'literal_inline': return [P.Span(P.attr(n.attrs?.id, ['carve-literal', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['value', JSON.stringify(stripBidi(n.value))]]), literalInlines(n.value))];
+    case 'math': return [inlineAttr(n, n.display ? P.MathDisplay(stripBidi(n.value)) : P.MathInline(stripBidi(n.value)))];
+    case 'raw_inline': return [P.RawInline(n.format, n.value)];
+    case 'smart_punctuation': return [P.Span(P.attr('', ['carve-smart'], [['kind', n.kind], ['source', n.source], ...(n.glyph ? [['glyph', n.glyph] as [string, string]] : [])]), words(n.glyph ?? n.source))];
+    case 'link': { const target = n.href ?? (n.key ? c.links.get(n.key)?.[0] : undefined); if (target === undefined) c.warnings.push('link: unresolved reference'); if (n.children.some(child => child.type === 'link' || child.type === 'autolink')) c.warnings.push('link: nested link flattened in Pandoc output'); return [P.Link(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.key ? [['carve-key', n.key], ['carve-form', n.refForm ?? 'full']] as [string, string][] : []), ...(n.href === undefined ? [['carve-unresolved', '1'] as [string, string]] : []), ...(n.tooltip === '' ? [['carve-empty-tooltip', '1'] as [string, string]] : [])]), il(flattenNestedLinks(n.children), c), [safeTarget(target ?? '', c), n.tooltip ?? ''])]; }
+    case 'image': { const target = n.src ?? (n.key ? c.links.get(n.key)?.[0] : undefined); if (target === undefined) c.warnings.push('image: unresolved reference'); return [P.Image(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.key ? [['carve-key', n.key], ['carve-form', n.refForm ?? 'full']] as [string, string][] : []), ...(n.longDescription ? [['carve-long-description', JSON.stringify(n.longDescription)] as [string, string]] : []), ...(n.src === undefined ? [['carve-unresolved', '1'] as [string, string]] : []), ...(n.tooltip === '' ? [['carve-empty-tooltip', '1'] as [string, string]] : [])]), words(n.alt ?? ''), [safeTarget(target ?? '', c), n.tooltip ?? ''])]; }
+    case 'autolink': return [P.Link(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ['carve-autolink', '1']]), words(n.text ?? n.href), [safeTarget(n.href, c), ''])];
+    case 'xref': { const label = c.targets.get(n.key); if (!label) c.warnings.push(`xref: unresolved target ${n.key}`); return [P.Link(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ['carve-xref', '1'], ['carve-key', n.key], ['carve-namespace', n.namespace], ...(n.display ? [['carve-display-form', n.display] as [string, string]] : [])]), label ?? words(n.key), [n.href ?? `#${n.key}`, ''])]; }
+    case 'footnote_ref': { if (c.activeNotes.has(n.key)) { c.warnings.push(`footnote ${n.key}: cyclic reference omitted from Pandoc Note`); return []; } c.activeNotes.add(n.key); const note = P.Note(bl(c.notes.get(n.key) ?? [], c)); c.activeNotes.delete(n.key); c.noteCount++; return [P.Span(P.attr(n.attrs?.id, ['carve-footnote-ref', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['key', n.key]]), [note])]; }
+    case 'inline_footnote': { const note = P.Note([P.Para(il(n.children, c))]); c.noteCount++; return [inlineAttr(n, note)]; }
+    case 'abbreviation': return [P.Span(P.attr('', ['carve-abbreviation'], [['key', n.key], ['expansion', n.expansion ?? '']]), words(n.key))];
+    case 'mention': return [P.Span(P.attr('', ['carve-mention'], [['target', n.target], ['kind', n.kind]]), words(n.label ?? `@${n.target}`))];
+    case 'tag': return [P.Span(P.attr('', ['carve-tag'], [['name', n.name]]), words(`#${n.name}`))];
+    case 'symbol': c.warnings.push('symbol: no Pandoc equivalent'); return [P.Span(P.attr(n.attrs?.id, ['carve-symbol', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['name', n.name]]), words(`:${n.name}:`))];
+    case 'ruby_pair': return [...il(n.base, c), ...il(n.annotation, c)];
+    case 'ruby': c.warnings.push('ruby: no Pandoc equivalent'); return [P.Span(P.attr(n.attrs?.id, ['carve-ruby', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['carve-pairs', JSON.stringify(n.pairs, (key, value) => key === 'pos' || key === 'segments' ? undefined : value)]]), n.pairs.flatMap(p => words(`${p.base.map(x => x.type === 'text' ? x.value : '').join('')}(${p.annotation.map(x => x.type === 'text' ? x.value : '').join('')})`)))];
+    case 'citation_group': return [P.Cite(n.children.map(x => {
+      const label = x.locator?.label;
+      if (label) c.warnings.push(`citation @${x.key}: typed locator (${label}) is flattened into the Pandoc suffix`);
+      const shortLabel = label === 'page' ? 'p.' : label === 'pages' ? 'pp.' : label === 'chapter' ? 'chap.' : label;
+      const locator = x.locator ? [P.Str(','), P.Space, ...(shortLabel ? words(`${shortLabel} `) : []), ...il(x.locator.children, c)] : [];
+      return P.citation(x.key, x.mode === 'suppress-author' ? 'SuppressAuthor' : x.mode === 'author-in-text' ? 'AuthorInText' : 'NormalCitation', il(x.prefix ?? [], c), [...locator, ...il(x.suffix ?? [], c)], c.noteCount + 1);
+    }), words(n.raw))];
+    case 'inline_extension': c.warnings.push(`inline_extension: ${n.name} uses fallback`); return [P.Span(P.attr(n.attrs?.id, ['carve-extension', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['name', n.name]]), il(n.fallback ?? n.children, c))];
+    case 'critic_comment': return [P.RawInline('carve-critic-comment', n.value)];
+    case 'comment': return n.form === 'braced' ? [P.RawInline('carve-comment', n.value)] : [P.RawBlock(`carve-comment-${n.form}`, n.value)];
+    case 'caption_number': return words(String(n.n ?? '#'));
+    case 'paragraph': { const para = P.Para(il(n.children, c)); return n.attrs || n.role || n.lang || n.dir ? [P.Div(P.attr(n.attrs?.id, ['carve-paragraph', ...(n.attrs?.classes ?? [])], [...(languageAttr(n)[2]), ...(n.role === 'image' ? [['carve-block-image', '1'] as [string, string]] : []), ...(n.role === 'math' ? [['carve-block-math', '1'] as [string, string]] : [])]), [para])] : [para]; }
+    case 'heading': return [P.Header(n.level, P.attr(n.attrs?.id ?? n.generatedId, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.generatedId && !n.attrs?.id ? [['carve-generated-id', '1'] as [string, string]] : [])]), il(n.children, c))];
+    case 'thematic_break': return n.attrs?.classes?.includes('page-break') ? [P.Div(P.attr(n.attrs.id, ['carve-page-break', ...n.attrs.classes.filter(x => x !== 'page-break')], n.attrs.keyValues), [P.HorizontalRule])] : [P.HorizontalRule];
+    case 'block_quote': return n.attrs ? [P.Div(P.attr(n.attrs.id, ['carve-block-quote', ...(n.attrs.classes ?? [])], n.attrs.keyValues), [P.BlockQuote(bl(n.children, c))])] : [P.BlockQuote(bl(n.children, c))];
+    case 'code_block': return [P.CodeBlock(P.attr(n.attrs?.id, [...(n.syntax ? [n.syntax] : []), ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(!n.syntax && n.attrs?.classes?.length ? [['carve-no-syntax', '1'] as [string, string]] : []), ...(n.groupLabel ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), stripBidi(n.value))];
+    case 'raw_block': return [P.RawBlock(n.format, n.value)];
+    case 'div': return [P.Div(P.attr(n.attrs?.id, n.attrs?.classes, [...(n.attrs?.keyValues ?? []), ...(n.groupLabel !== undefined ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), [...openingBlocks(n.title, n.groupLabel, c), ...bl(n.children, c)])];
+    case 'section': return [P.Div(P.attr(n.attrs?.id, ['carve-section', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.level ? [['carve-section-level', String(n.level)] as [string, string]] : [])]), bl(n.children, c))];
+    case 'admonition': return [P.Div(P.attr(n.attrs?.id, ['carve-admonition', n.kind, ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.groupLabel !== undefined ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), [...openingBlocks(n.title, n.groupLabel, c), ...bl(n.children, c)])];
+    case 'directive': return [P.Div(P.attr(n.attrs?.id, ['carve-directive', n.kind, ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.groupLabel !== undefined ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), [...openingBlocks(n.title, n.groupLabel, c), ...bl(n.children, c)])];
+    case 'block_extension': c.warnings.push(`block_extension: ${n.name} uses fallback`); return [P.Div(P.attr('', ['carve-extension'], [['name', n.name]]), bl(n.fallback, c))];
+    case 'include': if (n.children !== undefined) return bl(expanded(n.children), c); c.warnings.push('include: unresolved'); return [P.Div(P.attr('', ['carve-include'], [['path', n.path], ...(n.section ? [['section', n.section] as [string, string]] : []), ...(n.options ? [['options', JSON.stringify(n.options)] as [string, string]] : []), ...(n.invalid ? [['invalid', JSON.stringify(n.invalid)] as [string, string]] : [])]), [])];
+    case 'figure_group': return [P.Figure(P.attr(n.attrs?.id, ['carve-figure-group', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...captionCarrier(n.caption)]), cap(n.caption, c), bl(n.children, c), n.caption?.short ? il(n.caption.short, c) : null)];
+    case 'line_block': { const block = P.LineBlock(n.children.map(x => {
+      if (x.type === 'comment') return [P.RawInline(`carve-comment-${x.form}`, x.value)];
+      const [first, ...rest] = x.children;
+      if (first?.type !== 'text') return il(x.children, c);
+      const indent = first.value.match(/^ */u)?.[0].length ?? 0;
+      return indent ? [P.Str('\u00a0'.repeat(indent) + stripBidi(first.value.slice(indent))), ...il(rest, c)] : il(x.children, c);
+    })); return n.attrs || n.lang || n.dir ? [P.Div(P.attr(n.attrs?.id, ['carve-line-block', ...(n.attrs?.classes ?? [])], languageAttr(n)[2]), [block])] : [block]; }
+    case 'list': {
+      const items = n.children.map(item => {
+        const content = bl(item.children, c).map(block => n.spacing === 'tight' && block.t === 'Para' ? P.Plain(block.c as P.Inline[]) : block);
+        const marker = item.task
+          ? P.Span(P.attr(item.attrs?.id, ['carve-task', ...(item.attrs?.classes ?? [])], [...(item.attrs?.keyValues ?? []), ['mark', item.task.mark]]), [])
+          : item.attrs ? P.Span(P.attr(item.attrs.id, ['carve-list-item', ...(item.attrs.classes ?? [])], item.attrs.keyValues), []) : null;
+        if (marker) {
+          const prefix: P.Inline[] = item.task ? [P.Str(item.task.mark === 'x' ? '☒' : '☐'), P.Space, marker] : [marker];
+          if (content[0]?.t === 'Para' || content[0]?.t === 'Plain') content[0] = { ...content[0], c: [...prefix, ...content[0].c as P.Inline[]] };
+          else content.unshift(P.Plain(prefix));
+        }
+        return content;
+      });
+      const list = n.marker.kind === 'bullet' ? P.BulletList(items) : P.OrderedList(n.marker.start ?? 1, n.marker.style === 'a' ? 'LowerAlpha' : n.marker.style === 'A' ? 'UpperAlpha' : n.marker.style === 'i' ? 'LowerRoman' : n.marker.style === 'I' ? 'UpperRoman' : n.attrs?.keyValues?.some(([key, value]) => key === 'carve-example' && value === '1') ? 'Example' : 'Decimal', items, n.attrs?.keyValues?.find(([key]) => key === 'carve-example-delimiter')?.[1] as P.ListNumberDelim ?? (n.marker.delimiter === ')' ? 'OneParen' : 'Period'));
+      const alternateBullet = n.marker.kind === 'bullet' && n.marker.char !== '-';
+      const carriedAttrs = Boolean(n.attrs?.id || n.attrs?.classes?.length || n.attrs?.keyValues?.some(([key]) => key !== 'carve-example' && key !== 'carve-example-delimiter'));
+      return carriedAttrs || alternateBullet ? [P.Div(P.attr(n.attrs?.id, ['carve-list', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(alternateBullet ? [['marker-char', n.marker.char ?? '-'] as [string, string]] : [])]), [list])] : [list];
+    }
+    case 'definition_list': { const entries: [P.Inline[], P.Block[][]][] = []; for (const x of n.children) { if (x.type === 'definition_term') entries.push([il(x.children, c), []]); if (x.type === 'definition_description' && entries.length) entries[entries.length - 1]![1].push(bl(x.children, c)); } return [P.DefinitionList(entries)]; }
+    case 'table': return [table(n, c)];
+    case 'frontmatter': return [P.RawBlock(`carve-frontmatter:${n.format}`, n.value)];
+    case 'footnote': case 'link_reference_definition': case 'abbreviation_def': case 'citation_definition': c.warnings.push(`${n.type}: carried as raw Pandoc JSON block`); return [P.RawBlock('carve-tree', JSON.stringify(n, (key, value) => key === 'pos' || key === 'segments' ? undefined : value))];
+    case 'caption': return bl(n.children, c);
+    case 'cell_paragraph': return [P.Plain(il(n.children, c))];
+    case 'citation': return words(n.key);
+    case 'definition_term': return il(n.children, c);
+    case 'definition_description': return bl(n.children, c);
+    case 'line': return il(n.children, c);
+    case 'list_item': return bl(n.children, c);
+    case 'table_head': case 'table_body': case 'table_foot': return n.children.flatMap(x => emit(x, c));
+    case 'table_row': return n.children.flatMap(x => emit(x, c));
+    case 'table_cell': return n.children.flatMap(x => emit(x, c));
+    case 'table_column': return [];
+    default: return impossible(n);
+  }
+}
+export function carveAstToPandoc(input: DocumentNode | string): Result {
+  const ast: unknown = typeof input === 'string' ? JSON.parse(input) : input;
+  validateTree(ast);
+  const c: Context = { warnings: [], notes: new Map(), activeNotes: new Set(), links: new Map(), targets: new Map(), noteCount: 0 };
+  const flat = (xs: Node[]): Node[] => xs.flatMap(x => x.type === 'include' && x.children !== undefined ? flat(x.children) : [x]);
+  const top = flat(ast.children) as typeof ast.children;
+  for (const x of top) { if (x.type === 'footnote' && !c.notes.has(x.key)) c.notes.set(x.key, x.children); if (x.type === 'link_reference_definition') c.links.set(x.key, [x.href, x.tooltip ?? '']); }
+  for (const x of top) {
+    if (x.type === 'heading') { const id = x.attrs?.id ?? x.generatedId; if (id) { const label = x.children.filter(node => node.type !== 'xref' || node.key !== id).flatMap(node => node.type === 'link' ? words(captionText(node.children)) : il([node], c)); while (label.at(-1)?.t === 'Space') label.pop(); c.targets.set(id, label); } }
+    if ((x.type === 'paragraph' || x.type === 'block_quote' || x.type === 'code_block' || x.type === 'include' || x.type === 'table') && x.caption && x.attrs?.id) {
+      const caption = x.caption?.children.flatMap(block => block.type === 'paragraph' ? block.children : []) ?? [];
+      const index = caption.findIndex(node => node.type === 'caption_number');
+      const number = caption[index];
+      const prefix = captionText(caption.slice(0, index < 0 ? 0 : index)).trim();
+      c.targets.set(x.attrs.id, number?.type === 'caption_number' ? words(`${prefix} ${number.n ?? '#'}`.trim()) : words(x.attrs.id));
+    }
+    if (x.type === 'figure_group' && x.attrs?.id) {
+      const caption = x.caption?.children.flatMap(block => block.type === 'paragraph' ? block.children : []) ?? [];
+      const number = caption.find(node => node.type === 'caption_number');
+      const numberText = number?.type === 'caption_number' ? String(number.n ?? '#') : '';
+      const prefix = captionText(caption.slice(0, caption.indexOf(number!))).trim() || 'Figure';
+      const label = numberText ? `${prefix} ${numberText}` : x.attrs.id;
+      c.targets.set(x.attrs.id, words(label));
+      x.children.forEach((panel, index) => {
+        if ((panel.type === 'table' || ('caption' in panel && panel.caption)) && panel.attrs?.id && numberText) c.targets.set(panel.attrs.id, words(`${label}${String.fromCharCode(97 + index)}`));
+      });
+    }
+  }
+  const metadata = ast.metadata;
+  const meta: P.PandocDoc['meta'] = {};
+  if (metadata?.title) meta.title = { t: 'MetaInlines', c: il(metadata.title, c) };
+  if (metadata?.subtitle) meta.subtitle = { t: 'MetaInlines', c: il(metadata.subtitle, c) };
+  if (metadata?.authors) meta.author = { t: 'MetaList', c: metadata.authors.map(author => ({ t: 'MetaInlines', c: words(author) })) };
+  if (metadata?.date) meta.date = { t: 'MetaString', c: metadata.date };
+  if (metadata?.bibliography) meta['carve-bibliography'] = { t: 'MetaString', c: JSON.stringify(metadata.bibliography) };
+  return { doc: { 'pandoc-api-version': [...P.PANDOC_API_VERSION], meta, blocks: emit(ast, c) }, warnings: c.warnings };
+}
+export const carveToCarveAst = (source: string): DocumentNode => parse(source);
+export const carveToPandoc = (source: string): Result => carveAstToPandoc(parse(source));
+export const carveToPandocJson = (source: string): string => JSON.stringify(carveToPandoc(source).doc);
+
+const importAttr = (a: unknown): Attrs | undefined => {
+  if (!Array.isArray(a)) return undefined;
+  const [id, classes, keyValues] = a as P.Attr;
+  return id || classes.length || keyValues.length ? { ...(id ? { id } : {}), ...(classes.length ? { classes } : {}), ...(keyValues.length ? { keyValues } : {}) } : undefined;
 };
-
-const quoteRole = (n: CNode): [P.QuoteType, 'open' | 'close'] | null => {
-    if (n?.type !== 'smart_punctuation') return null;
-    const kind = String(n.kind ?? '');
-    const open = QUOTE_OPENS[kind];
-    if (open) return [open, 'open'];
-    const close = QUOTE_CLOSES[kind];
-    return close ? [close, 'close'] : null;
-};
-
-/**
- * Rebuild pandoc's WRAPPING quotation from Carve's two standalone marks.
- *
- * Carve's parser resolves `"` and `'` to `smart_punctuation` nodes carrying
- * the kind (`left_double_quote`, `right_single_quote`, ...), which is strictly
- * more information than the glyph - and exactly the information pandoc's
- * `Quoted` needs. Without this a quotation crossed the bridge as three
- * separate pieces and came back as `Str "“alpha”"`, so a document quoting
- * anything could not survive pandoc -> Carve -> pandoc.
- *
- * WHAT IS DELIBERATELY NOT PAIRED. Only marks that are SIBLINGS pair, and only
- * a close against a still-open mark of the same kind:
- *
- *  - An APOSTROPHE (`it's`) resolves to a lone `right_single_quote` with no
- *    opener. It stays a mark, which is the whole reason the match runs from
- *    the closing side against a stack rather than pairing greedily.
- *  - An UNCLOSED `"` stays a mark too - a `Quoted` running to the end of the
- *    paragraph would assert a quotation the author never closed.
- *  - A quotation crossing an emphasis boundary (`"a /b" c/`) puts its two
- *    marks in different sibling arrays, where neither can see the other, and
- *    both stay marks.
- *
- * In all three the glyph still renders; the node just is not promoted.
- */
-function pairQuotes(nodes: CNode[]): CNode[] {
-    const closerOf = new Map<number, number>();
-    const kindOf = new Map<number, P.QuoteType>();
-    const open: { at: number; kind: P.QuoteType }[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-        const role = quoteRole(nodes[i]!);
-        if (!role) continue;
-        const [kind, side] = role;
-        if (side === 'open') {
-            open.push({ at: i, kind });
-            continue;
-        }
-        // The NEAREST unclosed opener of the same kind, so nesting works and a
-        // stray closer of the other kind cannot consume it.
-        for (let j = open.length - 1; j >= 0; j--) {
-            if (open[j]!.kind !== kind) continue;
-            closerOf.set(open[j]!.at, i);
-            kindOf.set(open[j]!.at, kind);
-            open.length = j;
-            break;
-        }
+const readTitle = (value: string | undefined): Inline[] | undefined => { if (value === undefined) return undefined; try { const parsed: unknown = JSON.parse(value); return Array.isArray(parsed) ? parsed as Inline[] : undefined; } catch { return undefined; } };
+const readCaption = (value: string | undefined): CaptionNode | undefined => { if (value === undefined) return undefined; try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === 'object' && 'type' in parsed && parsed.type === 'caption' ? parsed as CaptionNode : undefined; } catch { return undefined; } };
+const withAttr = <T extends Node>(node: T, a: unknown): T => { const attrs = importAttr(a); return attrs ? { ...node, attrs } : node; };
+// The 0.2 example corpus contains 200 nested superscripts. Each inline adds
+// two Pandoc object levels, so allow that valid source while still bounding
+// malformed imports before recursive conversion.
+const MAX_PANDOC_NODE_DEPTH = 512;
+const MAX_PANDOC_LIST_DEPTH = 100;
+function checkPandocJsonDepth(source: string): void {
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (const char of source) {
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{' || char === '[') {
+      if (++depth > MAX_PANDOC_NODE_DEPTH * 2 + 32) throw new Error('Pandoc JSON nesting exceeds the import limit');
+    } else if (char === '}' || char === ']') depth--;
+  }
+}
+function checkPandocNodeDepth(doc: P.PandocDoc): void {
+  const stack: { value: unknown; depth: number; lists: number }[] = [{ value: doc, depth: 0, lists: 0 }];
+  while (stack.length) {
+    const { value, depth, lists } = stack.pop()!;
+    if (Array.isArray(value)) {
+      for (const child of value) stack.push({ value: child, depth, lists });
+    } else if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      const nextDepth = typeof record.t === 'string' ? depth + 1 : depth;
+      const nextLists = record.t === 'BulletList' || record.t === 'OrderedList' ? lists + 1 : lists;
+      if (nextDepth > MAX_PANDOC_NODE_DEPTH) throw new Error('Pandoc node nesting exceeds the import limit');
+      if (nextLists > MAX_PANDOC_LIST_DEPTH) throw new Error('Pandoc list nesting exceeds the import limit');
+      for (const child of Object.values(record)) stack.push({ value: child, depth: nextDepth, lists: nextLists });
     }
-    if (closerOf.size === 0) return nodes;
-
-    // The pairs nest by construction, so one recursive walk builds the tree.
-    const build = (from: number, to: number): CNode[] => {
-        const out: CNode[] = [];
-        for (let i = from; i < to;) {
-            const close = closerOf.get(i);
-            if (close !== undefined && close < to) {
-                out.push({ type: QUOTED, quote: kindOf.get(i), children: build(i + 1, close) });
-                i = close + 1;
-                continue;
-            }
-            out.push(nodes[i]!);
-            i++;
-        }
-        return out;
-    };
-    return build(0, nodes.length);
+  }
 }
-
-/**
- * Merge neighbouring `Str` nodes into one.
- *
- * Pandoc's own readers emit one `Str` per WORD, with `Space` between; two
- * `Str` nodes touching is legal but not a shape pandoc produces, and a
- * consumer doing word-level work sees three words where there is one.
- *
- * Carve's tree splits a word wherever a construct sits inside it, and that got
- * more common when carve-js stopped substituting smart-punctuation characters
- * and started publishing them as nodes: `Carve's` is now `text`,
- * `smart_punctuation`, `text`, so a direct mapping yields Str("Carve"),
- * Str("’"), Str("s"). The rendered text is identical - writers concatenate -
- * but the AST is not the one pandoc would have built, and it is the AST this
- * package exists to hand over.
- */
-function joinAdjacentStr(xs: P.Inline[]): P.Inline[] {
-    const out: P.Inline[] = [];
-    for (const x of xs) {
-        const prev = out[out.length - 1];
-        if (x.t === 'Str' && prev?.t === 'Str') {
-            out[out.length - 1] = P.Str(String(prev.c) + String(x.c));
-            continue;
-        }
-        out.push(x);
+const inlineList = (xs: P.PandocNode[], warnings: string[]): Inline[] => xs.flatMap(x => importInline(x, warnings));
+const blockList = (xs: P.PandocNode[], warnings: string[]): Block[] => xs.flatMap(x => importBlock(x, warnings));
+function importItem(item: P.PandocNode[], warnings: string[]): Extract<Node, { type: 'list_item' }> {
+  const copy = item.map(node => ({ ...node }));
+  const first = copy[0];
+  let mark: ' ' | 'x' | '_' | '-' | '/' | '!' | '>' | '?' | undefined;
+  let attrs: Attrs | undefined;
+  if ((first?.t === 'Para' || first?.t === 'Plain') && Array.isArray(first.c)) {
+    const inlines = first.c as P.PandocNode[];
+    const ballot = inlines[0]?.t === 'Str' && (inlines[0].c === '☒' || inlines[0].c === '☐') && (inlines[1]?.t === 'Space' || inlines.length === 1);
+    const markerIndex = ballot ? (inlines[1]?.t === 'Space' ? 2 : 1) : 0;
+    const head = inlines[markerIndex];
+    if (head?.t === 'Span') {
+      const a = (head.c as [P.Attr, unknown])[0];
+      if (a[1].includes('carve-task') || a[1].includes('carve-list-item')) {
+        const fields = Object.fromEntries(a[2]);
+        const candidate = fields['mark'];
+        if (a[1].includes('carve-task') && [' ', 'x', '_', '-', '/', '!', '>', '?'].includes(candidate ?? '')) mark = candidate as typeof mark;
+        attrs = importAttr([a[0], a[1].filter(name => name !== 'carve-task' && name !== 'carve-list-item'), a[2].filter(([key]) => key !== 'mark')]);
+        first.c = inlines.slice(markerIndex + 1);
+      }
     }
-    return out;
+    if (mark === undefined && ballot) { mark = inlines[0]!.c === '☒' ? 'x' : ' '; first.c = inlines.slice(markerIndex); }
+    if (Array.isArray(first.c) && first.c.length === 0) copy.shift();
+  }
+  return { type: 'list_item', children: blockList(copy, warnings), ...(mark === undefined ? {} : { task: { mark } }), ...(attrs ? { attrs } : {}) };
 }
 
-function kids(ctx: Ctx, n: CNode): P.Inline[] {
-    return inlines(ctx, n.children as CNode[] | undefined);
-}
-
-/**
- * A code block's payload in pandoc's encoding rather than Carve's.
- *
- * `CARVE-P12-064` makes `code_block.content` the payload's literal text, so a
- * closed fence containing `a` publishes `"a\n"` and consumers "must stop
- * appending it when rendering". Pandoc's own readers publish `"a"` - measured on
- * the markdown, gfm and html readers of pandoc 3.11 - so passing Carve's value
- * through produced a `CodeBlock` no pandoc reader emits. Its writers are
- * indifferent, so this shows up only in the AST a consumer receives, which is
- * this package's deliverable.
- *
- * One break, because that is what the clause adds. A payload that ends mid-line
- * publishes no break and keeps none here. `raw_block.content` follows the same
- * rule since spec #2916, and pandoc's `RawBlock` carries no final break either.
- */
-function codePayload(ctx: Ctx, content: string, n: CNode): string {
-    if (!content.endsWith('\n')) return content;
-    const payload = content.slice(0, -1);
-    // `"\n"` and `""` both encode to `""`, so a payload that is nothing but the
-    // break before the closer arrives indistinguishable from an empty one. That
-    // is pandoc's own limit rather than a choice here - its markdown reader
-    // returns `""` for both a blank-line payload and an empty fence - but this
-    // is the only place that still knows the difference, so it says so.
-    if (payload === '') {
-        const raw = n.type === 'raw_block';
-        warn(
-            ctx,
-            `${raw ? 'raw block' : 'code block'}: a blank-only payload reaches pandoc as an empty one - pandoc's ${raw ? 'RawBlock' : 'CodeBlock'} cannot hold the difference`,
-            { construct: raw ? 'raw_block' : 'code_block' },
-            n.pos,
-        );
+function importInline(node: P.PandocNode, warnings: string[]): Inline[] {
+  const c = node.c as any;
+  switch (node.t) {
+    case 'Str': return [{ type: 'text', value: String(c) }];
+    case 'Space': return [{ type: 'text', value: ' ' }];
+    case 'SoftBreak': return [{ type: 'soft_break' }];
+    case 'LineBreak': return [{ type: 'hard_break' }];
+    case 'Emph': return [{ type: 'emphasis', children: inlineList(c, warnings) }];
+    case 'Strong': return [{ type: 'strong', children: inlineList(c, warnings) }];
+    case 'Underline': return [{ type: 'underline', children: inlineList(c, warnings) }];
+    case 'Strikeout': return [{ type: 'strike', children: inlineList(c, warnings) }];
+    case 'Superscript': return [{ type: 'superscript', children: inlineList(c, warnings) }];
+    case 'Subscript': return [{ type: 'subscript', children: inlineList(c, warnings) }];
+    case 'SmallCaps': return [{ type: 'small_caps', children: inlineList(c, warnings) }];
+    case 'Code': { const a = c[0] as P.Attr; return a[1].includes('carve-literal') ? [{ type: 'literal_inline', value: c[1] }] : [withAttr({ type: 'code', value: c[1] }, a)]; }
+    case 'Math': return [{ type: 'math', display: c[0].t === 'DisplayMath', value: c[1] }];
+    case 'RawInline': return c[0] === 'carve-comment' ? [{ type: 'comment', form: 'braced', value: c[1] }] : c[0].startsWith('carve-comment-') ? [{ type: 'comment', form: c[0].slice('carve-comment-'.length) as 'line', value: c[1] }] : c[0] === 'carve-critic-comment' ? [{ type: 'critic_comment', value: c[1] }] : [{ type: 'raw_inline', format: c[0], value: c[1] }];
+    case 'Link': { const a = c[0] as P.Attr; const f = Object.fromEntries(a[2]); const clean: P.Attr = [a[0], a[1], a[2].filter(([k]) => !['carve-key','carve-form','carve-unresolved','carve-autolink','carve-xref','carve-namespace','carve-display-form','carve-empty-tooltip'].includes(k))]; if (f['carve-autolink']) { const label = (c[1] as P.PandocNode[]).map(part => part.t === 'Str' ? String(part.c) : part.t === 'Space' ? ' ' : '').join(''); return c[2][0] ? [withAttr({ type: 'autolink', href: c[2][0], ...(label !== c[2][0] ? { text: label } : {}) }, clean)] : [withAttr({ type: 'link', href: '', children: inlineList(c[1], warnings) }, clean)]; } if (f['carve-xref']) return [withAttr({ type: 'xref', key: f['carve-key'] ?? '', namespace: (f['carve-namespace'] ?? 'heading') as 'heading', ...(f['carve-display-form'] ? { display: f['carve-display-form'] as 'full' } : {}), ...(!f['carve-unresolved'] ? { href: c[2][0] } : {}) }, clean)]; return [withAttr({ type: 'link', children: inlineList(c[1], warnings), ...(f['carve-unresolved'] ? {} : { href: c[2][0] }), ...(c[2][1] || f['carve-empty-tooltip'] ? { tooltip: c[2][1] } : {}), ...(f['carve-key'] ? { key: f['carve-key'], namespace: 'link', refForm: f['carve-form'] === 'collapsed' ? 'collapsed' as const : 'full' as const } : {}) }, clean)]; }
+    case 'Image': { const a = c[0] as P.Attr; const f = Object.fromEntries(a[2]); const clean: P.Attr = [a[0], a[1], a[2].filter(([k]) => !['carve-key','carve-form','carve-unresolved','carve-long-description','carve-empty-tooltip'].includes(k))]; let longDescription: Block[] | undefined; try { if (f['carve-long-description']) longDescription = JSON.parse(f['carve-long-description']); } catch { warnings.push('Image: invalid long description carrier'); } return [withAttr({ type: 'image', ...(f['carve-unresolved'] ? {} : { src: c[2][0] }), alt: c[1].map((x: P.PandocNode) => x.t === 'Str' ? String(x.c) : x.t === 'Space' ? ' ' : '').join(''), ...(longDescription ? { longDescription } : {}), ...(c[2][1] || f['carve-empty-tooltip'] ? { tooltip: c[2][1] } : {}), ...(f['carve-key'] ? { key: f['carve-key'], namespace: 'link', refForm: f['carve-form'] === 'collapsed' ? 'collapsed' as const : 'full' as const } : {}) }, clean)]; }
+    case 'Span': { const a = c[0] as P.Attr; const fields = Object.fromEntries(a[2]); if (a[1].includes('carve-footnote-ref')) return [withAttr({ type: 'footnote_ref', namespace: 'footnote', key: fields['key'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-footnote-ref'), a[2].filter(([key]) => key !== 'key')])]; const children = inlineList(c[1], warnings); if (a[1].includes('carve-extension')) return [withAttr({ type: 'inline_extension', name: fields['name'] ?? '', children }, [a[0], a[1].filter(x => x !== 'carve-extension'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-literal')) { const clean: P.Attr = [a[0], a[1].filter(x => x !== 'carve-literal'), a[2].filter(([k]) => k !== 'value')]; try { return [withAttr({ type: 'literal_inline', value: JSON.parse(fields['value'] ?? '""') }, clean)]; } catch { warnings.push('Literal: invalid value carrier'); return [withAttr({ type: 'literal_inline', value: '' }, clean)]; } } if (a[1].includes('carve-ruby')) { try { const pairs = JSON.parse(fields['carve-pairs'] ?? '[]') as Extract<Inline, {type: 'ruby'}>['pairs']; return [withAttr({ type: 'ruby', pairs }, [a[0], a[1].filter(x => x !== 'carve-ruby'), a[2].filter(([key]) => key !== 'carve-pairs')])]; } catch { warnings.push('Ruby: invalid pairs carrier'); } } if (a[1].includes('carve-smart')) return [{ type: 'smart_punctuation', kind: (fields['kind'] ?? 'em_dash') as Extract<Inline, {type: 'smart_punctuation'}>['kind'], source: fields['source'] ?? '', glyph: fields['glyph'] ?? captionText(children) }]; if (a[1].includes('carve-delete')) return [withAttr({ type: 'delete', children }, [a[0], a[1].filter(x => x !== 'carve-delete'), a[2]])]; if (a[1].includes('carve-insert')) return [withAttr({ type: 'insert', children }, [a[0], a[1].filter(x => x !== 'carve-insert'), a[2]])]; if (a[1].includes('carve-mention')) return [{ type: 'mention', target: fields['target'] ?? '', kind: fields['kind'] ?? 'user' }]; if (a[1].includes('carve-tag')) return [{ type: 'tag', name: fields['name'] ?? '' }]; if (a[1].includes('carve-symbol')) return [withAttr({ type: 'symbol', name: fields['name'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-symbol'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-abbreviation')) return [{ type: 'abbreviation', namespace: 'abbr', key: fields['key'] ?? '', ...(fields['expansion'] ? { expansion: fields['expansion'] } : {}) }]; if (a[1].includes('carve-inline-attrs') && children.length === 1 && children[0]?.type === fields['carve-inline-type']) return [withAttr(children[0]!, [a[0], a[1].filter(x => x !== 'carve-inline-attrs'), a[2].filter(([k]) => k !== 'carve-inline-type')]) as Inline]; return a[1].includes('mark') ? [withAttr({ type: 'highlight', children }, [a[0], a[1].filter(x => x !== 'mark'), a[2]])]: [withAttr({ type: 'span', children }, a)]; }
+    case 'Note': {
+      const blocks = blockList(c, warnings);
+      if (blocks.length === 1 && blocks[0]?.type === 'paragraph') return [{ type: 'inline_footnote', children: blocks[0].children }];
+      const generated = warnings as string[] & { generatedNotes?: DocumentNode['children'] };
+      generated.generatedNotes ??= [];
+      const key = `fn${generated.generatedNotes.length + 1}`;
+      generated.generatedNotes.push({ type: 'footnote', namespace: 'footnote', key, children: blocks });
+      return [{ type: 'footnote_ref', namespace: 'footnote', key }];
     }
-    return payload;
-}
-
-/** A link's own label, converted with the no-nested-anchor seam armed. */
-function inLink(ctx: Ctx, n: CNode): P.Inline[] {
-    const was = ctx.inLink;
-    ctx.inLink = true;
-    try {
-        return kids(ctx, n);
-    } finally {
-        ctx.inLink = was;
-    }
-}
-
-/**
- * A reference link or image whose label nothing defines.
- *
- * PART 12 section 3a publishes the resolution BESIDE the authored construct
- * rather than in place of it: `[a][t]` is a `link` carrying `ref`/`rawRef`
- * whether or not the document defines `t`, and `href` (`src` for an image) is
- * empty where nothing resolved it. So the pair "a reference was written"
- * and "the destination is empty" says the reference did not resolve, unless a
- * bare `[t]:` line defines that empty destination (carve-js 0.1.12).
- *
- * Carve renders such a reference as the LITERAL SOURCE, so this returns
- * `rawRef` as text. Emitting a `Link` with an empty target instead would
- * invent a node the document does not contain, and downstream it renders as a
- * broken anchor rather than as the text the reader is meant to see.
- *
- * And it warns, because the sibling path does. An unresolved footnote has said
- * `footnote: missing definition for [^f]` all along; a missing link definition
- * has no reason to be the quieter of the two, and a conversion that loses the
- * author's meaning with a clean exit code is the failure this pairs with
- * (markup-carve/pandoc-carve#91).
- *
- * Returns null when the node is not an unresolved reference, so the caller
- * converts it normally.
- */
-/**
- * The heading a COLLAPSED reference reaches, or null.
- *
- * `[Some Heading][]` with no definition anywhere links to the heading whose
- * RENDERED text matches exactly, case included - so `[Plain One][]` reaches
- * `# Plain One` and `[plain one][]` does not. The engine resolves this after the parse, which is why the
- * node still carries an empty `href` here.
- *
- * Only the collapsed form. `[text][Some Heading]` does not reach a heading,
- * measured on the engine: it renders as its literal source. Detected on
- * `rawRef` ending in `][]`, which is what makes the form collapsed.
- */
-function collapsedHeadingRef(ctx: Ctx, n: CNode): string | undefined {
-    if (!String(n.rawRef ?? '').endsWith('][]')) return undefined;
-    const text = headingTextKey(plainText((n.children as CNode[] | undefined) ?? []));
-    return text ? ctx.headingIdByText.get(text) : undefined;
-}
-
-/** The engine's case-sensitive lookup key for a link reference label. */
-function refLabelKey(label: string): string {
-    return label.replace(/ +/g, ' ').replace(/^ | $/g, '');
-}
-
-/** The key a collapsed reference and a heading's text meet on (PART 9R R1). */
-function headingTextKey(text: string): string {
-    // A tab is key content, not a separator (corpus 565).
-    return text.replace(/[ \n\r]+/g, ' ').replace(/^ | $/g, '').normalize('NFC');
-}
-
-function unresolvedReference(ctx: Ctx, n: CNode, kind: 'link' | 'image'): P.Inline[] | null {
-    if (n.ref === undefined) return null;
-    const destination = String((kind === 'link' ? n.href : n.src) ?? '');
-    if (destination !== '') return null;
-    const ref = String(n.ref ?? '');
-    // `[r]:` defines an empty destination, so the reference resolved to it.
-    if (ctx.emptyDefinitions.has(refLabelKey(ref))) return null;
-    warn(ctx, `${kind}: missing definition for [${ref}] - emitting the literal source`);
-    const raw = String(n.rawRef ?? '');
-    // rawRef is required beside ref, so the fallback is for a tree assembled by
-    // hand: keep the visible text rather than dropping the construct entirely.
-    if (raw === '') return kind === 'link' ? kids(ctx, n) : textInlines(String(n.alt ?? ''));
-    // A reference may be written across lines. Its literal source is prose now,
-    // so the line break is a SoftBreak - a newline left inside a Str would
-    // reach every writer verbatim.
-    const out: P.Inline[] = [];
-    raw.split(/\r?\n/).forEach((line, at) => {
-        if (at > 0) out.push(P.SoftBreak);
-        out.push(...textInlines(line));
-    });
-    return out;
-}
-
-/**
- * A Note, with any note referenced from inside it lifted out to follow it.
- *
- * Pandoc's notes do not nest - its writers drop a Note inside a Note - so a
- * reference in a note body becomes a sibling note right after the outer one,
- * and a diagnostic says the reference moved. A roundtrip conversion keeps the
- * nesting: the reverse direction reads it back, and pandoc's JSON carries it.
- */
-function liftedNote(ctx: Ctx, convertBody: () => P.Block[]): P.Inline[] {
-    // A note's body is outside the link its reference sits in.
-    const body = (): P.Block[] => {
-        const was = ctx.inLink;
-        ctx.inLink = false;
-        try {
-            return convertBody();
-        } finally {
-            ctx.inLink = was;
-        }
-    };
-    if (ctx.roundtrip) {
-        const note = P.Note(body());
-        ctx.noteCount++;
-        return [note];
-    }
-    if (ctx.noteDepth > 0) {
-        warn(ctx, 'footnote: a note referenced inside a note is lifted to follow it - pandoc\'s notes do not nest');
-    }
-    const outer = ctx.liftedNotes;
-    ctx.liftedNotes = [];
-    ctx.noteDepth++;
-    let content: P.Block[];
-    let lifted: P.Inline[];
-    try {
-        content = body();
-    } finally {
-        ctx.noteDepth--;
-        lifted = ctx.liftedNotes;
-        ctx.liftedNotes = outer;
-    }
-    ctx.noteCount++;
-    const notes = [P.Note(content), ...lifted];
-    if (ctx.noteDepth > 0) {
-        ctx.liftedNotes.push(...notes);
-        return [];
-    }
-    return notes;
-}
-
-/** Pandoc reads an empty title as no title, so an authored `""` cannot cross. */
-function emptyTitle(ctx: Ctx, n: CNode, kind: 'link' | 'image'): void {
-    if (n.title === '') {
-        warn(ctx, `${kind}: an empty title is dropped - pandoc reads an empty title as none`, { construct: kind }, n.pos);
-    }
-}
-
-/**
- * Inline nodes whose pandoc constructor has no Attr slot (or, for the classed
- * Span stand-ins, whose slot the bridge's own class fills), so an attribute run
- * on them is dropped - said once per node rather than silently.
- */
-const NO_ATTR_SLOT: Record<string, string> = {
-    substitution: 'Span .substitution',
-    inline_footnote: 'Note',
-};
-
-function inline(ctx: Ctx, n: CNode): P.Inline[] {
-    const result = inlineInner(ctx, n);
-    if (!['strong', 'emphasis', 'underline', 'strike', 'superscript', 'subscript', 'math', 'footnote_ref'].includes(n.type)
-        || !hasAttrs(n.attrs as CAttrs | undefined) || result.length !== 1
-        || (n.type === 'footnote_ref' && result[0]?.t !== 'Note')) return result;
-    const [id, classes, kvs] = toAttr(ctx, n.attrs);
-    const authored = kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1';
-    return [P.Span([id, classes, ctx.wrapperMarker || authored ? [['wrapper', '1'], ...kvs] : kvs], result)];
-}
-
-function classedAttr(ctx: Ctx, n: CNode, marker: string, kvs: [string, string][] = []): P.Attr {
-    const [id, classes, authored] = toAttr(ctx, n.attrs);
-    return [id, [marker, ...classes], [...kvs, ...authored]];
-}
-
-function inlineInner(ctx: Ctx, n: CNode): P.Inline[] {
-    const slotless = NO_ATTR_SLOT[n.type];
-    if (slotless && hasAttrs(n.attrs as CAttrs | undefined)) {
-        warn(ctx, `attribute: the attributes on a ${n.type} are dropped - pandoc's ${slotless} has no slot for them`,
-            { construct: n.type }, n.pos);
-    }
-    switch (n.type) {
-        case 'text':
-            return proseInlines(String(n.value ?? ''));
-        case 'non_breaking_space':
-            return [P.Str('\u00a0')];
-        case 'soft_break':
-            return [P.SoftBreak];
-        case 'hard_break':
-            return [P.LineBreak];
-        case 'cell_wrap':
-            // A table continuation-line join; the contract renders it as one space.
-            return [P.Space];
-        case 'emphasis':
-            return [P.Emph(kids(ctx, n))];
-        case 'strong':
-            return [P.Strong(kids(ctx, n))];
-        case 'underline':
-            return [P.Underline(kids(ctx, n))];
-        case 'strike':
-            return [P.Strikeout(kids(ctx, n))];
-        case 'highlight':
-            return [P.Span(classedAttr(ctx, n, 'mark'), kids(ctx, n))];
-        // An interchange-only wrapper (carve#2212): no Carve source spells it,
-        // and it arrives over the AST wire. `SmallCaps` has no Attr slot, so a
-        // wrapper's own attributes ride a Span around it - the same place a
-        // canonical Carve writer puts them.
-        case 'small_caps': {
-            const caps = P.SmallCaps(kids(ctx, n));
-            return hasAttrs(n.attrs as CAttrs | undefined)
-                ? [P.Span(toAttr(ctx, n.attrs), [caps])]
-                : [caps];
-        }
-        case 'subscript':
-            return [P.Subscript(kids(ctx, n))];
-        case 'superscript':
-            return [P.Superscript(kids(ctx, n))];
-        case 'code':
-            return [P.Code(toAttr(ctx, n.attrs), String(n.value ?? ''))];
-        case 'literal_inline': {
-            // PART 9 SS27: verbatim capture rendered as ORDINARY PROSE. The
-            // `<code>` wrapper is deliberately dropped, so Pandoc `Code` would
-            // invert the construct's entire purpose (it implies monospace/code
-            // styling - the exact thing the literal exists to avoid). Emit
-            // plain text, and wrap in a Span only when attributes need
-            // somewhere to live - mirroring carve-js, which emits a `<span>`
-            // only when the attribute block is present and bare text otherwise.
-            // verbatimInlines, not textInlines: the content is captured verbatim,
-            // so runs of spaces must survive rather than collapse to one Space.
-            const text = verbatimInlines(String(n.content ?? ''));
-            // IN ROUNDTRIP MODE THE CONSTRUCT ITSELF HAS TO SURVIVE, not only
-            // its characters. Plain text loses the capture: `::: |` + "a !`b\nc
-            // d" came back as two line-block lines, because what suppressed the
-            // break was the literal, and nothing downstream could tell that the
-            // newline had been inside one. The text stays visible inside the
-            // Span, so a non-roundtrip consumer of this same document reads
-            // exactly what it read before.
-            if (ctx.roundtrip) return [P.Span(provenanceAttr('literal-inline', n), text)];
-            return hasAttrs(n.attrs as CAttrs | undefined)
-                ? [P.Span(toAttr(ctx, n.attrs), text)]
-                : text;
-        }
-        case 'link': {
-            // Inside another link's label this one is its own text and nothing
-            // more - see `inLink`. Nothing is reported: the engine's own HTML
-            // render of `[[t](/v)](/u)` returns zero losses for the same unwrap,
-            // so it is the defined reading rather than something going missing.
-            // An unresolved reference is its literal source there too (corpus 737-4).
-            if (ctx.inLink) return unresolvedReference(ctx, n, 'link') ?? kids(ctx, n);
-            // A collapsed reference to a heading is RESOLVED, not missing, so
-            // it is tried before the missing-definition path reports one.
-            const heading = String(n.href ?? '') === '' ? collapsedHeadingRef(ctx, n) : undefined;
-            if (heading !== undefined) {
-                return [P.Link(toAttr(ctx, n.attrs), inLink(ctx, n), ['#' + heading, ''])];
-            }
-            const unresolved = unresolvedReference(ctx, n, 'link');
-            if (unresolved) return unresolved;
-            emptyTitle(ctx, n, 'link');
-            return [
-                P.Link(toAttr(ctx, n.attrs), inLink(ctx, n), [
-                    safeDestination(ctx, String(n.href ?? ''), 'link'),
-                    String(n.title ?? ''),
-                ]),
-            ];
-        }
-        case 'autolink': {
-            const href = String(n.href ?? '');
-            // Same seam as the nested `link` above: an autolink's text is the
-            // URL, so unwrapping leaves the URL visible and drops only the
-            // anchor.
-            if (ctx.inLink) return [P.Str(String(n.text ?? href))];
-            const cls = href.startsWith('mailto:') ? 'email' : 'uri';
-            // An autolink takes a trailing attribute like any other inline
-            // (`<https://example.com>{.ext}`), and pandoc's Link has the slot
-            // for it, but only the synthesized `uri`/`email` class was written -
-            // so the author's id, classes and key-values left the document with
-            // nothing reported. They join the synthesized class rather than
-            // replace it: the class says what KIND of link this is, and a
-            // consumer keying on it should not lose that because the author
-            // added one of their own.
-            const [id, classes, kvs] = toAttr(ctx, n.attrs);
-            return [
-                P.Link(
-                    [id, [cls, ...classes], kvs],
-                    [P.Str(String(n.text ?? href))],
-                    // The autolink's TEXT is the URL and stays visible, exactly
-                    // as the HTML writer leaves it: only the destination goes.
-                    [safeDestination(ctx, href, 'link'), ''],
-                ),
-            ];
-        }
-        case 'image': {
-            const unresolved = unresolvedReference(ctx, n, 'image');
-            // Roundtrip keeps the node: its alt still names a task box (corpus 803).
-            if (unresolved) return ctx.roundtrip ? [P.Span(provenanceAttr('unknown-inline', n), unresolved)] : unresolved;
-            emptyTitle(ctx, n, 'image');
-            return [
-                P.Image(toAttr(ctx, n.attrs), textInlines(String(n.alt ?? '')), [
-                    safeDestination(ctx, String(n.src ?? ''), 'image'),
-                    String(n.title ?? ''),
-                ]),
-            ];
-        }
-        case 'caption_number': {
-            // The `#` in `^ Figure #: text`. It has no value in the tree - the
-            // renderer assigns one - so it was degrading to empty and the
-            // caption reached pandoc as `Figure : text`, silently unnumbered
-            // in every writer.
-            //
-            // Inside a panel it draws nothing and prints as the author wrote
-            // it (PART 9 §4c, corpus 318-composite-figures-8's sibling lint
-            // `figure-group-panel-number`).
-            if (ctx.inPanel) return [P.Str('#')];
-            const kind = ctx.captionKind ?? 'caption';
-            const next = (ctx.captionCounts.get(kind) ?? 0) + 1;
-            ctx.captionCounts.set(kind, next);
-            // Roundtrip keeps the placeholder: a literal number would come
-            // back as text and stop counting.
-            if (ctx.roundtrip) return [P.Span(provenanceAttr('unknown-inline', n), [P.Str(String(next))])];
-            return [P.Str(String(next))];
-        }
-        case 'heading_ref': {
-            // Nested inside a crossref's own resolution: the engine emits
-            // nothing for it, so `# A </#a>` yields the link text `A ` rather
-            // than recurring. Matches corpus 118.
-            if (ctx.inCrossref) return [];
-            const target = String(n.target ?? '');
-            // Ids compare exactly (PART 9R R4): the target as written, then
-            // its NFC form. No case fold.
-            const key = ctx.crossrefTargets.has(target) ? target : target.normalize('NFC');
-            const found = ctx.crossrefTargets.get(key);
-            if (found) {
-                // A caption target cannot come back as a crossref (see
-                // `captionTargets`), so it goes out as a plain link.
-                const classes = ctx.captionTargets.has(key)
-                    ? []
-                    : ['crossref'];
-                ctx.inCrossref = true;
-                // The crossref is a link, so links in the target's text unwrap.
-                const wasInLink = ctx.inLink;
-                ctx.inLink = true;
-                try {
-                    const link = P.Link(P.attr(undefined, classes), inlines(ctx, found), [`#${key}`, '']);
-                    // A plain link would come back as a link; roundtrip keeps
-                    // the crossref to a caption label.
-                    if (ctx.roundtrip && !classes.length) return [P.Span(provenanceAttr('unknown-inline', n), [link])];
-                    return [link];
-                } finally {
-                    ctx.inCrossref = false;
-                    ctx.inLink = wasInLink;
-                }
-            }
-            // The engine renders an unresolved crossref as its literal source.
-            // Roundtrip keeps the classed link so the reverse direction restores
-            // the crossref rather than an escaped `</\#id>`.
-            warn(ctx, `crossref: unresolved target "${target}" - emitting the literal source`);
-            if (ctx.roundtrip) {
-                return [P.Link(P.attr(undefined, ['crossref', 'unresolved']), textInlines(`</#${target}>`), [`#${target}`, ''])];
-            }
-            return textInlines(`</#${target}>`);
-        }
-        // The wire has two nodes here, split so that a profile can deny one
-        // without the other (markup-carve/carve#405): `footnote_ref` (`[^a]`)
-        // and `inline_footnote` (`^[…]`). The pre-split spelling a pinned
-        // engine still emits is folded onto these two in `src/ast-json.ts`, so
-        // this switch never has to know it existed.
-        case 'footnote_ref':
-        case 'inline_footnote': {
-            // The note's own content is converted BEFORE the counter moves, so
-            // a citation inside the note carries that note's number rather than
-            // the next one - which is what pandoc's markdown reader produces.
-            if (Array.isArray(n.inline)) {
-                return liftedNote(ctx, () => [P.Para(inlines(ctx, n.inline as CNode[]))]);
-            }
-            const id = String(n.label ?? n.id ?? '');
-            const def = ctx.footnoteDefs[id];
-            if (!def) {
-                // THE LITERAL SOURCE, not a superscript.
-                //
-                // Carve renders an unresolved `[^f]` as the four characters the
-                // author typed. This used to emit `Superscript [Str "f"]`, which
-                // is a construct the document does not contain: the reader saw a
-                // raised `f` where the source says `[^f]`, and the round trip
-                // came back spelling it `{^f^}` - a superscript in Carve too, so
-                // the loss was permanent rather than merely cosmetic.
-                //
-                // The sibling path has been right all along. An unresolved link
-                // or image reference returns its `rawRef` as text for exactly
-                // this reason (see `unresolvedReference`), and there was no
-                // reason for a footnote to be the one construct that invented a
-                // node instead.
-                //
-                // A footnote reference carries no `rawRef`, so the source is
-                // rebuilt from the id, or sliced from the source when the
-                // author wrote a trailing attribute.
-                warn(ctx, `footnote: missing definition for [^${id}] - emitting the literal source`);
-                // An attribute stays part of the literal (corpus 163, 822).
-                const authored = n.attrs ? authoredText(ctx, n) : null;
-                return textInlines(authored?.startsWith(`[^${id}]`) ? authored : `[^${id}]`);
-            }
-            if (ctx.openNotes.has(id)) {
-                warn(ctx, `footnote: a cyclic reference to [^${id}] inside its own note is dropped - pandoc's notes do not nest`);
-                return [];
-            }
-            if (ctx.citedNotes.has(id)) {
-                warn(ctx, `footnote: [^${id}] is referenced more than once - pandoc's Note has no identity, so each reference carries its own copy`,
-                    { reference: `[^${id}]` }, n.pos);
-            }
-            ctx.citedNotes.add(id);
-            ctx.openNotes.add(id);
-            try {
-                return liftedNote(ctx, () => blocks(ctx, def));
-            } finally {
-                ctx.openNotes.delete(id);
-            }
-        }
-        case 'math':
-            return [
-                n.display
-                    ? P.MathDisplay(String(n.content ?? ''))
-                    : P.MathInline(String(n.content ?? '')),
-            ];
-        case 'raw_inline':
-            return [P.RawInline(String(n.format ?? ''), String(n.content ?? ''))];
-        case 'mention': {
-            const user = String(n.user ?? '');
-            return [P.Span(P.attr(undefined, ['mention'], [['data-user', user]]), [P.Str(`@${user}`)])];
-        }
-        case 'tag': {
-            const name = String(n.name ?? '');
-            return [P.Span(P.attr(undefined, ['tag'], [['data-tag', name]]), [P.Str(`#${name}`)])];
-        }
-        case 'symbol': {
-            const name = String(n.name ?? '');
-            const mapped = ctx.symbols[name];
-            if (mapped !== undefined) return hasAttrs(n.attrs as CAttrs | undefined)
-                ? [P.Span(classedAttr(ctx, n, 'symbol', [['data-symbol', name]]), textInlines(mapped))]
-                : textInlines(mapped);
-            warn(ctx, `symbol: :${name}: has no entry in the symbols map - emitting literal source form`);
-            return [P.Span(classedAttr(ctx, n, 'symbol', [['data-symbol', name]]), [P.Str(`:${name}:`)])];
-        }
-        case 'abbreviation': {
-            const abbr = String(n.abbr ?? '');
-            const expansion = String(n.expansion ?? '');
-            return [P.Span(P.attr(undefined, ['abbr'], [['title', expansion]]), [P.Str(abbr)])];
-        }
-        case 'inline_extension': {
-            const name = String(n.name ?? '');
-            const content = Array.isArray(n.content)
-                ? inlines(ctx, n.content as CNode[])
-                : textInlines(String(n.content ?? ''));
-            warn(ctx, `extension: :${name}[..] degraded to a Span with class "ext-${name}"`);
-            return [P.Span(P.attr(undefined, [`ext-${name}`]), content)];
-        }
-        // PART 12 section 12 flattens a ruby pair to its base followed by its
-        // annotation in parentheses, which is what a canonical Carve writer does
-        // with one. Pandoc has no ruby construct to reach for, and dropping the
-        // node took the BASE TEXT with it - `pairs` is not `children`, so the
-        // generic unknown-node path found nothing to degrade to and emitted an
-        // empty paragraph while reporting that the text had survived.
-        case 'ruby': {
-            const pairs = (n.pairs as { base?: CNode[]; annotation?: CNode[] }[] | undefined) ?? [];
-            warn(ctx, 'extension: ruby flattened to each base with its annotation in parentheses - pandoc has no ruby construct');
-            // PART 12 section 32's own flattening, parentheses included: an empty
-            // annotation stays visible as `()`, and `attrs` wrap the whole run in
-            // one span, exactly as the canonical writer does it.
-            const flattened = pairs.flatMap((pair) => [
-                ...inlines(ctx, pair.base ?? []),
-                P.Str('('),
-                ...inlines(ctx, pair.annotation ?? []),
-                P.Str(')'),
-            ]);
-            return hasAttrs(n.attrs as CAttrs | undefined)
-                ? [P.Span(toAttr(ctx, n.attrs), flattened)]
-                : flattened;
-        }
-        case 'citation_group':
-            return [citationGroup(ctx, n)];
-        case 'span':
-            return [smallCapsOrSpan(toAttr(ctx, n.attrs), kids(ctx, n))];
-        case 'insert':
-            return [P.Span(classedAttr(ctx, n, 'insertion'), kids(ctx, n))];
-        case 'delete':
-            return [P.Span(classedAttr(ctx, n, 'deletion'), kids(ctx, n))];
-        case 'substitution': {
-            const oldContent = Array.isArray(n.old) ? inlines(ctx, n.old as CNode[]) : [];
-            const newContent = Array.isArray(n.new) ? inlines(ctx, n.new as CNode[]) : [];
-            return [
-                P.Span(P.attr(undefined, ['substitution']), [
-                    P.Span(P.attr(undefined, ['deletion']), oldContent),
-                    P.Str('→'),
-                    P.Span(P.attr(undefined, ['insertion']), newContent),
-                ]),
-            ];
-        }
-        // `critic_comment` is the schema's spelling and the only one the wire
-        // carries; the hyphenated name a pinned engine still emits internally
-        // is folded onto it in `src/ast-json.ts`.
-        case 'critic_comment':
-            return [P.Span(P.attr(undefined, ['comment-annotation']), textInlines(String(n.text ?? '')))];
-        case 'comment':
-            // Pandoc's AST has no comment node, so dropping is the conversion -
-            // but a silent drop is not (markup-carve/pandoc-carve#75). The
-            // warning names the content, so a migration can see what did not
-            // make the trip.
-            if (ctx.roundtrip) return [P.Span(provenanceAttr('comment', n), [])];
-            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`, { construct: 'comment' }, n.pos);
-            return [];
-        case QUOTED:
-            return [
-                P.Quoted(
-                    (n.quote as P.QuoteType | undefined) ?? 'DoubleQuote',
-                    inlines(ctx, n.children as CNode[]),
-                ),
-            ];
-        case 'smart_punctuation':
-            // The resolved glyph, not the author's source run. Pandoc applies
-            // its own smart punctuation when READING markdown, not when
-            // consuming a JSON AST, so handing it `--` yields a literal double
-            // hyphen downstream. Carve already made the decision; keeping it is
-            // what carries the typography into LaTeX, DOCX and the rest.
-            return [P.Str(smartPunctuationText(n))];
-        case 'escaped_text':
-            // The character the author escaped. The backslash is authoring
-            // syntax and does not survive into pandoc's AST; the character does,
-            // and stays literal because pandoc will not re-smarten AST input -
-            // which is exactly what the escape asked for.
-            return ctx.roundtrip
-                ? [P.Span(provenanceAttr('escaped-text', n), [P.Str(String(n.value ?? ''))])]
-                : [P.Str(String(n.value ?? ''))];
-        default:
-            if (ctx.roundtrip) return [P.Span(provenanceAttr('unknown-inline', n), textInlines(plainText([n])))];
-            warn(ctx, `inline: unknown node type "${n.type}" degraded to its text content`, { nodeType: n.type }, n.pos);
-            return textInlines(plainText([n]));
-    }
-}
-
-/** One `@key` of a citation group, as `resources/ast-schema.json` pins it. */
-interface CCitation {
-    key?: string;
-    prefix?: CNode[];
-    locator?: CNode[];
-    locatorLabel?: string;
-    locatorValue?: string;
-    suffix?: CNode[];
-    suppressAuthor?: boolean;
-}
-
-/**
- * PART 9 §22 citation group -> pandoc `Cite`.
- *
- * Three things do not line up, and each is handled the way citeproc itself
- * does it rather than by inventing a convention:
- *
- *  - **Mode.** Carve's integral `+` is a property of the whole cluster;
- *    pandoc's mode is per item. Integral maps to `AuthorInText` on each item.
- *    An item's own `-` (suppress author) is narrower than the group's mode and
- *    wins, because dropping it would print an author the source asked to hide.
- *  - **Locator.** `Citation` has no locator slot at all - pandoc's markdown
- *    reader puts `, p. 33` in `citationSuffix` and citeproc parses it back out
- *    there. So the locator TEXT crosses intact and citeproc re-derives the same
- *    `{label, value}` pair Carve had parsed; only the typing is lost, which is
- *    what the warning says.
- *  - **Content.** The Cite's second field is the verbatim source, which is
- *    exactly what `citation_group.raw` holds. Every non-citeproc writer prints
- *    that, so a document converted without `--citeproc` still reads correctly.
- */
-function citationGroup(ctx: Ctx, n: CNode): P.Inline {
-    const integral = n.mode === 'integral';
-    const items = (n.items as CCitation[] | undefined) ?? [];
-    const citations = items.map((item) => {
-        const key = String(item.key ?? '');
-        let mode: P.CitationMode = integral ? 'AuthorInText' : 'NormalCitation';
-        if (item.suppressAuthor) {
-            if (integral) {
-                warn(ctx, `citation: @${key} suppresses its author inside an integral group - pandoc's mode is per item, so the item keeps SuppressAuthor`);
-            }
-            mode = 'SuppressAuthor';
-        }
-        if (item.locatorLabel && !ctx.roundtrip) {
-            warn(ctx, `citation: @${key}'s typed locator (${item.locatorLabel}) is serialized into the pandoc citation suffix - pandoc's Citation has no locator field`);
-        }
-        return P.citation(
-            key,
-            mode,
-            item.prefix?.length ? inlines(ctx, item.prefix) : [],
-            citationSuffix(ctx, item),
-            ctx.noteCount + 1,
-        );
-    });
-    const cite = P.Cite(citations, textInlines(String(n.raw ?? '')));
-    return ctx.roundtrip ? P.Span(provenanceAttr('citation', n), [cite]) : cite;
-}
-
-/**
- * The suffix citeproc reads: the locator text after its `, ` separator, which
- * is the whole post-comma run - Carve's `suffix` is the tail of `locator`, not
- * a sibling of it, so emitting both would print the tail twice.
- */
-function citationSuffix(ctx: Ctx, item: CCitation): P.Inline[] {
-    if (item.locator?.length) return [P.Str(','), P.Space, ...inlines(ctx, item.locator)];
-    if (item.suffix?.length) return [P.Space, ...inlines(ctx, item.suffix)];
-    return [];
-}
-
-/**
- * A `[@key]: entry` bibliography line (PART 12 section 18) as citeproc's own
- * bibliography entry: `Div ("ref-<key>", ["csl-entry"], ...)`.
- *
- * There was no arm for this node at all, so a definition fell to the generic
- * "unknown node type" path and left as a paragraph of its text - the entry
- * printed in the body of the document, where Carve renders nothing, and the
- * key that binds it to its citations was dropped on the floor.
- *
- * `csl-entry` under `ref-<key>` is not a shape invented here. It is what
- * `pandoc --citeproc` writes for a resolved bibliography entry and what
- * pandoc's markdown reader reads back, so the mapping lands in the vocabulary
- * the rest of the pandoc ecosystem already keys on: a filter or template that
- * styles a bibliography finds one.
- *
- * The `{author= year=}` metadata rides along as the Div's key-values. Pandoc
- * has no slot for it - citeproc takes those from the CSL data, not from the
- * document - but dropping a field the node carries is the thing this bridge
- * does not do, and an attribute pandoc preserves costs nothing to keep.
- */
-function citationDefinition(ctx: Ctx, n: CNode): P.Block {
-    const key = String(n.key ?? '');
-    const [id, classes, kvs] = toAttr(ctx, n.attrs);
-    const entry = inlines(ctx, n.children as CNode[] | undefined);
-    return P.Div(
-        [id || (key ? `ref-${key}` : ''), ['csl-entry', ...classes], kvs],
-        // Section 18 allows an empty entry, and an empty `Para` is not a shape
-        // pandoc's own readers produce.
-        entry.length ? [P.Para(entry)] : [],
-    );
-}
-
-// --- Blocks ---
-
-function blocks(ctx: Ctx, nodes: CNode[] | undefined): P.Block[] {
-    if (!nodes) return [];
-    const out: P.Block[] = [];
-    for (const n of nodes) out.push(...block(ctx, n));
-    return out;
-}
-
-/** Block types whose Pandoc form carries the Attr itself. */
-const ATTR_CARRYING = new Set([
-    'heading',
-    'code_block',
-    'table',
-    'figure',
-    'figure_group',
-    'section',
-    'div',
-    'admonition',
-    'directive',
-    // Its Div IS the entry, and its attrs are the `{author= year=}` block that
-    // belongs on it. Left out, the wrapper below adds a SECOND Div carrying the
-    // same key-values around the one that already has them.
-    'citation_definition',
-]);
-
-/**
- * The wrapped blocks Pandoc's writers unwrap on `wrapper="1"`. `Plain` is left
- * out on purpose: its HTML writer then drops the attributes altogether.
- */
-const WRAPPER_MARKED = new Set([
-    'Para',
-    'BlockQuote',
-    'BulletList',
-    'OrderedList',
-    'DefinitionList',
-    'HorizontalRule',
-]);
-
-// A sole image on its own line is a `blockImage` paragraph whose block
-// attributes render on the image (carve-js 0.1.16 and later); an older engine
-// emits the bare image with the attributes already merged.
-function soleBlockImage(n: CNode): CNode {
-    const children = n.children as CNode[] | undefined;
-    if (n.type !== 'paragraph' || n.blockImage !== true || children?.length !== 1 || children[0]?.type !== 'image') return n;
-    const image = children[0];
-    const outer = n.attrs as (CAttrs & { order?: string[] }) | undefined;
-    const inner = image.attrs as (CAttrs & { order?: string[] }) | undefined;
-    if (!hasAttrs(outer)) return image;
-    const keyValues = { ...(outer?.keyValues ?? {}), ...(inner?.keyValues ?? {}) };
-    const classes = [...(outer?.classes ?? []), ...(inner?.classes ?? [])];
-    const id = inner?.id ?? outer?.id;
-    const attrs: CAttrs & { order?: string[] } = {
-        ...(id !== undefined ? { id } : {}),
-        ...(classes.length ? { classes } : {}),
-        ...(Object.keys(keyValues).length ? { keyValues } : {}),
-        order: [...(outer?.order ?? []), ...(inner?.order ?? [])],
-    };
-    return { ...image, attrs, ...(n.pos ? { pos: n.pos } : {}) };
-}
-
-function block(ctx: Ctx, node: CNode): P.Block[] {
-    const n = soleBlockImage(node);
-    const result = blockInner(ctx, n);
-    // A block-attribute line can attach attrs to ANY block. Pandoc's Para,
-    // BlockQuote, lists etc. have no Attr slot - preserve via a Div wrapper.
-    const a = n.attrs as CAttrs | undefined;
-    // NOTHING IS NOT WRAPPED. A node that renders nothing where it sits - a
-    // link reference definition, an abbreviation definition - converts to no
-    // blocks, and wrapping that in a Div to carry its attrs put a visible empty
-    // element into every writer's output where Carve renders none:
-    // `[a]: /u {.c}` came back as `<div class="c"></div>`. The attrs are not
-    // lost by skipping it; they are already on whatever the definition feeds,
-    // which is where they render.
-    if (!result.length) return result;
-    // A sole image's attrs are already on the Pandoc Image inside its Para; an
-    // unresolved reference comes out as text and still needs the wrapper.
-    const imageCarries = n.type === 'image' && (result[0]?.c as P.Inline[] | undefined)?.[0]?.t === 'Image';
-    if (!ATTR_CARRYING.has(n.type) && !imageCarries && hasAttrs(a)) {
-        // In roundtrip mode the carve-block marker lets the reverse direction
-        // restore the attrs onto the inner block instead of keeping a wrapper.
-        const [id, classes, kvs] = toAttr(ctx, a);
-        const marked: [string, string][] = [...kvs];
-        // An authored leading `wrapper=1` reads as the marker on import, so it
-        // gets the real marker in front of it even with the option off.
-        const authored = kvs[0]?.[0] === 'wrapper' && kvs[0][1] === '1';
-        if ((ctx.wrapperMarker || authored) && result.length === 1 && WRAPPER_MARKED.has(result[0]!.t)) {
-            marked.unshift(['wrapper', '1']);
-        }
-        if (ctx.roundtrip) marked.push(['carve-block', n.type]);
-        return [P.Div([id, classes, marked], result)];
-    }
-    return result;
-}
-
-/**
- * A line block's stanzas are its child paragraphs; within a stanza the lines are
- * separated by hard breaks. Pandoc's LineBlock is a flat list of lines, and a
- * blank line between stanzas is an EMPTY line - the same shape pandoc's own
- * markdown reader produces for a `|` line with nothing after it.
- */
-function lineBlock(ctx: Ctx, n: CNode): P.Block {
-    const lines: P.Inline[][] = [];
-    let emptyLine = false;
-    const stanzas = (n.children as CNode[] | undefined) ?? [];
-    stanzas.forEach((stanza, i) => {
-        if (i > 0) lines.push([]);
-        const kids = (stanza.children as CNode[] | undefined) ?? [stanza];
-        let current: CNode[] = [];
-        let broke = false;
-        for (const kid of kids) {
-            if (kid.type === 'hard_break' || kid.type === 'soft_break') {
-                if (current.length === 0 && broke) emptyLine = true;
-                lines.push(inlines(ctx, current));
-                current = [];
-                broke = true;
-                continue;
-            }
-            current.push(kid);
-        }
-        if (current.length === 0 && broke) emptyLine = true;
-        lines.push(inlines(ctx, current));
-    });
-    if (emptyLine) {
-        warn(ctx, 'line block: a hard break that leaves an empty line becomes an empty entry, which pandoc cannot tell from a stanza break',
-            { construct: 'line_block' }, n.pos);
-    }
-    return P.LineBlock(lines);
-}
-
-function blockInner(ctx: Ctx, n: CNode): P.Block[] {
-    switch (n.type) {
-        case 'paragraph': {
-            const xs = kids(ctx, n);
-            return [ctx.tight ? P.Plain(xs) : P.Para(xs)];
-        }
-        case 'heading': {
-            const authored = n.attrs as CAttrs | undefined;
-            const attrs = authored?.id === undefined ? authored : { ...authored, id: ctx.headingIds.get(n) ?? authored.id };
-            return [P.Header(Number(n.level ?? 1), toAttr(ctx, attrs, ctx.headingIds.get(n)), kids(ctx, n))];
-        }
-        case 'block_quote':
-            return [P.BlockQuote(untight(ctx, () => blocks(ctx, n.children as CNode[])))];
-        case 'code_block': {
-            const lang = n.lang ? [String(n.lang)] : [];
-            const [id, classes, kvs] = toAttr(ctx, n.attrs);
-            if (lang.length === 0 && classes.length > 0) {
-                warn(ctx, `code block: a class without a language is read as the language by pandoc's writers - "${classes[0]}"`,
-                    { construct: 'code_block', class: classes[0] }, n.pos);
-            }
-            return [
-                P.CodeBlock(
-                    P.attr(id, [...lang, ...classes], kvs),
-                    codePayload(ctx, String(n.content ?? ''), n),
-                ),
-            ];
-        }
-        case 'raw_block':
-            return [P.RawBlock(String(n.format ?? ''), codePayload(ctx, String(n.content ?? ''), n))];
-        case 'citation_definition':
-            return [citationDefinition(ctx, n)];
-        case 'thematic_break':
-            return [P.HorizontalRule];
-        case 'list':
-            return [list(ctx, n)];
-        case 'definition_list':
-            return [definitionList(ctx, n)];
-        case 'table':
-            return [table(ctx, n, null)];
-        case 'figure':
-            return figure(ctx, n);
-        case 'figure_group':
-            return figureGroup(ctx, n);
-        // A directive PLACES generated content; an admonition presents what was
-        // written inside it. They share every slot the Div needs, so they share
-        // the arm - the leading class is what tells a reader which it was.
-        case 'directive':
-        case 'admonition': {
-            const wrapper = n.type === 'directive' ? 'directive' : 'admonition';
-            const kind = String(n.kind ?? 'note');
-            if (kind === 'list-table' && ctx.listTable) {
-                const converted = listTableToTable(ctx, n);
-                if (converted) return [converted];
-                warn(ctx, 'list-table: structure not table-shaped - kept as the degraded Div (content preserved)');
-            }
-            const title = Array.isArray(n.title)
-                ? [P.Para([P.Strong(inlines(ctx, n.title as CNode[]))])]
-                : [];
-            const body = untight(ctx, () => blocks(ctx, n.children as CNode[]));
-            const [id, classes, kvs] = toAttr(ctx, n.attrs);
-            return [
-                P.Div(
-                    [id, [wrapper, kind, ...classes], [...kvs, ...labelKv(ctx, n)]],
-                    [...title, ...labelCaption(ctx, n), ...body],
-                ),
-            ];
-        }
-        // A LINE BLOCK (`::: |`, PART 9 SS23) is verse: each newline is a line of
-        // its own and the leading whitespace is preserved. Pandoc has `LineBlock`
-        // for exactly that.
-        //
-        // The published 0.1.5 engine gives this construct its own node. A generic
-        // Div whose author chose the class `line-block` remains a Div: class
-        // names do not change the source construct's newline semantics.
-        // PART 12 section 33: "a reader that does not know the name renders the
-        // FALLBACK and reports the loss". The fallback is required on the node
-        // for exactly this, and it is a core block, so converting it needs no
-        // knowledge of the extension. Without this arm the node fell to the
-        // unknown-block path, whose degradation is "a paragraph of its text" -
-        // and a block extension's content is a `payload`, not `children`, so
-        // that paragraph came out EMPTY while the report said text survived.
-        case 'block_extension': {
-            const name = String(n.name ?? '');
-            const fallback = n.fallback as CNode | undefined;
-            warn(ctx, `extension: block extension "${name}" rendered as its declared fallback`);
-            return fallback ? block(ctx, fallback) : [];
-        }
-        case 'line_block':
-            return [lineBlock(ctx, n)];
-        case 'section': {
-            const [id, classes, kvs] = toAttr(ctx, n.attrs);
-            if (n.level !== undefined && (!Number.isInteger(n.level) || Number(n.level) < 1 || Number(n.level) > 6)) {
-                throw new TypeError('section level must be an integer from 1 to 6');
-            }
-            const level = n.level === undefined ? '' : String(n.level);
-            return [P.Div([id, classes, ctx.roundtrip ? [...kvs, ['carve.section', level]] : kvs],
-                untight(ctx, () => blocks(ctx, n.children as CNode[])))];
-        }
-        case 'div': {
-            const [id, classes, kvs] = toAttr(ctx, n.attrs);
-            return [
-                P.Div([id, classes, [...kvs, ...labelKv(ctx, n)]], [
-                    ...labelCaption(ctx, n),
-                    ...untight(ctx, () => blocks(ctx, n.children as CNode[])),
-                ]),
-            ];
-        }
-        case 'image':
-            // A sole image on its own line is a block-level node in Carve.
-            return [P.Para(inline(ctx, n))];
-        case 'comment':
-            // Unlike the definitions below, a dropped comment IS authored
-            // content leaving the document - so it is named rather than
-            // silent (markup-carve/pandoc-carve#75).
-            if (ctx.roundtrip) return [P.Div(provenanceAttr('comment', n), [])];
-            warn(ctx, `comment: dropped - Pandoc's AST has no comment node: ${truncateForWarning(String(n.content ?? ''))}`, { construct: 'comment' }, n.pos);
-            return [];
-        case 'abbreviation_def':
-        case 'link_reference_definition':
-            // Definitions are document metadata, not output blocks. PART 12
-            // section 3a puts the resolved destination and title directly on
-            // each link/image node, so dropping the definition here loses no
-            // information from the Pandoc document.
-            return [];
-        default: {
-            // An inline node at block level (defensive) or an unknown block.
-            const fallback = [P.Para(textInlines(plainText([n])))];
-            if (ctx.roundtrip) return [P.Div(provenanceAttr('unknown-block', n), fallback)];
-            warn(ctx, `block: unknown node type "${n.type}" degraded to a paragraph of its text`, { nodeType: n.type }, n.pos);
-            return fallback;
-        }
-    }
-}
-
-function untight<T>(ctx: Ctx, fn: () => T): T {
-    const prev = ctx.tight;
-    ctx.tight = false;
-    const result = fn();
-    ctx.tight = prev;
-    return result;
-}
-
-function withTight<T>(ctx: Ctx, tight: boolean, fn: () => T): T {
-    const prev = ctx.tight;
-    ctx.tight = tight;
-    const result = fn();
-    ctx.tight = prev;
-    return result;
-}
-
-// --- Lists ---
-
-const OL_TYPE: Record<string, P.ListNumberStyle> = {
-    a: 'LowerAlpha',
-    A: 'UpperAlpha',
-    i: 'LowerRoman',
-    I: 'UpperRoman',
-};
-
-function list(ctx: Ctx, n: CNode): P.Block {
-    const tight = Boolean(n.tight);
-    const items = (n.items as CNode[] | undefined) ?? [];
-    const converted: P.Block[][] = items.map((item) => {
-        const prev = ctx.tight;
-        ctx.tight = tight;
-        let itemBlocks = blocks(ctx, item.children as CNode[]);
-        ctx.tight = prev;
-        if (typeof item.checked === 'boolean') {
-            itemBlocks = prefixTaskMarker(itemBlocks, item.checked);
-        }
-        const state = extendedTaskState(item);
-        if (state && !ctx.roundtrip) {
-            warn(ctx, `task state: "${state}" has no pandoc equivalent - the item is written as an ` +
-                'unchecked box; convert with roundtrip: true to carry it', { taskState: state }, item.pos);
-        }
-        const carried = state && ctx.roundtrip;
-        if (hasAttrs(item.attrs as CAttrs | undefined) || carried) {
-            const [id, classes, kvs] = toAttr(ctx, item.attrs);
-            const marked: [string, string][] = ctx.roundtrip
-                ? [...kvs, ['carve-list-item', 'true'],
-                    ...(carried ? [[TASK_STATE_KEY, state] as [string, string]] : [])]
-                : kvs;
-            const lead = itemBlocks[0];
-            if (typeof item.checked === 'boolean' && lead && (lead.t === 'Plain' || lead.t === 'Para')) {
-                // Pandoc reads a task only from a ballot that OPENS the item's
-                // first block, so a wrapping Div would hide it. The item's
-                // attributes ride on a Span after the ballot instead.
-                const [ballot, space, ...rest] = lead.c as P.Inline[];
-                itemBlocks = [
-                    { t: lead.t, c: [ballot!, space!, P.Span([id, classes, marked], rest)] },
-                    ...itemBlocks.slice(1),
-                ];
-            } else {
-                itemBlocks = [P.Div([id, classes, marked], itemBlocks)];
-            }
-        }
-        return itemBlocks;
-    });
-    if (n.ordered) {
-        const style = OL_TYPE[String(n.olType ?? '')] ?? 'Decimal';
-        // AST contract 1.1 omits the default `.` delimiter, so absence means Period.
-        const delim = n.delim === ')' ? 'OneParen' : 'Period';
-        return P.OrderedList(Number(n.start ?? 1), style, converted, delim);
-    }
-    return P.BulletList(converted);
-}
-
-/**
- * The roundtrip envelope's slot for a task state pandoc cannot say.
- *
- * Spelled as a plain kv beside `carve-list-item` rather than through the
- * base64 provenance envelope: a list item has no Attr of its own, so the Div
- * that carries `carve-list-item` is already the item's only slot, and a single
- * enum character needs no encoding to survive an attribute value.
- * `src/reverse.ts` reads the same literal.
- */
-const TASK_STATE_KEY = 'carve-task-state';
-
-/**
- * A task state that `checked` alone cannot say, or null.
- *
- * PART 12 pins `taskState` to `" " x X _ - / ! > ?` and defines open and checked as the
- * defaults for `checked` - those two are already carried by the ballot box, and
- * only the other six are Carve-only information.
- */
-function extendedTaskState(item: CNode): string | null {
-    const state = item.taskState;
-    return typeof state === 'string' && ['_', '-', '/', '!', '>', '?'].includes(state) ? state : null;
-}
-
-/** GFM-style task markers: pandoc renders `- [x]` as a leading ballot-box Str. */
-function prefixTaskMarker(itemBlocks: P.Block[], checked: boolean): P.Block[] {
-    const marker = [P.Str(checked ? '☒' : '☐'), P.Space];
-    const first = itemBlocks[0];
-    if (first && (first.t === 'Plain' || first.t === 'Para')) {
-        return [
-            { t: first.t, c: [...marker, ...(first.c as P.Inline[])] },
-            ...itemBlocks.slice(1),
-        ];
-    }
-    return [P.Plain(marker), ...itemBlocks];
-}
-
-/**
- * A definition list, from the FLAT wire sequence (PART 12): `definition_term`
- * and `definition_description` nodes in document order, exactly as `<dt>` and
- * `<dd>` appear in the rendered list.
- *
- * Pandoc's `DefinitionList` is grouped, so the grouping is recovered by the
- * rule the renderers already use and the engines agree on: a run of
- * descriptions belongs to the run of terms before it.
- */
-function definitionList(ctx: Ctx, n: CNode): P.Block {
-    const entries = (n.items as CNode[] | undefined) ?? [];
-    // PART 9 section 17's consumed `loose` boolean, published on the wire as
-    // `definition_list.loose` (PART 12 section 8).
-    const spelledLoose = n.loose === true;
-    const converted: [P.Inline[], P.Block[][]][] = [];
-    let terms: P.Inline[][] = [];
-    let defs: P.Block[][] = [];
-
-    const flush = (): void => {
-        if (!terms.length && !defs.length) return;
-        // Pandoc has one term per item; multiple Carve terms join with LineBreak.
-        const term = terms.length
-            ? terms.reduce((acc, t) => (acc.length ? [...acc, P.LineBreak, ...t] : t), [] as P.Inline[])
-            : [];
-        converted.push([term, defs]);
-        terms = [];
-        defs = [];
-    };
-
-    for (const entry of entries) {
-        if (entry?.type === 'definition_term') {
-            // A term after a description starts the next entry.
-            if (defs.length) flush();
-            terms.push(inlines(ctx, entry.children as CNode[] | undefined));
-        } else if (entry?.type === 'definition_description') {
-            // A DESCRIPTION IS AN INLINE RUN OR A SEQUENCE OF BLOCKS, and pandoc
-            // spells that difference the same way Carve renders it: `Plain`
-            // versus `Para`, which is the distinction its own markdown reader
-            // makes for a compact versus a loose definition list.
-            //
-            // Two spellings reach the loose reading. A blank line between two
-            // blocks is one, and it needs two blocks to stand between - so a
-            // ONE-block description has no blank-line spelling and the consumed
-            // `loose` key is the only way to say it (carve#1623). This read
-            // `untight` unconditionally, which wrote `Para` for every
-            // description and lost the axis before the tree left the bridge.
-            const children = (entry.children as CNode[] | undefined) ?? [];
-            defs.push(withTight(ctx, !spelledLoose && children.length <= 1, () => blocks(ctx, children)));
-        } else {
-            warn(ctx, `definition list: unknown entry type "${String(entry?.type)}" - skipped`);
-        }
-    }
-    flush();
-
-    return P.DefinitionList(converted);
-}
-
-// --- Tables (span inversion) ---
-
-interface CCell {
-    blocks?: CNode[];
-    header?: boolean;
-    align?: string;
-    span?: 'colspan' | 'rowspan';
-    children?: CNode[];
-    attrs?: CAttrs;
-}
-
-interface CColumn {
-    align?: string;
-    width?: number;
-}
-
-const ALIGN: Record<string, P.Alignment> = {
-    left: 'AlignLeft',
-    right: 'AlignRight',
-    center: 'AlignCenter',
-};
-
-const HEAD_CELL_KINDS = 'data-pandoc-carve-head-kinds';
-
-/**
- * Convert a Carve table.
- *
- * Carve marks *continuation* cells (`span: "colspan" | "rowspan"` on the cell
- * that is covered); pandoc puts rowSpan/colSpan counts on the origin Cell and
- * omits covered positions. We walk the grid, resolve each continuation to its
- * origin transitively, bump the origin's span, and emit only origin cells.
- */
-function table(
-    ctx: Ctx,
-    n: CNode,
-    caption: P.Inline[] | null,
-    shortCaption: P.Inline[] | null = null,
-): P.Block {
-    const valigned = ((n.columns as { valign?: string }[] | undefined) ?? []).some((c) => c?.valign)
-        || ((n.rows as { cells?: { valign?: string }[] }[] | undefined) ?? []).some((r) => r?.cells?.some((c) => c?.valign));
-    if (valigned) {
-        warn(ctx, "table: vertical alignment is dropped - pandoc's Table has no slot for it", { construct: 'table' }, n.pos);
-    }
-    if (!caption && Array.isArray(n.caption)) {
-        ctx.captionKind = captionLabel(n.caption as CNode[]);
-        caption = inlines(ctx, n.caption as CNode[]);
-        ctx.captionKind = undefined;
-    }
-    if (!shortCaption && Array.isArray(n.shortCaption)) {
-        shortCaption = inlines(ctx, n.shortCaption as CNode[]);
-    }
-    const rows = ((n.rows as CNode[] | undefined) ?? []).map(
-        (r) => (r.cells as CCell[] | undefined) ?? [],
-    );
-
-    // PART 12 §15: an explicit partition of `rows` into head, body groups and
-    // foot. Absent means the implicit structure below, which is what every
-    // renderer derives anyway.
-    const read = readRowGroups(n.rowGroups, rows.length);
-    if (read.error) {
-        warn(ctx, `table: ${read.error} - converted with the implicit head/body split instead`);
-    }
-    const groups = read.groups;
-
-    // Split leading all-header rows into the table head.
-    let headCount = 0;
-    // A span marker carries no header flag of its own, as in the engine's walk.
-    while (
-        headCount < rows.length
-        && rows[headCount]!.some((c) => c.span === undefined)
-        && rows[headCount]!.every((c) => c.header || c.span !== undefined)
-    ) {
-        headCount++;
-    }
-    if (groups) headCount = groups.headRows;
-    // A count the engine left unconsumed is invalid: no partition, and no
-    // implicit head either (CARVE-P12-034, carve#4137).
-    else if (['header-rows', 'footer-rows'].some((key) => (n.attrs as CAttrs | undefined)?.keyValues?.[key] !== undefined)) headCount = 0;
-
-    // Which pandoc row list each row belongs to. A cell may not span across
-    // two of them: head, a body group's intermediate header, that group's
-    // rows and the foot are separate `[Row]` lists in pandoc's model.
-    const sectionOf: number[] = Array<number>(rows.length).fill(0);
-    {
-        let at = 0;
-        let section = 0;
-        const take = (howMany: number) => {
-            for (let i = 0; i < howMany && at < rows.length; i++) sectionOf[at++] = section;
-            section++;
+    case 'Quoted': { const single = c[0].t === 'SingleQuote'; return [smartPunctuation(single ? 'left_single_quote' : 'left_double_quote'), ...inlineList(c[1], warnings), smartPunctuation(single ? 'right_single_quote' : 'right_double_quote')]; }
+    case 'Cite': {
+      const records = c[0] as P.Citation[];
+      const display = (nodes: P.PandocNode[]): string => nodes.map(node => node.t === 'Str' ? String(node.c) : node.t === 'Space' || node.t === 'SoftBreak' ? ' ' : Array.isArray(node.c) ? display(node.c as P.PandocNode[]) : '').join('');
+      const source = display(c[1] as P.PandocNode[]);
+      const children = records.map(record => {
+        const suffixText = display(record.citationSuffix ?? []);
+        const locatorMatch = /^,\s*(p\.|pp\.|chap\.)\s+(.+)$/u.exec(suffixText);
+        const label = locatorMatch?.[1] === 'p.' ? 'page' : locatorMatch?.[1] === 'pp.' ? 'pages' : locatorMatch?.[1] === 'chap.' ? 'chapter' : undefined;
+        const integralPrefix = record.citationMode.t === 'NormalCitation' && display(record.citationPrefix ?? []) === '+' && source.includes(`+@${record.citationId}`);
+        return { type: 'citation' as const, key: record.citationId, namespace: 'citation' as const,
+          ...(record.citationMode.t === 'NormalCitation' && !integralPrefix ? {} : { mode: record.citationMode.t === 'SuppressAuthor' ? 'suppress-author' as const : 'author-in-text' as const }),
+          ...(record.citationPrefix?.length && !integralPrefix ? { prefix: inlineList(record.citationPrefix, warnings) } : {}),
+          ...(locatorMatch ? { locator: { ...(label ? { label } : {}), children: [{ type: 'text' as const, value: locatorMatch[2]! }] } } : record.citationSuffix?.length ? { suffix: inlineList(record.citationSuffix, warnings) } : {}),
         };
-        take(headCount);
-        if (groups) {
-            for (const body of groups.bodies) {
-                take(body.headRows);
-                take(body.bodyRows);
-            }
-            take(groups.footRows);
-        } else {
-            take(rows.length - headCount);
-        }
+      });
+      const keys = [...source.matchAll(/(?<!\\)@([\w:-]+)/gu)].map(match => match[1]);
+      const sourceMatches = source.startsWith('[') && source.endsWith(']') && keys.length === records.length && keys.every((key, index) => key === records[index]?.citationId);
+      const raw = sourceMatches ? source : `[${records.map(record => {
+        const prefix = display(record.citationPrefix ?? []);
+        const marker = record.citationMode.t === 'AuthorInText' ? '+@' : record.citationMode.t === 'SuppressAuthor' ? '-@' : '@';
+        const suffix = display(record.citationSuffix ?? []);
+        return `${prefix ? `${prefix} ` : ''}${marker}${record.citationId}${suffix}`;
+      }).join('; ')}]`;
+      return [{ type: 'citation_group', raw, children }];
     }
+    default: warnings.push(`${node.t}: unsupported Pandoc inline`); return [{ type: 'text', value: String(node.c ?? '') }];
+  }
+}
 
-    // Column alignment comes from the first row's cells, but ONLY when that row
-    // is the head. Carve spells column alignment on the header marker
-    // (`|={>} Name |`), and a marker on a body cell aligns that cell alone -
-    // measured on the engine: `|>a| b |` styles `a` and leaves the cell below
-    // it untouched. Reading a body row's markers as the column's therefore
-    // aligned cells the author had not aligned, in every pandoc writer, because
-    // a cell with `AlignDefault` inherits its ColSpec.
-    //
-    // The head case moves the alignment rather than copying it: the marker on a
-    // head cell IS the column's alignment, so it becomes the ColSpec and the
-    // cell keeps `AlignDefault`. That is pandoc's own model, and it makes the
-    // crossing exact in both directions instead of adding a per-cell override
-    // that was never in the source.
-    const firstRowIsHead = headCount > 0;
-    const firstRow = rows[0] ?? [];
-    // THE COLUMN COUNT IS THE WIDEST ROW, NOT THE FIRST. A Carve table is
-    // RAGGED - PART 9 §16 keeps each row's own cell count - while a pandoc
-    // table is rectangular and its ColSpec list DEFINES the width. Sizing the
-    // list from the first row therefore emitted a table whose later rows have
-    // cells past the last column, which is not a shape pandoc's own readers
-    // produce: `| ~x~ |` above `| a | b |` declared one column, and `b` was
-    // dropped on the way back with nothing reported. The alignment of a column
-    // no first-row cell covers is simply unset.
-    const width = Math.max(0, ...rows.map((row) => row.length));
-    if (rows.some((row) => row.length < width)) {
-        // Padding is the conversion, not a defect - but it is a change the
-        // author can see, so it is reported like every other one.
-        warn(
-            ctx,
-            `table: ${rows.filter((row) => row.length < width).length} row(s) shorter than the `
-            + `widest (${width} cells) are padded with empty cells - a pandoc table is `
-            + 'rectangular, and PART 9 §16 keeps each row\'s own cell count',
-        );
-    }
-    const columns = (n.columns as CColumn[] | undefined) ?? [];
-    const colAligns: P.Alignment[] = Array.from({ length: width }, (_, c) => {
-        const declared = ALIGN[columns[c]?.align ?? ''];
-        if (declared) return declared;
-        if (!firstRowIsHead) return 'AlignDefault';
-        // The last header row that marks the column sets its default, as in the engine.
-        for (let r = headCount - 1; r >= 0; r--) {
-            const cell = rows[r]![c];
-            // A span placeholder's own braces align its column too.
-            const marked = cell?.header || cell?.span !== undefined ? cell?.align : undefined;
-            if (marked) return ALIGN[marked] ?? 'AlignDefault';
-        }
-        return 'AlignDefault';
+function importTable(c: any[], warnings: string[]): TableNode {
+  const row = (r: any[], header: boolean): TableRowNode => {
+    const rowAttr = r[0] as P.Attr;
+    const cells: TableCellNode[] = r[1].map((cell: any[]) => {
+    const content = blockList(cell[4], warnings);
+    const children: TableCellNode['children'] = content.length === 1 && content[0]?.type === 'paragraph' ? [{ type: 'cell_paragraph', children: content[0].children }] : content.length ? content : [{ type: 'cell_paragraph', children: [] }];
+    const cellFields = Object.fromEntries((cell[0] as P.Attr)[2]);
+    const span = cellFields['carve-span'];
+    let headerIds: string[] | undefined;
+    try { if (cellFields['carve-header-ids']) headerIds = JSON.parse(cellFields['carve-header-ids']); }
+    catch { warnings.push('Table: invalid header IDs carrier'); }
+    const scope = cellFields['carve-scope'];
+    return withAttr({ type: 'table_cell', header: header || cellFields['carve-header'] === '1', ...(span === 'rowspan' || span === 'colspan' ? { span } : {}), ...(scope === 'row' || scope === 'col' || scope === 'rowgroup' || scope === 'colgroup' ? { scope } : {}), ...(['top', 'middle', 'bottom', 'baseline'].includes(cellFields['carve-valign'] ?? '') ? { valign: cellFields['carve-valign'] as TableCellNode['valign'] } : {}), ...(headerIds ? { headerIds } : {}), ...(cell[1].t === 'AlignDefault' ? {} : { align: cell[1].t === 'AlignLeft' ? 'left' as const : cell[1].t === 'AlignRight' ? 'right' as const : 'center' as const }), ...(cell[2] > 1 ? { rowspan: cell[2] } : {}), ...(cell[3] > 1 ? { colspan: cell[3] } : {}), children }, [(cell[0] as P.Attr)[0], (cell[0] as P.Attr)[1], (cell[0] as P.Attr)[2].filter(([k]) => !['carve-span', 'carve-scope', 'carve-valign', 'carve-header-ids', 'carve-header'].includes(k))]);
     });
-
-    // origin[r][c] -> the origin record covering grid position (r, c).
-    interface Origin {
-        cell: P.PCell;
-        row: number;
-        col: number;
+    const saved = rowAttr[2].find(([key]) => key === 'carve-covered-cells')?.[1];
+    if (saved) {
+      try {
+        const covered = JSON.parse(saved) as { index: number; cell: TableCellNode }[];
+        for (const item of covered) cells.splice(item.index, 0, item.cell);
+      } catch { warnings.push('Table: invalid covered cell carrier'); }
     }
-    const origin: (Origin | undefined)[][] = rows.map(() => []);
-    const emitted: (P.PCell | null)[][] = rows.map((row) => row.map(() => null));
+    return withAttr({ type: 'table_row', children: cells }, [rowAttr[0], rowAttr[1], rowAttr[2].filter(([key]) => key !== 'carve-covered-cells')]);
+  };
+  const children: TableNode['children'] = [];
+  if (c[3][1].length || importAttr(c[3][0])) children.push(withAttr({ type: 'table_head', children: c[3][1].map((r: any[]) => row(r, true)) }, c[3][0]));
+  // C2-A-088: a body has no head-row count; Pandoc's intermediate head rows stay rows of header cells.
+  // C2-B-230: body-header-cols gives every body a count once one body has row-head columns.
+  const explicitRowHeads = c[4].some((b: any[]) => b[1] > 0);
+  for (const b of c[4]) children.push(withAttr({ type: 'table_body', ...(b[1] || explicitRowHeads ? { rowHeadColumns: b[1] } : {}), children: [...b[2].map((r: any[]) => row(r, true)), ...b[3].map((r: any[]) => row(r, false))] }, b[0] as P.Attr));
+  if (c[5][1].length || importAttr(c[5][0])) children.push(withAttr({ type: 'table_foot', children: c[5][1].map((r: any[]) => row(r, false)) }, c[5][0]));
+  let columns: TableNode['columns'] = c[2].map((x: any[]) => ({ type: 'table_column', ...(x[0].t === 'AlignDefault' ? {} : { align: x[0].t === 'AlignLeft' ? 'left' as const : x[0].t === 'AlignRight' ? 'right' as const : 'center' as const }), ...(x[1].t === 'ColWidth' ? { width: x[1].c } : {}) }));
+  const columnFacts = (c[0] as P.Attr)[2].find(([k]) => k === 'carve-columns')?.[1];
+  if (columnFacts) { try { const saved = JSON.parse(columnFacts) as Omit<TableNode['columns'][number], 'type'>[]; if (Array.isArray(saved) && saved.length === columns.length) columns = saved.map(x => ({ type: 'table_column', ...x })); } catch { warnings.push('Table: invalid carve-columns carrier'); } }
+  let caption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
+  const savedCaption = (c[0] as P.Attr)[2].find(([key]) => key === 'carve-caption')?.[1];
+  if (savedCaption) { const restored = readCaption(savedCaption); if (restored) caption = restored; else warnings.push('Table: invalid carve-caption carrier'); }
+  // Source control keys describe rows; a stale Pandoc Attr must not override them.
+  const partitionKeys = new Set(['header-rows', 'footer-rows']);
+  return withAttr({ type: 'table', columns, children, ...(caption ? { caption } : {}) }, [(c[0] as P.Attr)[0], (c[0] as P.Attr)[1], (c[0] as P.Attr)[2].filter(([k]) => k !== 'carve-columns' && k !== 'carve-caption' && !partitionKeys.has(k))]);
+}
 
-    for (let r = 0; r < rows.length; r++) {
-        const row = rows[r]!;
-        for (let c = 0; c < row.length; c++) {
-            const cc = row[c]!;
-            // Already claimed by the strip of a `^` to its left.
-            if (origin[r]![c]) continue;
-            // Pandoc omits covered positions entirely, so a continuation that
-            // RESOLVES leaves nowhere to hang its attributes. The grammar
-            // cannot produce that shape (a cell carrying attributes is never a
-            // bare span cell); a wire AST can. An ORPHAN continuation is a
-            // different story - it falls through and becomes a real cell below,
-            // which keeps them, so the warning belongs on the resolving paths
-            // only.
-            const droppedAttrs = (): void => {
-                if (hasAttrs(cc.attrs)) {
-                    warn(ctx, `table: attributes on the continuation cell at row ${r + 1}, col ${c + 1} are dropped - pandoc omits covered positions`);
-                }
-            };
-            if (cc.span === 'colspan') {
-                const org = origin[r]![c - 1];
-                // Widening a cell that started in an earlier row would cover
-                // cells already placed above (PART 9 section 13 T5).
-                if (org && org.row === r) {
-                    org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
-                    origin[r]![c] = org;
-                    droppedAttrs();
-                    continue;
-                }
-                warn(ctx, `table: colspan continuation at row ${r + 1}, col ${c + 1} has no origin - emitting empty cell`);
-            } else if (cc.span === 'rowspan') {
-                const above = r > 0 ? origin[r - 1]![c] : undefined;
-                // T5: only the origin's own column extends it, and only when the
-                // rest of its strip in this row is markers, so a span never
-                // covers another cell.
-                const org = above && above.col === c
-                    && row.slice(c + 1, c + above.cell.colSpan).every((next, k) => next.span !== undefined && !origin[r]![c + 1 + k])
-                    ? above
-                    : undefined;
-                if (org) {
-                    // POLICY: clip, do not restructure. Carve is the richer
-                    // model here - its rows are one flat list, so a rowspan may
-                    // start in the head and continue into the body; pandoc's
-                    // TableHead and TableBody hold separate row lists and a
-                    // Cell's rowSpan is confined to the section that owns it,
-                    // so the covering cell has no shape on that side. The
-                    // alternatives both lie about the source: moving the
-                    // boundary so the span fits silently reclassifies a header
-                    // row as a body row (or the reverse), and duplicating the
-                    // origin's content into the body invents a second cell the
-                    // author never wrote. Clipping to an empty body cell keeps
-                    // the grid the right size, and the warning below says what
-                    // was lost.
-                    if (sectionOf[org.row] !== sectionOf[r]) {
-                        warn(ctx, `table: rowspan crossing the header/body boundary at row ${r + 1}, col ${c + 1} - clipped to an empty body cell (pandoc cannot represent it)`);
-                    } else {
-                        // max(): a 2D block has one rowspan continuation per
-                        // covered column - count rows, not continuations.
-                        org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
-                        for (let k = c; k < c + org.cell.colSpan && k < row.length; k++) origin[r]![k] = org;
-                        droppedAttrs();
-                        continue;
-                    }
-                } else {
-                    warn(ctx, `table: rowspan continuation at row ${r + 1}, col ${c + 1} has no origin - emitting empty cell`);
-                }
-            }
-            const cellBlocks = Array.isArray(cc.blocks)
-                ? untight(ctx, () => blocks(ctx, cc.blocks!))
-                : cc.children?.length
-                ? [P.Plain(untight(ctx, () => inlines(ctx, cc.children)))]
-                : [];
-            // A head cell's marker became the ColSpec above, so repeating it
-            // here would emit an override pandoc does not need and the source
-            // never had.
-            const ownAlign: P.Alignment = ALIGN[cc.align ?? ''] ?? 'AlignDefault';
-            const cellAlign: P.Alignment = firstRowIsHead && r === 0 && ownAlign === colAligns[c]
-                ? 'AlignDefault'
-                : ownAlign;
-            const pc = P.cell(cellBlocks, cellAlign, toAttr(ctx, cc.attrs));
-            origin[r]![c] = { cell: pc, row: r, col: c };
-            emitted[r]![c] = pc;
+function importBlock(node: P.PandocNode, warnings: string[]): Block[] {
+  const c = node.c as any;
+  switch (node.t) {
+    case 'Para': case 'Plain': return [{ type: 'paragraph', children: inlineList(c, warnings) }];
+    case 'Header': { const a = c[1] as P.Attr; const generated = a[2].some(([key]) => key === 'carve-generated-id'); const cleaned: P.Attr = [generated ? '' : a[0], a[1], a[2].filter(([key]) => key !== 'carve-generated-id')]; return [withAttr({ type: 'heading', level: c[0], children: inlineList(c[2], warnings) }, cleaned)]; }
+    case 'HorizontalRule': return [{ type: 'thematic_break' }];
+    case 'BlockQuote': return [{ type: 'block_quote', children: blockList(c, warnings) }];
+    case 'CodeBlock': { const a = c[0] as P.Attr; const noSyntax = a[2].some(([key]) => key === 'carve-no-syntax'); const groupLabel = a[2].find(([key]) => key === 'carve-group-label')?.[1]; const title = readTitle(a[2].find(([key]) => key === 'carve-title')?.[1]); return [withAttr({ type: 'code_block', value: c[1], ...(!noSyntax && a[1][0] ? { syntax: a[1][0] } : {}), ...(groupLabel ? { groupLabel } : {}), ...(title ? { title } : {}) }, [a[0], noSyntax ? a[1] : a[1].slice(1), a[2].filter(([key]) => key !== 'carve-group-label' && key !== 'carve-title' && key !== 'carve-no-syntax')])]; }
+    case 'RawBlock': return c[0] === 'carve-tree' ? [JSON.parse(c[1]) as Block] : c[0].startsWith('carve-frontmatter:') ? [{ type: 'frontmatter', format: c[0].slice('carve-frontmatter:'.length), value: c[1] } as unknown as Block] : c[0].startsWith('carve-comment-') ? [{ type: 'comment', form: c[0].slice('carve-comment-'.length), value: c[1] }] : [{ type: 'raw_block', format: c[0], value: c[1] }];
+    case 'Div': { const a = c[0] as P.Attr; if (a[1].includes('carve-page-break') && c[1].length === 1 && c[1][0].t === 'HorizontalRule') return [withAttr({ type: 'thematic_break' }, [a[0], ['page-break', ...a[1].filter((x: string) => x !== 'carve-page-break')], a[2]])]; const kvs = Object.fromEntries(a[2]); const title = readTitle(kvs['carve-title']); if (a[1].includes('carve-include')) { let options: Extract<Block, {type: 'include'}>['options']; try { if (kvs['options']) options = JSON.parse(kvs['options']); } catch { warnings.push('Include: invalid options carrier'); } let invalid: string[] | undefined; try { if (kvs['invalid']) invalid = JSON.parse(kvs['invalid']); } catch { warnings.push('Include: invalid carrier'); } return [{ type: 'include', path: kvs['path'] ?? '', ...(kvs['section'] ? { section: kvs['section'] } : {}), ...(options ? { options } : {}), ...(invalid ? { invalid } : {}) }]; } if (a[1].includes('carve-line-block') && c[1].length === 1 && c[1][0].t === 'LineBlock') { const line = importBlock(c[1][0], warnings)[0]; return [withAttr(line!, [a[0], a[1].filter(x => x !== 'carve-line-block'), a[2]]) as Block]; } if (a[1].includes('carve-block-quote') && c[1].length === 1 && c[1][0].t === 'BlockQuote') { const quote = importBlock(c[1][0], warnings)[0]; return [withAttr(quote!, [a[0], a[1].filter(x => x !== 'carve-block-quote'), a[2]]) as Block]; } if (a[1].includes('carve-figure-group')) { const caption = readCaption(kvs['carve-caption']); return [withAttr({ type: 'figure_group', children: blockList(c[1], warnings), ...(caption ? { caption } : {}) }, [a[0], a[1].filter(x => x !== 'carve-figure-group'), a[2].filter(([key]) => key !== 'carve-caption')])]; } if (a[1].includes('carve-list') && c[1].length === 1) { const list = importBlock(c[1][0], warnings)[0]; if (list?.type === 'list') { const restored = list.marker.kind === 'bullet' && kvs['marker-char'] === '*' ? { ...list, marker: { kind: 'bullet' as const, char: '*' as const } } : list; return [withAttr(restored, [a[0], a[1].filter(x => x !== 'carve-list'), a[2].filter(([key]) => key !== 'marker-char')])]; } } if (a[1].includes('carve-paragraph') && c[1].length === 1 && c[1][0].t === 'Para') { const cleaned: P.Attr = [a[0], a[1].filter(x => x !== 'carve-paragraph'), a[2].filter(([key]) => !['carve-block-image','carve-block-math'].includes(key))]; return [withAttr({ type: 'paragraph', children: inlineList(c[1][0].c, warnings), ...(kvs['carve-block-image'] ? { role: 'image' as const } : {}), ...(kvs['carve-block-math'] ? { role: 'math' as const } : {}) }, cleaned)]; } const cleaned: P.Attr = [a[0], a[1].filter(x => !['carve-section', 'carve-admonition', 'carve-directive'].includes(x)), a[2].filter(([key]) => !['carve-group-label', 'carve-section-level', 'carve-title'].includes(key))]; const presentationCount = (kvs['carve-title'] !== undefined ? 1 : 0) + (kvs['carve-group-label'] !== undefined ? 1 : 0); const children = blockList(c[1].slice(presentationCount), warnings); if (a[1].includes('carve-section')) return [withAttr({ type: 'section', children, ...(kvs['carve-section-level'] ? { level: Number(kvs['carve-section-level']) } : {}) }, cleaned)]; if (a[1].includes('carve-admonition')) return [withAttr({ type: 'admonition', kind: a[1][a[1].indexOf('carve-admonition') + 1] as 'note', children, ...(kvs['carve-group-label'] !== undefined ? { groupLabel: kvs['carve-group-label'] } : {}), ...(title ? { title } : {}) }, [cleaned[0], cleaned[1].filter(x => x !== a[1][a[1].indexOf('carve-admonition') + 1]), cleaned[2]])]; if (a[1].includes('carve-directive')) return [withAttr({ type: 'directive', kind: a[1][a[1].indexOf('carve-directive') + 1] as 'toc', children, ...(kvs['carve-group-label'] !== undefined ? { groupLabel: kvs['carve-group-label'] } : {}), ...(title ? { title } : {}) }, [cleaned[0], cleaned[1].filter(x => x !== a[1][a[1].indexOf('carve-directive') + 1]), cleaned[2]])]; return [withAttr({ type: 'div', children, ...(kvs['carve-group-label'] !== undefined ? { groupLabel: kvs['carve-group-label'] } : {}), ...(title ? { title } : {}) }, cleaned)]; }
+    case 'BulletList': return [{ type: 'list', marker: { kind: 'bullet', char: '-' }, spacing: c.every((item: P.PandocNode[]) => item.every(b => b.t !== 'Para')) ? 'tight' : 'loose', children: c.map((item: P.PandocNode[]) => importItem(item, warnings)) }];
+    case 'OrderedList': { const example = c[0][1].t === 'Example'; const style = ({ LowerAlpha: 'a', UpperAlpha: 'A', LowerRoman: 'i', UpperRoman: 'I' } as Record<string, 'a'|'A'|'i'|'I'>)[c[0][1].t] ?? '1'; return [{ type: 'list', ...(example ? { attrs: { keyValues: [['carve-example', '1'], ['carve-example-delimiter', c[0][2].t]] as [string, string][] } } : {}), marker: { kind: 'ordered', style, delimiter: c[0][2].t === 'OneParen' ? ')' : '.', ...(c[0][0] === 1 ? {} : { start: c[0][0] }) }, spacing: c[1].every((item: P.PandocNode[]) => item.every(b => b.t !== 'Para')) ? 'tight' : 'loose', children: c[1].map((item: P.PandocNode[]) => importItem(item, warnings)) }]; }
+    case 'LineBlock': return [{ type: 'line_block', children: c.map((line: P.PandocNode[]) => line.length === 1 && line[0]!.t === 'RawInline' && /^carve-comment-(block|line|braced)$/u.test((line[0]!.c as [string, string])[0]) ? { type: 'comment' as const, form: (line[0]!.c as [string, string])[0].slice('carve-comment-'.length) as 'block' | 'line' | 'braced', value: (line[0]!.c as [string, string])[1] } : { type: 'line' as const, children: inlineList(line, warnings) }) }];
+    case 'DefinitionList': return [{ type: 'definition_list', children: c.flatMap((entry: [P.PandocNode[], P.PandocNode[][]]) => [{ type: 'definition_term', children: inlineList(entry[0], warnings) }, ...entry[1].map(xs => ({ type: 'definition_description', children: blockList(xs, warnings) }))]) }];
+    case 'Figure': {
+      const a = c[0] as P.Attr;
+      const nativeCaption: CaptionNode | undefined = c[1][1].length ? { type: 'caption', children: blockList(c[1][1], warnings), ...(c[1][0] ? { short: inlineList(c[1][0], warnings) } : {}) } : undefined;
+      const savedCaption = a[2].find(([key]) => key === 'carve-caption')?.[1];
+      let caption = nativeCaption;
+      if (savedCaption) { try { caption = JSON.parse(savedCaption) as CaptionNode; } catch { warnings.push('Figure: invalid carve-caption carrier'); } }
+      const children = blockList(c[2], warnings);
+      for (const child of children) if (child.type === 'paragraph' && child.children.length === 1 && child.children[0]?.type === 'image') child.role = 'image';
+      const attrs: P.Attr = [a[0], a[1].filter(name => name !== 'carve-figure-group'), a[2].filter(([key]) => key !== 'carve-caption')];
+      const only = children.length === 1 ? children[0] : undefined;
+      if (!a[1].includes('carve-figure-group') && only && ((only.type === 'paragraph' && only.role !== undefined) || only.type === 'block_quote' || only.type === 'code_block' || only.type === 'include') && !only.caption) {
+        // Export splits one node's attributes between the Figure and the block's own carrier (lang, dir); merge them back unless they clash.
+        const inner = only.attrs ?? {};
+        const clash = (attrs[0] && inner.id) || attrs[2].some(([key]) => inner.keyValues?.some(([other]) => other === key));
+        if (!clash) {
+          const merged: P.Attr = [attrs[0] || inner.id || '', [...attrs[1], ...(inner.classes ?? [])], [...attrs[2], ...(inner.keyValues ?? [])]];
+          const { attrs: _drop, ...bare } = only;
+          return [withAttr({ ...bare, ...(caption ? { caption } : {}) } as Block, merged)];
         }
+      }
+      return [withAttr({ type: 'figure_group', children, ...(caption ? { caption } : {}) }, attrs)];
     }
-
-    const toRows = (from: number, to: number): P.PRow[] => {
-        const out: P.PRow[] = [];
-        for (let r = from; r < to; r++) {
-            const cells = emitted[r]!.filter((x): x is P.PCell => x !== null);
-            const rowAttrs = (n.rows as CNode[])[r]?.attrs as CAttrs | undefined;
-            const rowAttr = hasAttrs(rowAttrs) ? toAttr(ctx, rowAttrs) : P.attr();
-            if (ctx.roundtrip && r < headCount && rows[r]!.some((cell) => cell.span === undefined && !cell.header)) {
-                rowAttr[2].unshift([
-                    HEAD_CELL_KINDS,
-                    rows[r]!.map((cell) => cell.header ? '1' : '0').join(''),
-                ]);
-            }
-            out.push(P.row(cells, rowAttr));
-        }
-        return out;
-    };
-
-    /** How many LEADING cells of a row are header cells (`|= Mercury | ... |`). */
-    const leadOf = (row: CCell[]): number => {
-        let n = 0;
-        while (n < row.length && row[n]!.header === true) n++;
-        return Math.min(n, width);
-    };
-
-    let bodies: P.TableBody[];
-    let footRows: P.PRow[] = [];
-    if (groups) {
-        let at = headCount;
-        bodies = groups.bodies.map((body) => {
-            const headTo = at + body.headRows;
-            const bodyTo = headTo + body.bodyRows;
-            const converted: P.TableBody = {
-                attr: toAttr(ctx, body.attrs),
-                headRows: toRows(at, headTo),
-                bodyRows: toRows(headTo, bodyTo),
-            };
-            // A DECLARED PARTITION STILL HAS TO READ THE CELLS. `rowGroups` may
-            // state the head and foot row counts and say nothing about row
-            // headers - that is exactly what a pipe table's
-            // `{header-rows=N footer-rows=M}` produces - and the derivation
-            // below used to run only when NO partition was declared. So a table
-            // that stated its foot lost every `|= North | 11 |` row header in
-            // silence, while the same table without the foot kept them.
-            //
-            // A declared body cannot be SPLIT the way the derived ones are
-            // (splitting would contradict the count that was stated), so the
-            // count is taken only when the body's rows agree on it, and the
-            // disagreement is reported rather than resolved by a minimum.
-            const declared = body.rowHeadColumns
-                ?? agreedLead(leadOf, rows, headTo, bodyTo, ctx, n);
-            if (declared) converted.rowHeadColumns = declared;
-            at = bodyTo;
-            return converted;
-        });
-        footRows = toRows(at, at + groups.footRows);
-    } else {
-        // ROW HEADERS ARE DERIVED WHEN NOTHING DECLARED THEM. A body row may
-        // open with header cells (`|= Mercury | 4,879.4 |`), which the engine
-        // renders as `<th scope="row">`. Pandoc says the same thing with
-        // `RowHeadColumns`, a COUNT on the body - and the count was only ever
-        // read from an explicit `rowGroups`, so a table that simply marked its
-        // first cells came out as ordinary `<td>` and lost the row headers.
-        //
-        // ONE BODY PER RUN OF ROWS THAT AGREE, not one body for the table.
-        //
-        // This used to take the MINIMUM leading run across every body row,
-        // because one `RowHeadColumns` is one number. A body whose rows disagree
-        // therefore lost every row header above that minimum, and lost it
-        // SILENTLY - the cells simply came out `<td>`. Corpus 354-2 is the
-        // smallest case: a plain row followed by a row-header row takes the
-        // minimum 0, so `<th scope="row">b c</th>` came back `<td>b c</td>`.
-        //
-        // Pandoc's own model has the slot for this. A `Table` holds a LIST of
-        // bodies and each carries its own `RowHeadColumns`, so consecutive rows
-        // that agree become one body and a change starts the next one. Nothing
-        // is invented: a document with a single run still emits exactly one
-        // body, which is what every table that agreed already produced.
-        bodies = [];
-        let at = headCount;
-        while (at < rows.length) {
-            const lead = leadOf(rows[at]!);
-            let to = at + 1;
-            while (to < rows.length && leadOf(rows[to]!) === lead) to++;
-            const group: P.TableBody = { bodyRows: toRows(at, to) };
-            if (lead > 0) group.rowHeadColumns = lead;
-            bodies.push(group);
-            at = to;
-        }
-        // A table with a head and no body rows at all still needs a body,
-        // because that is the shape pandoc's own readers produce.
-        if (!bodies.length) bodies = [{ bodyRows: [] }];
-    }
-
-    // A ROW HEADER WITH NO ROW-HEAD SLOT TO SIT IN HAS NOWHERE TO GO, and until
-    // now it went nowhere QUIETLY. `RowHeadColumns` is a count of the row's FIRST
-    // cells, so `| h |= i |` - a data cell, then a row header - cannot be said at
-    // all: pandoc's `Cell` carries no header flag, and splitting into more bodies
-    // only partitions ROWS, never columns. A foot row is worse off still, because
-    // `TableFoot` is a bare list of rows with no `RowHeadColumns` at all
-    // (src/pandoc.ts `Table`), so even a LEADING header cell has no slot there.
-    //
-    // Splitting the run fixed the rows that disagreed with each other, and
-    // `agreedLead` reports the declared bodies that cannot split. This is the
-    // remaining case, where the cells disagree WITHIN a row, and it is a limit of
-    // pandoc's model rather than something the bridge can spell. Reporting it is
-    // the whole of what can be done, and it is worth more than it looks: the
-    // silence is what let the loss ride along unnoticed while the corpus round
-    // trip was computed with an engine too old to produce the shape at all.
-    //
-    // It runs for a DECLARED partition too. It used to sit inside the derived
-    // branch, where no foot can exist and a body always splits, so a table that
-    // stated its foot reached none of it.
-    const footFrom = rows.length - (groups?.footRows ?? 0);
-    for (let r = headCount; r < rows.length; r++) {
-        const row = rows[r]!;
-        const lead = r >= footFrom ? 0 : leadOf(row);
-        const strays = row.reduce(
-            (count, cell, at) => (at >= lead && cell.header === true ? count + 1 : count),
-            0,
-        );
-        if (strays === 0) continue;
-        warn(
-            ctx,
-            r >= footFrom
-                ? `table: a foot row's row header is dropped - pandoc's TableFoot is a bare list `
-                    + `of rows with no RowHeadColumns, so the ${strays} header cell(s) in row `
-                    + `${r + 1} have no slot in its model`
-                : `table: a row header outside the leading run is dropped - pandoc's RowHeadColumns `
-                    + `counts a row's FIRST cells, and row ${r + 1} marks ${strays} header cell(s) after `
-                    + `${lead} unmarked one(s), which its model cannot express`,
-            { construct: 'table', row: r + 1, rowHeadColumns: lead, dropped: strays },
-            n.pos,
-        );
-    }
-
-    return P.Table(
-        // `header-rows` / `footer-rows` are the partition when a partition was
-        // consumed, and it reached `groups` above - leaving them here would
-        // state the same fact twice and put a stray attribute on the table in
-        // every pandoc writer. The list-table reader filters its own copies too.
-        //
-        // WITHOUT A PARTITION THEY ARE ORDINARY ATTRIBUTES AND HAVE TO SURVIVE.
-        // PART 12 section 15: invalid body metadata synthesizes no partition and
-        // leaves every row-group name, `header-rows` and `footer-rows` included,
-        // an ordinary attribute in HTML. The engine keeps the keys on `attrs`
-        // either way and signals consumption by `rowGroups` alone, so that is
-        // what this reads. Corpus 541: `{header-rows=1 body-rows=x}` renders
-        // `<table header-rows="1" body-rows="x">` and filtering unconditionally
-        // dropped the first of the two.
-        // Roundtrip keeps the authored `valigns` and `widths` lists: ColSpec
-        // has no vertical slot, and a list may be shorter than the table or
-        // hold entries the engine ignores.
-        toAttrWithout(ctx, n.attrs as CAttrs | undefined,
-            (groups
-                ? ['aligns', 'valigns', 'widths', 'header-rows', 'footer-rows', 'body-rows', 'body-header-rows', 'body-header-cols']
-                : ['aligns', 'valigns', 'widths']).filter((key) => !ctx.roundtrip || (key !== 'valigns' && key !== 'widths'))),
-        caption,
-        colAligns,
-        toRows(0, headCount),
-        bodies,
-        footRows,
-        shortCaption,
-        Array.from({ length: width }, (_, c) => columns[c]?.width ?? null),
-        toAttr(ctx, groups?.headAttrs as CAttrs | undefined),
-        toAttr(ctx, groups?.footAttrs as CAttrs | undefined),
-    );
+    case 'Table': return [importTable(c, warnings)];
+    default: warnings.push(`${node.t}: unsupported Pandoc block`); return [];
+  }
 }
 
-/**
- * The row-head column count a declared body's rows agree on, or 0.
- *
- * Pandoc's `RowHeadColumns` is one number per body, so rows that disagree have
- * no shared answer. The derived path solves that by starting a new body at each
- * change; a body whose boundaries were STATED cannot move them, so this reports
- * the disagreement instead of picking a number some row did not ask for.
- */
-function agreedLead(
-    leadOf: (row: CCell[]) => number,
-    rows: CCell[][],
-    from: number,
-    to: number,
-    ctx: Ctx,
-    n: CNode,
-): number {
-    if (to <= from) return 0;
-    const first = leadOf(rows[from]!);
-    for (let r = from + 1; r < to; r++) {
-        if (leadOf(rows[r]!) === first) continue;
-        warn(
-            ctx,
-            'table: the rows of a declared body group disagree on how many leading cells are '
-            + `row headers (row ${from + 1} marks ${first}, row ${r + 1} marks ${leadOf(rows[r]!)}) `
-            + "- pandoc's RowHeadColumns is one count per body and the group's boundaries were "
-            + 'stated, so no count is emitted and those cells come back as data cells',
-            { construct: 'table', row: r + 1, rowHeadColumns: first },
-            n.pos,
-        );
-        return 0;
-    }
-    return first;
+export function pandocToCarveAst(input: P.PandocDoc | string): { ast: DocumentNode; warnings: string[] } {
+  if (typeof input === 'string') checkPandocJsonDepth(input);
+  const doc = typeof input === 'string' ? JSON.parse(input) as P.PandocDoc : input;
+  checkPandocNodeDepth(doc);
+  const warnings: string[] = [];
+  const metadata: NonNullable<DocumentNode['metadata']> = {};
+  const metaInlines = (name: string): Inline[] | undefined => doc.meta?.[name]?.t === 'MetaInlines' ? inlineList(doc.meta[name]!.c as P.Inline[], warnings) : undefined;
+  const title = metaInlines('title'); if (title) metadata.title = title;
+  const subtitle = metaInlines('subtitle'); if (subtitle) metadata.subtitle = subtitle;
+  const authors = doc.meta?.author;
+  if (authors?.t === 'MetaList' && Array.isArray(authors.c)) metadata.authors = authors.c.map((author: P.PandocNode) => author.t === 'MetaInlines' ? (author.c as P.PandocNode[]).map(part => part.t === 'Str' ? String(part.c) : part.t === 'Space' ? ' ' : '').join('') : '').filter(Boolean);
+  const date = doc.meta?.date;
+  if (date?.t === 'MetaString') metadata.date = String(date.c);
+  else if (date?.t === 'MetaInlines') metadata.date = (date.c as P.PandocNode[]).map(part => part.t === 'Str' ? String(part.c) : part.t === 'Space' ? ' ' : '').join('');
+  const bibliography = doc.meta?.['carve-bibliography'];
+  if (bibliography?.t === 'MetaString') { try { metadata.bibliography = JSON.parse(String(bibliography.c)); } catch { warnings.push('Metadata: invalid bibliography carrier'); } }
+  for (const key of Object.keys(doc.meta ?? {})) if (!['title', 'subtitle', 'author', 'date', 'carve-bibliography'].includes(key)) warnings.push(`metadata ${key}: no typed 0.2 slot`);
+  const children = blockList(doc.blocks, warnings);
+  const generated = (warnings as string[] & { generatedNotes?: DocumentNode['children'] }).generatedNotes ?? [];
+  const ast: DocumentNode = { type: 'document', astVersion: '2.0', children: [...children, ...generated], ...(Object.keys(metadata).length ? { metadata } : {}) };
+  validateTree(ast);
+  return { ast, warnings };
 }
-
-function toAttrWithout(ctx: Ctx, attrs: CAttrs | undefined, omitted: string[]): P.Attr {
-    const [id, classes, pairs] = toAttr(ctx, attrs);
-    return [id, classes, pairs.filter(([key]) => !omitted.includes(key))];
-}
-
-// --- List tables (listTable extension semantics) ---
-
-/** Sole-content span marker of a list-table cell: `<` joins left, `^` joins up. */
-function spanMarker(cellBlocks: CNode[]): 'colspan' | 'rowspan' | null {
-    if (cellBlocks.length !== 1) return null;
-    const only = cellBlocks[0]!;
-    if (only.type !== 'paragraph') return null;
-    const children = (only.children as CNode[] | undefined) ?? [];
-    if (children.length !== 1) return null;
-    const t = children[0]!;
-    if (t.type !== 'text') return null;
-    const v = String(t.value).trim();
-    return v === '<' ? 'colspan' : v === '^' ? 'rowspan' : null;
-}
-
-/**
- * Resolve `header-rows` like the canonical listTable extension: absent -> 0,
- * boolean form `{header-rows}` (stored as "") -> 1, explicit number -> count.
- */
-function headerCount(value: string | undefined): number {
-    if (value === undefined) return 0;
-    if (value.trim() === '') return 1;
-    const parsed = parseInt(value, 10);
-    return Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
-}
-
-/**
- * Returns null when the block is not strictly table-shaped (extra siblings
- * around the outer list, or a row item that is not exactly one nested list) -
- * mirroring the canonical extension, which defers those to the degraded Div
- * so authored content is never dropped.
- */
-function listTableToTable(ctx: Ctx, n: CNode): P.Block | null {
-    const a = (n.attrs ?? {}) as CAttrs;
-    const headerRows = headerCount(a.keyValues?.['header-rows']);
-    // `header-cols` promotes the first N cells of every row to row headers
-    // (extensions.md §5.1), which is exactly pandoc's `RowHeadColumns`. It was
-    // read by nobody and left behind as an ordinary table attribute.
-    const headerCols = headerCount(a.keyValues?.['header-cols']);
-    const footerRows = headerCount(a.keyValues?.['footer-rows']);
-    const caption = Array.isArray(n.title) ? inlines(ctx, n.title as CNode[]) : null;
-
-    // Strict shape: exactly one child, the outer list; every row item holds
-    // exactly one child, the inner cell list.
-    const children = (n.children as CNode[] | undefined) ?? [];
-    if (children.length !== 1 || children[0]!.type !== 'list') return null;
-    const rowItems = (children[0]!.items as CNode[] | undefined) ?? [];
-    const grid: CNode[][][] = [];
-    const cellItems: CNode[][] = [];
-    for (const rowItem of rowItems) {
-        const rowChildren = (rowItem.children as CNode[] | undefined) ?? [];
-        if (rowChildren.length !== 1 || rowChildren[0]!.type !== 'list') return null;
-        const items = (rowChildren[0]!.items as CNode[] | undefined) ?? [];
-        cellItems.push(items);
-        grid.push(
-            items.map(
-                (cellItem) => (cellItem.children as CNode[] | undefined) ?? [],
-            ),
-        );
+export function pandocToCarve(input: P.PandocDoc | string): { carve: string; warnings: string[] } {
+  const { ast, warnings } = pandocToCarveAst(input);
+  const spelled = structuredClone(ast);
+  const addEmptyItemComments = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) { value.forEach(addEmptyItemComments); return; }
+    const node = value as Record<string, unknown>;
+    if (node.type === 'list_item' && Array.isArray(node.children) && node.children.length === 0) {
+      node.children.push({ type: 'comment', form: 'line', value: '' });
+      warnings.push('empty-list-item-spelled: an empty item uses a nonrendering comment in Carve source');
     }
-
-    const nCols = Math.max(0, ...grid.map((r) => r.length));
-
-    interface Origin {
-        cell: P.PCell;
-        row: number;
-        col: number;
-    }
-    const origin: (Origin | undefined)[][] = grid.map(() => []);
-    const emitted: (P.PCell | null)[][] = grid.map((r) => r.map(() => null));
-
-    for (let r = 0; r < grid.length; r++) {
-        for (let c = 0; c < grid[r]!.length; c++) {
-            const cellBlocks = grid[r]![c]!;
-            const marker = spanMarker(cellBlocks);
-            if (marker === 'colspan' && origin[r]![c - 1]) {
-                const org = origin[r]![c - 1]!;
-                if (r === org.row) org.cell.colSpan = Math.max(org.cell.colSpan, c - org.col + 1);
-                origin[r]![c] = org;
-                continue;
-            }
-            if (marker === 'rowspan' && r > 0 && origin[r - 1]![c]) {
-                const org = origin[r - 1]![c]!;
-                // The list-table half of the clip-do-not-restructure policy the
-                // pipe-table path states in full; same reason, same outcome.
-                const crossesHead = org.row < headerRows && r >= headerRows;
-                if (!crossesHead) {
-                    org.cell.rowSpan = Math.max(org.cell.rowSpan, r - org.row + 1);
-                    origin[r]![c] = org;
-                    continue;
-                }
-                warn(ctx, `list-table: rowspan crossing the header/body boundary at row ${r + 1} - clipped`);
-            }
-            const pc = P.cell(
-                untight(ctx, () => blocks(ctx, cellBlocks)),
-                'AlignDefault',
-                toAttr(ctx, (cellItems[r]![c]!.attrs ?? {}) as CAttrs),
-            );
-            origin[r]![c] = { cell: pc, row: r, col: c };
-            emitted[r]![c] = pc;
-        }
-    }
-
-    const toRows = (from: number, to: number): P.PRow[] => {
-        const out: P.PRow[] = [];
-        for (let r = from; r < to; r++) {
-            out.push(P.row(emitted[r]!.filter((x): x is P.PCell => x !== null)));
-        }
-        return out;
-    };
-
-    const head = Math.min(headerRows, grid.length);
-    const [id, classes, kvs] = toAttr(ctx, a);
-    const foot = Math.min(footerRows, Math.max(0, grid.length - head));
-    const bodyEnd = grid.length - foot;
-    const hasBareMarker = (item: CNode | undefined, key: string): boolean =>
-        ((item?.attrs ?? {}) as CAttrs).keyValues?.[key] === '';
-    const bodies: P.TableBody[] = [];
-    let at = head;
-    while (at < bodyEnd) {
-        const bodyStart = at;
-        let headEnd = at;
-        if (hasBareMarker(cellItems[at]?.[0], 'header-row')) {
-            while (headEnd < bodyEnd && hasBareMarker(cellItems[headEnd]?.[0], 'header-row')) headEnd++;
-        }
-        let next = headEnd;
-        while (next < bodyEnd && !hasBareMarker(cellItems[next]?.[0], 'header-row')) next++;
-        // A marker after ordinary rows begins the next body; the ordinary run
-        // before it remains its own body with no intermediate header.
-        const end = headEnd === bodyStart ? next : next;
-        const body: P.TableBody = {
-            ...(headEnd > bodyStart ? { headRows: toRows(bodyStart, headEnd) } : {}),
-            bodyRows: toRows(headEnd, end),
-        };
-        if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
-        bodies.push(body);
-        at = end;
-    }
-    if (!bodies.length) {
-        const body: P.TableBody = { bodyRows: [] };
-        if (headerCols > 0) body.rowHeadColumns = Math.min(headerCols, nCols);
-        bodies.push(body);
-    }
-    return P.Table(
-        [id, classes, kvs.filter(([k]) => !['header-rows', 'header-cols', 'footer-rows', 'aligns', 'widths', 'valigns'].includes(k))],
-        caption,
-        positionalAligns(a.keyValues?.aligns, nCols),
-        toRows(0, head),
-        bodies,
-        toRows(bodyEnd, grid.length),
-        null,
-        positionalWidths(a.keyValues?.widths, nCols),
-    );
-}
-
-function positionalAligns(value: string | undefined, count: number): P.Alignment[] {
-    const values = value?.split(',').map((part) => ALIGN[part.trim()] ?? 'AlignDefault') ?? [];
-    return Array.from({ length: count }, (_, i) => values[i] ?? 'AlignDefault');
-}
-
-function positionalWidths(value: string | undefined, count: number): Array<number | null> {
-    const values = value?.split(',').map((part) => {
-        const n = Number(part.trim());
-        return Number.isFinite(n) && n > 0 && n <= 100 ? n / 100 : null;
-    }) ?? [];
-    return Array.from({ length: count }, (_, i) => values[i] ?? null);
-}
-
-// --- Figures ---
-
-/**
- * A captioned host, which is pandoc's `Figure` - the generic captioned wrapper
- * on both sides (PART 9 §4b).
- *
- * A QUOTE IS NOT A SPECIAL HOST. carve#1161 briefly made a caption on a quote
- * an `attribution` rendered inside the `<blockquote>`, and this function
- * rerouted a quote target into that shape; the clause is withdrawn
- * (carve#1213), and PART 9 §4b now cites the HTML Standard in the other
- * direction - attribution "must be placed outside the `blockquote` element",
- * with a `<figure>` + `<figcaption>` given as the way to relate the two. So a
- * captioned quote takes the same path as a captioned code listing or a
- * captioned equation, and corpus 07-blockquote-with-attribution pins the
- * `<figure><blockquote>…<figcaption>` bytes.
- *
- * WHAT THE REROUTE BOUGHT, AND WHY IT IS NOT ENOUGH. Pandoc's plain and rst
- * writers drop a `Figure` caption wholesale, and the latex writer floats it -
- * measured on pandoc 3.5, and the reason §4a was implemented here. But they do
- * that to EVERY figure: a captioned code block loses its caption in both
- * writers today. That is a degradation of those two writers, one level below
- * the AST this bridge produces, and paying for it with a node shape the spec
- * denies would put the attribution in the one place the HTML Standard names as
- * wrong.
- */
-function figure(ctx: Ctx, n: CNode): P.Block[] {
-    const target = n.target as CNode | undefined;
-    ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
-    const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
-    const shortCaption = Array.isArray(n.shortCaption)
-        ? inlines(ctx, n.shortCaption as CNode[])
-        : null;
-    ctx.captionKind = undefined;
-    if (!target) return [];
-    if (target.type === 'table') {
-        // Pandoc tables carry a native caption; no Figure wrapper needed.
-        return [table(ctx, target, caption, shortCaption)];
-    }
-    if (target.type === 'image') {
-        const img = inline(ctx, target);
-        return [P.Figure(toAttr(ctx, n.attrs), caption, [P.Plain(img)], shortCaption)];
-    }
-    // Any other captionable target, a QUOTE INCLUDED - this is the arm a
-    // captioned quote takes, at document level and as a §4c panel alike. It
-    // used to be unreachable for a quote outside a group, because §4a rerouted
-    // that case; nothing reroutes it now.
-    return [P.Figure(toAttr(ctx, n.attrs), caption, untight(ctx, () => block(ctx, target)), shortCaption)];
-}
-
-/** The §4c panels of a group: its `figure` and `table` children, in order. */
-function isPanel(n: CNode): boolean {
-    return n?.type === 'figure' || n?.type === 'table';
-}
-
-/**
- * A composite figure (PART 9 §4c, carve#1122): a bare `::: figure` container
- * is ONE figure of ordered panels, and Pandoc has that model natively - a
- * `Figure` whose blocks are themselves `Figure`s is its subfigure shape. So
- * the group becomes the outer `Figure`, its caption the outer caption, and its
- * children the blocks, with the panels among them lowering to nested Figures.
- *
- * Before the engine pin carried the node, `::: figure` parsed as a generic
- * admonition and crossed as `Div ["admonition","figure"]`. That Div is gone;
- * a filter keyed on it has to key on the Figure nesting instead.
- *
- * THE NUMBER IS DRAWN AT THE OPENING FENCE, which is why the caption is
- * converted BEFORE the children even though its `^ ` line is the construct's
- * last: corpus 318-composite-figures-11 numbers the group "Figure 1" and a
- * captioned figure nested deeper inside it "Figure 2".
- *
- * PANELS ARE THE DIRECT `figure`/`table` CHILDREN, and everything else is
- * plain group content preserved IN PLACE between them (§4c, corpus
- * 318-composite-figures-5) - so the children convert in source order and
- * nothing is re-sorted into a panel array.
- *
- * A DIRECT-CHILD CAPTIONED QUOTE IS A PANEL like any other captioned host -
- * "the quote is not a special host inside the group either" (corpus
- * 318-composite-figures-10, where it renders as a panel with a figcaption).
- * It reads that way because a captioned quote is a `figure` EVERYWHERE now,
- * not because the group holds a reroute the rest of the document does not; the
- * §4a attribution that once needed one is withdrawn (carve#1213).
- */
-function figureGroup(ctx: Ctx, n: CNode): P.Block[] {
-    ctx.captionKind = captionLabel(n.caption as CNode[] | undefined);
-    const caption = Array.isArray(n.caption) ? inlines(ctx, n.caption as CNode[]) : null;
-    ctx.captionKind = undefined;
-
-    const children = (n.children as CNode[] | undefined) ?? [];
-    const body = untight(ctx, () =>
-        children.flatMap((child) => {
-            if (!isPanel(child)) return block(ctx, child);
-            const prev = ctx.inPanel;
-            ctx.inPanel = true;
-            try {
-                return child.type === 'figure' ? figure(ctx, child) : block(ctx, child);
-            } finally {
-                ctx.inPanel = prev;
-            }
-        }),
-    );
-    const [id, classes, kvs] = toAttr(ctx, n.attrs);
-    const marked: [string, string][] = ctx.roundtrip ? [...kvs, ['carve-block', 'figure_group']] : kvs;
-    return [P.Figure([id, classes, marked], caption, body)];
-}
-
-// --- Metadata (frontmatter) ---
-
-/**
- * The YAML subset typical frontmatter uses, read to the depth pandoc's `Meta`
- * has: nested maps, block and flow sequences, scalars.
- *
- * Not a YAML implementation. Anchors, tags, multi-document streams, block
- * scalars and flow maps are out; a line that does not fit is reported and
- * skipped rather than guessed at. What IS in is the shape a real document
- * carries - `author: [ - name:, affiliation: ]`, `keywords:` as a block list,
- * a `bibliography` map - which used to end as an EMPTY `MetaInlines` under the
- * parent key, with one "line not understood" per child line and nothing said
- * about the parent having been emptied.
- */
-function parseMeta(ctx: Ctx, frontmatter: unknown): Record<string, P.MetaValue> {
-    const fm = frontmatter as { format?: string; content?: string } | undefined;
-    if (!fm?.content) return {};
-    if (fm.format && fm.format !== 'yaml') {
-        warn(ctx, `frontmatter: format "${fm.format}" not supported - skipped`);
-        return {};
-    }
-    const lines: YamlLine[] = [];
-    // Block scalars come out FIRST, while the blank lines inside them are still
-    // there: the line reader below drops blank lines (they carry no structure
-    // in a mapping), and a blank line inside a literal scalar is a paragraph
-    // break. Each becomes one sentinel scalar the ordinary reader can carry.
-    for (const raw of liftBlockScalars(ctx, fm.content).split('\n')) {
-        if (!raw.trim() || raw.trim().startsWith('#')) continue;
-        lines.push({ indent: raw.length - raw.trimStart().length, text: raw.trim() });
-    }
-    const reader: YamlReader = { ctx, lines, at: 0 };
-    const map = readMapping(reader, lines[0]?.indent ?? 0);
-    // A line the mapping reader could not use never advances past it; the guard
-    // is what keeps a malformed document from spinning here.
-    while (reader.at < lines.length) {
-        warn(ctx, `frontmatter: line not understood, skipped: ${lines[reader.at]!.text}`);
-        reader.at++;
-    }
-    return map;
-}
-
-/**
- * A `key: |` line and the lines indented under it, replaced by one sentinel.
- *
- * The literal block scalar is the ONE YAML form that carries block content,
- * and it is the form pandoc's own markdown writer emits for `MetaBlocks` and
- * its reader turns back into `MetaBlocks` - key-agnostically, so `abstract`
- * gets no special case here either. Lifting it out before the line reader runs
- * keeps two things that would otherwise fight: the reader drops blank lines,
- * and a blank line inside the scalar is a paragraph break.
- *
- * Only the plain `|` is read. `|-`, `|+`, `>` and an explicit indentation
- * indicator are not what the writer emits, and this file's rule for the rest of
- * YAML applies to them too: a line that does not fit a known shape is reported
- * and skipped, never guessed at.
- */
-const BLOCK_SCALAR_OPEN = /^(\s*)("[^"]*"|'[^']*'|[^:"'#][^:]*|[^:"'#]):[ \t]*\|[ \t]*$/;
-
-function liftBlockScalars(ctx: Ctx, content: string): string {
-    if (!content.includes('|')) return content;
-    const lines = content.split('\n');
-    const out: string[] = [];
-    for (let i = 0; i < lines.length; i++) {
-        const open = BLOCK_SCALAR_OPEN.exec(lines[i]!);
-        if (!open) {
-            out.push(lines[i]!);
-            continue;
-        }
-        const keyIndent = open[1]!.length;
-        const body: string[] = [];
-        let j = i + 1;
-        for (; j < lines.length; j++) {
-            const line = lines[j]!;
-            const deeper = line.trim() !== '' && line.length - line.trimStart().length > keyIndent;
-            if (!deeper && line.trim() !== '') break;
-            body.push(line);
-        }
-        // Trailing blank lines belong to whatever follows, not to the scalar.
-        while (body.length && body[body.length - 1]!.trim() === '') body.pop();
-        if (!body.length) {
-            out.push(lines[i]!);
-            continue;
-        }
-        const strip = Math.min(
-            ...body.filter((l) => l.trim() !== '').map((l) => l.length - l.trimStart().length),
-        );
-        // A NUL cannot occur in the frontmatter of a real document and is
-        // not whitespace, so the sentinel survives the reader's `trim()`
-        // and can never be confused with a scalar the author wrote.
-        const sentinel = `\u0000block${ctx.blockScalars.size}\u0000`;
-        ctx.blockScalars.set(sentinel, body.map((l) => l.slice(strip)).join('\n') + '\n');
-        out.push(`${open[1]}${open[2]}: ${sentinel}`);
-        i = j - 1;
-    }
-    return out.join('\n');
-}
-
-/**
- * The Carve markup inside a literal block scalar, as `MetaBlocks`.
- *
- * This is the half of the round trip that used to be missing, and its absence
- * was the whole argument for dropping `MetaBlocks` on the way out: the value
- * "makes the frontmatter carry markup that nothing on the reading side
- * parses". Something does now, so the value survives both ways - the same
- * bargain pandoc's own markdown reader and writer strike over `abstract: |`.
- */
-function blockScalarValue(ctx: Ctx, key: string, source: string): P.MetaValue {
-    if (!ctx.parseBlocks) {
-        // The AST entry points supply the parser; a caller reaching `convert`
-        // directly has no engine to lend, and the old skip is still the honest
-        // answer there.
-        warn(
-            ctx,
-            `frontmatter: block content under "${key}" needs a Carve parser to read - `
-            + 'use carveToPandoc / carveAstToPandoc, which supply one; skipped',
-        );
-        return P.MetaInlines([]);
-    }
-    const children = ctx.parseBlocks(source) as CNode[];
-    return P.MetaBlocks(blocks(ctx, children));
-}
-
-interface YamlLine {
-    indent: number;
-    text: string;
-}
-
-interface YamlReader {
-    ctx: Ctx;
-    lines: YamlLine[];
-    at: number;
-}
-
-/**
- * A `key:` line. The unquoted alternative must not OPEN with a quote, or a
- * quoted scalar holding a colon (`- "scope: local"`) matches it and becomes a
- * map whose key is `"scope` - pandoc reads that item as one string.
- */
-const KEY_LINE = /^("[^"]*"|'[^']*'|[^:"'][^:]*|[^:"']):(?:\s+(.*))?$/;
-
-/** A mapping runs while lines sit at exactly `indent` and look like keys. */
-function readMapping(r: YamlReader, indent: number): Record<string, P.MetaValue> {
-    const out: Record<string, P.MetaValue> = {};
-    while (r.at < r.lines.length) {
-        const line = r.lines[r.at]!;
-        if (line.indent !== indent || line.text.startsWith('- ') || line.text === '-') break;
-        const m = KEY_LINE.exec(line.text);
-        if (!m) break;
-        const key = unquoteYaml(m[1]!);
-        const inline = (m[2] ?? '').trim();
-        r.at++;
-        out[key] = inline !== '' ? scalarValue(r.ctx, key, inline) : readChild(r, indent, key);
-    }
-    return out;
-}
-
-/** A sequence runs while lines sit at exactly `indent` and open with `-`. */
-function readSequence(r: YamlReader, indent: number): P.MetaValue[] {
-    const out: P.MetaValue[] = [];
-    while (r.at < r.lines.length) {
-        const line = r.lines[r.at]!;
-        if (line.indent !== indent || !(line.text === '-' || line.text.startsWith('- '))) break;
-        const rest = line.text.slice(1).trim();
-        if (rest === '') {
-            r.at++;
-            out.push(readChild(r, indent, ''));
-            continue;
-        }
-        const m = KEY_LINE.exec(rest);
-        if (m) {
-            // `- name: Ada` opens a map whose later keys align under `name`, so
-            // the item's own indent is where that key starts, not the dash.
-            const keyIndent = indent + (line.text.length - rest.length);
-            r.lines[r.at] = { indent: keyIndent, text: rest };
-            out.push(P.MetaMap(readMapping(r, keyIndent)));
-            continue;
-        }
-        r.at++;
-        out.push(scalarValue(r.ctx, '', rest));
-    }
-    return out;
-}
-
-/**
- * The value written under a key that had none on its own line: whatever sits at
- * the next deeper indent. Nothing deeper means an empty value, which is YAML's
- * own reading of `key:` alone.
- */
-function readChild(r: YamlReader, indent: number, key: string): P.MetaValue {
-    const next = r.lines[r.at];
-    if (!next || next.indent <= indent) return P.MetaInlines([]);
-    if (next.text === '-' || next.text.startsWith('- ')) {
-        return P.MetaList(readSequence(r, next.indent));
-    }
-    const map = readMapping(r, next.indent);
-    if (Object.keys(map).length) return P.MetaMap(map);
-    // Nothing consumed at that indent: the reader would not advance, so report
-    // it here rather than leaving the caller to spin.
-    warn(r.ctx, `frontmatter: value under "${key}" not understood, skipped: ${next.text}`);
-    r.at++;
-    return P.MetaInlines([]);
-}
-
-function unquoteYaml(s: string): string {
-    const t = s.trim();
-    if ((t.startsWith('"') && t.endsWith('"') && t.length > 1)
-        || (t.startsWith("'") && t.endsWith("'") && t.length > 1)) {
-        return t.slice(1, -1);
-    }
-    return t;
-}
-
-/**
- * The boolean and null spellings YAML 1.2 resolves as such, matching pandoc
- * 3.13's frontmatter reader. The former YAML 1.1 aliases (`on`, `yes`, `y`,
- * and their false counterparts) are strings.
- *
- * Matching that set exactly is the point. A `draft: true` arriving as
- * `MetaInlines "true"` is not a near miss: every pandoc template and filter
- * tests metadata for truthiness, and a non-empty string is true, so
- * `draft: false` written in Carve turns the draft flag ON once it crosses the
- * bridge. The value only has to survive a `MetaBool` on the way out (the writer
- * has always emitted `true`/`false`) for the round-trip to keep the type.
- *
- * A QUOTED scalar is never a boolean, which is why the test runs on the raw
- * text before {@link unquoteYaml} sees it.
- */
-const YAML_TRUE = /^(true|True|TRUE)$/;
-const YAML_FALSE = /^(false|False|FALSE)$/;
-const YAML_NULL = /^(~|null|Null|NULL)$/;
-
-function scalarValue(ctx: Ctx, key: string, raw: string): P.MetaValue {
-    const blockScalar = ctx.blockScalars.get(raw);
-    if (blockScalar !== undefined) return blockScalarValue(ctx, key, blockScalar);
-    // `{}` is the only flow map read: an EMPTY one, which is what the writer
-    // emits for a `MetaMap` with no entries. A populated flow map is not in the
-    // subset and falls through to being read as a string, same as before.
-    if (raw.replace(/\s+/g, '') === '{}') return P.MetaMap({});
-    if (raw.startsWith('[') && raw.endsWith(']')) {
-        const items = raw
-            .slice(1, -1)
-            .split(',')
-            .map((s) => s.trim())
-            .filter((s) => s !== '' && unquoteYaml(s) !== '');
-        // Items are typed by the same rules as a scalar on its own line, so a
-        // `[true, draft]` list keeps the boolean and the word apart.
-        return P.MetaList(items.map((s) => scalarValue(ctx, '', s)));
-    }
-    if (YAML_TRUE.test(raw)) return P.MetaBool(true);
-    if (YAML_FALSE.test(raw)) return P.MetaBool(false);
-    // Pandoc reads a null scalar as the empty string rather than dropping the
-    // key, so the key stays present and empty here too.
-    if (YAML_NULL.test(raw)) return P.MetaString('');
-    const value = unquoteYaml(raw);
-    // Lists where pandoc conventionally expects lists, inlines elsewhere.
-    if (key === 'author' || key === 'authors') {
-        return P.MetaList([P.MetaInlines(textInlines(value))]);
-    }
-    return P.MetaInlines(textInlines(value));
-}
-
-/**
- * Trojan-Source controls (U+202A-202E, U+2066-2069), mirrored from the
- * engine, which strips them from every rendered text and code run but keeps
- * LRM/RLM. Raw passthrough is left alone, as the engine leaves it.
- */
-const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/gu;
-
-/** Strip {@link BIDI_CONTROLS} in place from Str, Code, CodeBlock and Math; returns the count. */
-function stripBidi(value: unknown): number {
-    let count = 0;
-    const strip = (s: string): string => s.replace(BIDI_CONTROLS, () => {
-        count++;
-        return '';
-    });
-    const stack: unknown[] = [value];
-    while (stack.length) {
-        const v = stack.pop();
-        if (Array.isArray(v)) {
-            for (const x of v) stack.push(x);
-            continue;
-        }
-        if (!v || typeof v !== 'object') continue;
-        const node = v as { t?: string; c?: unknown };
-        if (node.t === 'Str' && typeof node.c === 'string') node.c = strip(node.c);
-        else if ((node.t === 'Code' || node.t === 'CodeBlock' || node.t === 'Math') && Array.isArray(node.c)
-            && typeof node.c[1] === 'string') node.c[1] = strip(node.c[1]);
-        else if (node.t === 'RawInline' || node.t === 'RawBlock') continue;
-        for (const x of Object.values(node)) stack.push(x);
-    }
-    return count;
-}
-
-// --- Entry point ---
-
-// The source a tree was parsed from, for the spans the engine renders verbatim.
-const sourceOfTree = new WeakMap<object, string>();
-
-export function rememberSource(ast: CarveAstDocument, source: string): CarveAstDocument {
-    sourceOfTree.set(ast, source);
-    return ast;
-}
-
-/** The authored text of a node, when the tree's source is known. */
-function authoredText(ctx: Ctx, n: CNode): string | null {
-    const pos = n.pos as { startOffset?: number; endOffset?: number } | undefined;
-    if (!ctx.sourcePoints || pos?.startOffset === undefined || pos.endOffset === undefined) return null;
-    return ctx.sourcePoints.slice(pos.startOffset, pos.endOffset).join('');
-}
-
-export function convert(ast: CarveAstDocument, options: ConvertOptions = {}): ConvertResult {
-    // PART 12 section 7: frontmatter and footnote DEFINITIONS are block nodes
-    // in `children`, not fields on the root. They are lifted out here rather
-    // than converted in place - frontmatter becomes pandoc `meta`, and a
-    // definition is emitted at each reference, inside the Note.
-    const children = (ast.children as CNode[] | undefined) ?? [];
-    const footnoteDefs: Record<string, CNode[]> = {};
-    let frontmatter: CNode | undefined;
-    const body: CNode[] = [];
-    for (const child of children) {
-        if (child?.type === 'frontmatter' && frontmatter === undefined) {
-            frontmatter = child;
-        } else if (child?.type === 'footnote' && typeof child.label === 'string') {
-            // First definition wins, matching the engine's own resolution.
-            footnoteDefs[child.label] ??= (child.children as CNode[] | undefined) ?? [];
-        } else {
-            body.push(child);
-        }
-    }
-
-    const source = sourceOfTree.get(ast);
-    const ctx: Ctx = {
-        sourcePoints: source === undefined ? undefined : Array.from(source),
-        warnings: [],
-        diagnostics: [],
-        footnoteDefs,
-        crossrefTargets: new Map(),
-        headingIdByText: new Map(),
-        emptyDefinitions: new Set(),
-        headingIds: resolvedHeadingIds(ast),
-        captionTargets: new Set(),
-        tight: false,
-        inCrossref: false,
-        inLink: false,
-        captionCounts: new Map(),
-        captionKind: undefined,
-        inPanel: false,
-        roundtrip: options.roundtrip ?? false,
-        wrapperMarker: options.wrapperMarker ?? options.roundtrip ?? false,
-        symbols: options.symbols ?? {},
-        listTable: options.listTable ?? true,
-        noteCount: 0,
-        noteDepth: 0,
-        openNotes: new Set(),
-        citedNotes: new Set(),
-        liftedNotes: [],
-        parseBlocks: options.parseBlocks,
-        blockScalars: new Map(),
-    };
-
-    // Pass 1: collect crossref targets - heading ids (explicit, plus computed
-    // slugs) and numbered figure/table caption ids - before any block is
-    // converted, so `heading_ref` resolves regardless of where a crossref
-    // sits relative to its target.
-    collectCrossrefTargets(ctx, body, new Map());
-
-    const meta = parseMeta(ctx, frontmatter);
-
-    const converted = blocks(ctx, body);
-    const stripped = stripBidi(meta) + stripBidi(converted);
-    if (stripped > 0) {
-        warn(ctx, `bidi: ${stripped} bidi override or isolate control(s) stripped from text and code, as the engine's writers strip them`, { count: stripped });
-    }
-    const diagnostics = ctx.diagnostics;
-    return {
-        doc: {
-            'pandoc-api-version': [...P.PANDOC_API_VERSION],
-            meta,
-            blocks: converted,
-        },
-        warnings: ctx.warnings,
-        diagnostics,
-        report: migrationReport(diagnostics, 'carve'),
-    };
-}
-
-/**
- * Pass 1: walk the whole document before any block is converted, registering
- * every target a `heading_ref` (`</#id>`) can resolve to.
- *
- * Two kinds of target:
- *  - a heading's own id (explicit, or slugged from its text) -> its inline
- *    children, rendered verbatim as the crossref's link text.
- *  - a numbered figure/table caption's id (the `{#id}` attached to the
- *    figure or table itself) -> the computed "Label N" text, e.g.
- *    "Figure 1" - docs-extensions.md: "`</#id>` to the element resolves to
- *    label + number".
- *
- * The caption number is assigned per LABEL in document order (`captionLabel`
- * plus a running count) - exactly like `ctx.captionCounts` in pass 2 (see the
- * `caption_number` case in `inline()`). Pass 1 runs before pass 2 and cannot
- * read its counts, so it keeps its OWN counter here (`captionCounts`,
- * threaded through the recursion), walking captioned nodes in the same order
- * pass 2 will. The two counters land on identical numbers only because both
- * walk the same document the same way - a captioned element with no `{#id}`
- * still has to bump the counter (it consumes a number in pass 2 even though
- * nothing can ever crossref it), or a LATER captioned element's number here
- * would drift out of sync with what pass 2 actually renders.
- *
- * A `figure`/`table` node's own `caption` field is read directly - the same
- * field `figure()`/`table()` read in pass 2 - which also handles a table
- * nested under a figure with no caption of its own: the recursion below
- * reaches that inner `table` node too, and its own `caption`/`attrs.id` are
- * picked up there instead, mirroring `table()`'s fallback. Table cells are
- * not recursed into, matching the pre-existing limitation for headings
- * nested inside a table.
- *
- * `inPanel` is the third kind of target and the §4c suppression in one flag:
- * inside a composite figure's panel nothing draws a number, so nothing there
- * registers either - see `figureGroupTargets`.
- */
-function collectCrossrefTargets(
-    ctx: Ctx,
-    nodes: CNode[],
-    captionCounts: Map<string, number>,
-    inPanel = false,
-): void {
-    for (const n of nodes) {
-        if (n.type === 'figure_group') {
-            figureGroupTargets(ctx, n, captionCounts, inPanel);
-            continue;
-        }
-        if (n.type === 'heading') {
-            const children = (n.children as CNode[] | undefined) ?? [];
-            const a = (n.attrs ?? {}) as CAttrs;
-            let id = a.id ?? ctx.headingIds.get(n);
-            if (id === undefined) {
-                const base = slugify(plainText(children));
-                id = base;
-                for (let k = 2; [...ctx.headingIds.values()].includes(id); k++) id = `${base}-${k}`;
-            }
-            ctx.headingIds.set(n, id);
-            if (id && !ctx.crossrefTargets.has(id)) ctx.crossrefTargets.set(id, children);
-            const text = headingTextKey(plainText(children));
-            // First heading wins, the same way the id map resolves a duplicate.
-            if (id && text && !ctx.headingIdByText.has(text)) ctx.headingIdByText.set(text, id);
-        } else if (n.type === 'link_reference_definition' && String(n.href ?? '') === '') {
-            ctx.emptyDefinitions.add(refLabelKey(String(n.label ?? '')));
-        } else if (!inPanel && (n.type === 'figure' || n.type === 'table')) {
-            // Every figure counts, whatever it wraps. A quote used to be
-            // excluded here, because §4a made a captioned quote an attribution
-            // that drew no number; that clause is withdrawn (carve#1213), and
-            // a quote figure numbers like the code listing beside it.
-            const caption = n.caption as CNode[] | undefined;
-            if (Array.isArray(caption) && caption.some((x) => x?.type === 'caption_number')) {
-                const label = captionLabel(caption) ?? 'caption';
-                const next = (captionCounts.get(label) ?? 0) + 1;
-                captionCounts.set(label, next);
-                const a = (n.attrs ?? {}) as CAttrs;
-                if (a.id && !ctx.crossrefTargets.has(a.id)) {
-                    ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${label} ${next}` }]);
-                    ctx.captionTargets.add(a.id);
-                }
-            }
-        }
-        for (const key of ['children', 'items', 'target'] as const) {
-            const v = n[key];
-            if (Array.isArray(v)) collectCrossrefTargets(ctx, v as CNode[], captionCounts, inPanel);
-            else if (v && typeof v === 'object') {
-                collectCrossrefTargets(ctx, [v as CNode], captionCounts, inPanel);
-            }
-        }
-    }
-}
-
-/**
- * The `</#id>` targets a composite figure contributes (PART 9 §4c).
- *
- * The GROUP draws one number from its label's sequence, at its OPENING fence -
- * before anything inside it, which is what makes corpus
- * 318-composite-figures-11 number the group "Figure 1" and a figure nested
- * inside its stray content "Figure 2".
- *
- * A PANEL - a direct `figure` or `table` child - draws nothing, and its id
- * resolves as the group's number plus a letter by panel order: "Figure 2a"
- * (corpus 318-composite-figures-2), a..z then aa, ab, ... A group whose
- * caption carries no `#` has no number to lend, so it registers nothing for
- * its panels either.
- *
- * The suppression covers everything a panel CONTAINS, not just the panel's own
- * caption. Stray non-panel content numbers normally, exactly as it would
- * outside the group.
- */
-function figureGroupTargets(
-    ctx: Ctx,
-    n: CNode,
-    captionCounts: Map<string, number>,
-    inPanel: boolean,
-): void {
-    const caption = n.caption as CNode[] | undefined;
-    let resolved: string | undefined;
-    if (
-        !inPanel &&
-        Array.isArray(caption) &&
-        caption.some((x) => x?.type === 'caption_number')
-    ) {
-        const label = captionLabel(caption) ?? 'caption';
-        const next = (captionCounts.get(label) ?? 0) + 1;
-        captionCounts.set(label, next);
-        resolved = `${label} ${next}`;
-        const a = (n.attrs ?? {}) as CAttrs;
-        if (a.id && !ctx.crossrefTargets.has(a.id)) {
-            ctx.crossrefTargets.set(a.id, [{ type: 'text', value: resolved }]);
-            ctx.captionTargets.add(a.id);
-        }
-    }
-
-    let panelIndex = 0;
-    for (const child of (n.children as CNode[] | undefined) ?? []) {
-        if (!isPanel(child)) {
-            collectCrossrefTargets(ctx, [child], captionCounts, inPanel);
-            continue;
-        }
-        const a = (child.attrs ?? {}) as CAttrs;
-        const letter = panelLetter(panelIndex++);
-        if (resolved && a.id && !ctx.crossrefTargets.has(a.id)) {
-            ctx.crossrefTargets.set(a.id, [{ type: 'text', value: `${resolved}${letter}` }]);
-            // A panel caption holds no `#` either, so the crossref has to
-            // cross as the plain link it renders as (see `captionTargets`).
-            ctx.captionTargets.add(a.id);
-        }
-        collectCrossrefTargets(ctx, [child], captionCounts, true);
-    }
-}
-
-/**
- * The §4c panel letter for panel index `k` (0-based): `a`..`z`, then `aa`,
- * `ab`, ... - bijective base 26, the same function the engine resolves with.
- */
-function panelLetter(k: number): string {
-    let out = '';
-    let i = k + 1;
-    while (i > 0) {
-        i--;
-        out = String.fromCharCode(97 + (i % 26)) + out;
-        i = Math.floor(i / 26);
-    }
-    return out;
+    for (const child of Object.values(node)) addEmptyItemComments(child);
+  };
+  addEmptyItemComments(spelled);
+  const output = writeWithDiagnostics(spelled);
+  warnings.push(...output.diagnostics.map(d => `${d.code}: ${d.message}`));
+  // The engine can elide an all-empty table without emitting a loss diagnostic.
+  if (output.source === '') for (const node of ast.children) if (node.type === 'table') {
+    warnings.push('structure-unspellable: an empty table node has no spelling in Carve source here');
+    for (const group of node.children) if (group.attrs) warnings.push(`field-unspellable: the field attrs of a ${group.type} node has no spelling in Carve source here`);
+  }
+  return { carve: output.source, warnings };
 }

@@ -1,16 +1,16 @@
 {#quarterly-report}
-# Quarterly Report
+= Quarterly Report
 
 This Markdown is the *seed* for the DOCX import example. The build renders it to a throwaway `.docx` in memory (never written to the repo), then imports that binary back through `pandoc -f docx` into `report.crv`. It exercises the exact code path a real Word document takes - `pandoc-carve report.docx -f docx`.
 
 {#highlights}
-## Highlights
+== Highlights
 
 - Revenue grew /year over year/.
 - Two new markets opened.
 
 {#numbers}
-## Numbers
+== Numbers
 
 {widths=42.35294117647059,42.35294117647059}
 |= Metric |= Value |

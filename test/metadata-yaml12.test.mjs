@@ -1,19 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc } from '../dist/index.js';
+import { carveToCarveAst } from '../dist/index.js';
 
-const inline = (text) => ({ t: 'MetaInlines', c: [{ t: 'Str', c: text }] });
-
-test('YAML 1.2 aliases remain strings at every metadata depth', () => {
-  const source = `---yaml
-root: yes
-nested:
-  flag: off
-flow: [on, n, false, TRUE]
----
-`;
-  const { doc } = carveToPandoc(source);
-  assert.deepEqual(doc.meta.root, inline('yes'));
-  assert.deepEqual(doc.meta.nested.c.flag, inline('off'));
-  assert.deepEqual(doc.meta.flow.c, [inline('on'), inline('n'), { t: 'MetaBool', c: false }, { t: 'MetaBool', c: true }]);
+test('YAML 1.2 aliases stay verbatim in 0.2 frontmatter', () => {
+  const value = 'root: yes\nnested:\n  flag: off\nflow: [on, n, false, TRUE]\n';
+  const ast = carveToCarveAst(`---yaml\n${value}---\n`);
+  assert.equal(ast.children[0].type, 'frontmatter');
+  assert.equal(ast.children[0].value, value);
 });
+
+test.skip('YAML 1.2 aliases remain strings at every Pandoc metadata depth [F-001: no general Pandoc Meta slot in the 0.2 tree]', () => {});

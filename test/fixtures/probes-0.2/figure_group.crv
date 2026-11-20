@@ -1,0 +1,8 @@
+::: figure
+![a](a.png)
+^ (a) First
+
+![b](b.png)
+^ (b) Second
+:::
+^ Figure #: Both

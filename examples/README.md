@@ -93,7 +93,7 @@ a bridge decision - pandoc-carve mirrors whatever the reference engine does.
 
 ## Pandoc version
 
-The pinned outputs track **pandoc 3.5** (the version the test suite targets).
+The pinned outputs track **pandoc 3.14** (the version the test suite targets).
 A different pandoc major/minor can shift text output (e.g. LaTeX escaping); if
 `npm run examples:build` produces a diff you did not expect, check your local
 `pandoc --version` first.

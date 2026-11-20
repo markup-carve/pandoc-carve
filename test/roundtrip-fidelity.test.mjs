@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToHtml } from '@markup-carve/carve';
+import { render as carveToHtml } from '@markup-carve/carve';
 import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { normalizeHtml } from './html-equivalence.mjs';
 
@@ -21,7 +21,7 @@ const cases = {
   'an authored valigns and widths list': '{valigns=top,bottom widths=25,50}\n| a | b | c |\n',
   'a task item that opens with a nested list': '- [x] - b\n  - c\n',
   'an empty class token': '{class=""}\npara\n',
-  'a link inside a crossref target heading': '# [l](/u) t\n\n</#l-t>\n',
+  'a link inside a crossref target heading': '= [l](/u) t\n\n</#l-t>\n',
   'a link inside a note inside a link': '[t ^[x [a](u) b]](/w)\n',
   'an unresolved reference inside a link': '[[x][]](/u)\n',
   'a note body that wraps over lines': '[^f]: d\n  {.c\n}\n  x\n\n[^f]\n',
@@ -43,11 +43,11 @@ test('a crossref target heading exports its link once', () => {
     if (node.t === 'Link') links.push(node.c[2][0]);
     walk(node.c);
   };
-  walk(carveToPandoc('# [l](/u) t\n\n</#l-t>\n').doc.blocks);
+  walk(carveToPandoc('= [l](/u) t\n\n</#l-t>\n').doc.blocks);
   assert.deepEqual(links, ['/u', '#l-t']);
 });
 
 test('an authored pos attribute survives provenance', () => {
   const { ast } = pandocToCarveAst(carveToPandoc('![x][r]{pos=foo}\n', { roundtrip: true }).doc);
-  assert.deepEqual(ast.children[0].children[0].attrs.keyValues, { pos: 'foo' });
+  assert.deepEqual(ast.children[0].children[0].attrs.keyValues, [['pos', 'foo']]);
 });

@@ -1,4 +1,4 @@
-# Table spans
+= Table spans
 
 Carve tables carry cell spans with two markers: `<` merges a cell into its left
 neighbor (colspan) and `^` merges a cell into the one above it (rowspan).
@@ -8,7 +8,7 @@ survive into LaTeX `\multicolumn`/`\multirow`, DOCX merged cells, Typst, and the
 rest - not just HTML.
 
 |= Region |= 2024 |= 2025 |
-| North   | 100   | <     |
-| South   | 40    | 60    |
-| ^       | 30    | 50    |
+| North | 100 | < |
+| South | 40 | 60 |
+| ^ | 30 | 50 |
 ^ Sales by region (North 2024 spans both years; South spans two rows)

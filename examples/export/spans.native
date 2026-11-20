@@ -1,6 +1,6 @@
 [ Header
     1
-    ( "Table-spans" , [] , [] )
+    ( "Table-spans" , [] , [ ( "carve-generated-id" , "1" ) ] )
     [ Str "Table" , Space , Str "spans" ]
 , Para
     [ Str "Carve"
@@ -67,7 +67,17 @@
     , Space
     , Str "into"
     , Space
-    , Str "Pandoc\8217s"
+    , Str "Pandoc"
+    , Span
+        ( ""
+        , [ "carve-smart" ]
+        , [ ( "kind" , "right_single_quote" )
+          , ( "source" , "'" )
+          , ( "glyph" , "\8217" )
+          ]
+        )
+        [ Str "\8217" ]
+    , Str "s"
     , Space
     , Str "origin-cell"
     , Space
@@ -137,7 +147,13 @@
     , Str "HTML."
     ]
 , Table
-    ( "" , [] , [] )
+    ( ""
+    , []
+    , [ ( "carve-caption"
+        , "{\"type\":\"caption\",\"children\":[{\"type\":\"paragraph\",\"children\":[{\"type\":\"text\",\"value\":\"Sales by region (North 2024 spans both years; South spans two rows)\"}]}]}"
+        )
+      ]
+    )
     (Caption
        Nothing
        [ Plain
@@ -199,7 +215,13 @@
         (RowHeadColumns 0)
         []
         [ Row
-            ( "" , [] , [] )
+            ( ""
+            , []
+            , [ ( "carve-covered-cells"
+                , "[{\"index\":2,\"cell\":{\"type\":\"table_cell\",\"header\":false,\"span\":\"colspan\",\"children\":[]}}]"
+                )
+              ]
+            )
             [ Cell
                 ( "" , [] , [] )
                 AlignDefault
@@ -235,7 +257,13 @@
                 [ Plain [ Str "60" ] ]
             ]
         , Row
-            ( "" , [] , [] )
+            ( ""
+            , []
+            , [ ( "carve-covered-cells"
+                , "[{\"index\":0,\"cell\":{\"type\":\"table_cell\",\"header\":false,\"span\":\"rowspan\",\"children\":[]}}]"
+                )
+              ]
+            )
             [ Cell
                 ( "" , [] , [] )
                 AlignDefault

@@ -15,9 +15,9 @@ extension it becomes a clickable tab button; here, with no extension, it
 degrades to a visible caption so a print reader can still tell the
 panels apart.
 
-<div class="admonition tabs">
+<div class="tabs">
 
-<div class="admonition tab">
+<div class="tab" data-carve-group-label="Installation">
 
 **Installation**
 
@@ -25,7 +25,7 @@ Run `npm install @markup-carve/pandoc-carve`.
 
 </div>
 
-<div class="admonition tab">
+<div class="tab" data-carve-group-label="Usage">
 
 **Usage**
 
@@ -41,7 +41,7 @@ Same grouping mechanism, code panels instead of prose. Each fence keeps
 its language (so syntax highlighting survives every writer); the panels
 stack.
 
-<div class="admonition code-group">
+<div class="code-group">
 
 ``` js
 export default { port: 3000 };
@@ -58,7 +58,8 @@ export default { port: 3000 };
 A quoted title survives as a caption; the “hide until revealed”
 interaction is meaningless offline, so the body is simply shown.
 
-<div class="admonition spoiler">
+<div class="spoiler"
+data-carve-title="[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Answer&quot;}]">
 
 **Answer**
 
@@ -68,7 +69,8 @@ The hidden *answer* is 42.
 
 ## Disclosure
 
-<div class="admonition details">
+<div class="details"
+data-carve-title="[{&quot;type&quot;:&quot;text&quot;,&quot;value&quot;:&quot;Show details&quot;}]">
 
 **Show details**
 

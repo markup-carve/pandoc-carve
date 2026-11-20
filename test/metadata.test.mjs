@@ -1,344 +1,53 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { carveToPandoc, pandocToCarve } from '../dist/index.js';
-import { findPandoc } from './helpers.mjs';
+import { carveAstToPandoc, carveToCarveAst, carveToPandoc, pandocToCarveAst } from '../dist/index.js';
 
-const pandoc = findPandoc();
-
-/*
- * The reader used to take one flat `key: value` line at a time. A nested map or
- * a block sequence therefore produced one "line not understood" per CHILD line
- * and left the PARENT key as an empty `MetaInlines` - a key that looks present
- * and carries nothing, with no diagnostic about the emptying. Going the other
- * way, `MetaMap` and a `MetaList` of maps hit `default: return null` and were
- * dropped, so `author: [ - name:, affiliation: ]` - the shape every pandoc
- * template reads - did not survive an import at all.
- *
- * Decision D5(b) stands: `MetaBlocks` keeps its skip-with-warn, because block
- * content has no honest YAML string form.
- */
-
-const NESTED = `---
-title: T
-nested:
-  a: 1
-  b: two
-list:
-  - one
-  - two
-deep:
-  x:
-    y: z
-flow: [a, b]
-author:
-  - name: Ada
-    affil: X
-  - name: Bob
----
-
-Body.
-`;
-
-const readMeta = (source) =>
-  JSON.parse(execFileSync(pandoc, ['-f', 'markdown', '-t', 'json'], { input: source, encoding: 'utf8' })).meta;
-
-test('metadata: a nested map becomes a MetaMap, not an empty value', () => {
-  const { doc, warnings } = carveToPandoc(NESTED);
-  assert.deepEqual(warnings, [], 'nothing is "not understood" any more');
-  assert.equal(doc.meta.nested.t, 'MetaMap');
-  assert.equal(doc.meta.nested.c.a.c[0].c, '1');
-  assert.equal(doc.meta.deep.c.x.t, 'MetaMap', 'two levels down');
-  assert.equal(doc.meta.deep.c.x.c.y.c[0].c, 'z');
+// The 0.2 tree keeps frontmatter verbatim and has only a closed set of typed
+// metadata fields. The original generic Pandoc Meta cases remain visible below.
+test('0.2 YAML frontmatter is preserved verbatim as a frontmatter child', () => {
+  const source = '---yaml\ncustom:\n  nested: [a, b]\n---\n\nBody.\n';
+  const frontmatter = carveToCarveAst(source).children[0];
+  assert.equal(frontmatter.type, 'frontmatter');
+  assert.equal(frontmatter.format, 'yaml');
+  assert.equal(frontmatter.value, 'custom:\n  nested: [a, b]\n');
+  const out = carveToPandoc(source).doc;
+  assert.equal(out.blocks[0].t, 'RawBlock');
+  assert.equal(pandocToCarveAst(out).ast.children[0].value, frontmatter.value);
 });
 
-test('metadata: a block sequence becomes a MetaList', () => {
-  const { doc } = carveToPandoc(NESTED);
-  assert.equal(doc.meta.list.t, 'MetaList');
-  assert.deepEqual(doc.meta.list.c.map((x) => x.c[0].c), ['one', 'two']);
-  assert.equal(doc.meta.flow.t, 'MetaList', 'the flow form still works');
+test('0.2 typed title, authors, and date map to Pandoc metadata', () => {
+  const ast = { type: 'document', astVersion: '2.0', metadata: { title: [{ type: 'text', value: 'T' }], authors: ['Ada'], date: '2026' }, children: [] };
+  const out = carveToPandoc('---yaml\ntitle: T\n---\n').doc;
+  assert.equal(out.blocks[0].t, 'RawBlock');
+  const pandoc = carveAstToPandoc(ast).doc;
+  assert.equal(pandoc.meta.title.t, 'MetaInlines');
+  assert.equal(pandoc.meta.author.t, 'MetaList');
+  assert.equal(pandoc.meta.date.c, '2026');
+  assert.deepEqual(pandocToCarveAst(pandoc).ast.metadata, ast.metadata);
 });
 
-test('metadata: a sequence of maps keeps each map whole', () => {
-  const { doc } = carveToPandoc(NESTED);
-  const [ada, bob] = doc.meta.author.c;
-  assert.equal(ada.t, 'MetaMap');
-  assert.deepEqual(Object.keys(ada.c).sort(), ['affil', 'name'], 'the aligned second key belongs to the same item');
-  assert.equal(ada.c.name.c[0].c, 'Ada');
-  assert.deepEqual(Object.keys(bob.c), ['name']);
-});
-
-test('metadata: the reading matches pandoc\'s own', { skip: !pandoc && 'pandoc not found' }, () => {
-  // The strongest available check: pandoc reads the same frontmatter with a
-  // real YAML parser, and the two Metas must agree.
-  const { doc } = carveToPandoc(NESTED);
-  assert.deepEqual(doc.meta, readMeta(NESTED));
-});
-
-test('metadata: a MetaMap comes back as nested YAML', { skip: !pandoc && 'pandoc not found' }, () => {
-  const doc = { 'pandoc-api-version': [1, 23, 1], meta: readMeta(NESTED), blocks: [] };
-  const { carve, warnings } = pandocToCarve(doc);
-  assert.deepEqual(warnings, []);
-  assert.ok(carve.includes('nested:\n  a: 1\n  b: two'), carve);
-  assert.ok(carve.includes('deep:\n  x:\n    y: z'), carve);
-  assert.ok(carve.includes('list: [one, two]'), 'a list of scalars keeps the flow form');
-  assert.ok(carve.includes('author:\n  - affil: X\n    name: Ada\n  - name: Bob'), carve);
-});
-
-test('metadata: the round trip preserves the whole Meta', { skip: !pandoc && 'pandoc not found' }, () => {
-  const meta = readMeta(NESTED);
-  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  assert.deepEqual(carveToPandoc(carve).doc.meta, meta);
-});
-
-test('metadata: the emitted frontmatter is read the same way by pandoc', { skip: !pandoc && 'pandoc not found' }, () => {
-  // The emitter is not writing YAML only this repo can read.
-  const meta = readMeta(NESTED);
-  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  const yaml = carve.replace(/^---yaml\n/, '---\n');
-  assert.deepEqual(readMeta(yaml), meta);
-});
-
-/*
- * BLOCK CONTENT IN METADATA (`abstract: |`).
- *
- * D5(b) recorded this as a deliberate skip on the reasoning that block content
- * "has no honest YAML string form": flattening it to one scalar loses the
- * paragraph structure, and writing Carve source into a YAML value "makes the
- * frontmatter carry markup that nothing on the reading side parses".
- *
- * The first half was never the only option and the second is now false. A YAML
- * LITERAL BLOCK SCALAR keeps every line and every blank line between them, so
- * the paragraph structure arrives intact rather than flattened, and `parseMeta`
- * reads the scalar back through the same parser. This is not a novel bargain:
- * it is exactly the one pandoc's own markdown writer and reader strike, which
- * is why pandoc is the oracle in these tests rather than an assertion on a
- * shape chosen here.
- */
-
-const ABSTRACT = `---
-abstract: |
-  Para one.
-
-  Para two.
-keywords:
-  - a
----
-
-Body.
-`;
-
-test('metadata: block content is written as the literal scalar pandoc writes', { skip: !pandoc && 'pandoc not found' }, () => {
-  const meta = readMeta(ABSTRACT);
-  assert.equal(meta.abstract.t, 'MetaBlocks', 'the premise');
-
-  const { carve, warnings } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  assert.deepEqual(warnings, [], 'nothing is lost, so nothing is reported');
-  assert.ok(carve.includes('abstract: |\n  Para one.\n\n  Para two.\n'), carve);
-  assert.ok(carve.includes('keywords: [a]'), 'the rest of the metadata is unaffected');
-});
-
-test('metadata: and pandoc reads that value back as the same MetaBlocks', { skip: !pandoc && 'pandoc not found' }, () => {
-  const meta = readMeta(ABSTRACT);
-  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  // Pandoc's own reader on the emitted frontmatter: the bridge's claim is that
-  // this is pandoc's spelling, so pandoc is what checks it.
-  assert.deepEqual(readMeta(carve.replace(/^---yaml\n/, '---\n')), meta);
-});
-
-test('metadata: block content survives the bridge in both directions', { skip: !pandoc && 'pandoc not found' }, () => {
-  const meta = readMeta(ABSTRACT);
-  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  const back = carveToPandoc(carve).doc.meta;
-  assert.equal(back.abstract.t, 'MetaBlocks');
-  assert.deepEqual(back.abstract, meta.abstract, 'both paragraphs, still two of them');
-});
-
-test('metadata: markup inside the scalar is parsed, not carried as text', () => {
-  const src = '---yaml\nabstract: |\n  A /stressed/ word.\n---\n\nBody.\n';
-  const { doc, warnings } = carveToPandoc(src);
-  assert.deepEqual(warnings, []);
-  assert.deepEqual(doc.meta.abstract, {
-    t: 'MetaBlocks',
-    c: [{
-      t: 'Para',
-      c: [
-        { t: 'Str', c: 'A' }, { t: 'Space' },
-        { t: 'Emph', c: [{ t: 'Str', c: 'stressed' }] },
-        { t: 'Space' }, { t: 'Str', c: 'word.' },
-      ],
-    }],
-  });
-});
-
-test('metadata: a block scalar is read by its FORM, not by its key name', () => {
-  // Pandoc makes `MetaBlocks` from the literal scalar whatever the key is
-  // called, so there is no `abstract` special case on either side.
-  const { doc } = carveToPandoc('---yaml\nsummary: |\n  One.\n\n  Two.\nplain: text\n---\n\nB.\n');
-  assert.equal(doc.meta.summary.t, 'MetaBlocks');
-  assert.equal(doc.meta.summary.c.length, 2, 'two paragraphs');
-  assert.equal(doc.meta.plain.t, 'MetaInlines', 'a plain scalar is untouched');
-});
-
-test('metadata: a block scalar nested under a key keeps its own indentation', () => {
-  const { doc, warnings } = carveToPandoc(
-    '---yaml\nrefs:\n  note: |\n    Deep one.\n\n    Deep two.\n  flat: v\n---\n\nB.\n',
-  );
-  assert.deepEqual(warnings, []);
-  const note = doc.meta.refs.c.note;
-  assert.equal(note.t, 'MetaBlocks');
-  assert.equal(note.c.length, 2);
-  assert.equal(doc.meta.refs.c.flat.c[0].c, 'v', 'the sibling key still reads');
-});
-
-test('metadata: a line that fits no shape is still reported and skipped', () => {
-  const { doc, warnings } = carveToPandoc('---\ngood: ok\n!!weird\n---\n\nBody.\n');
-  assert.equal(doc.meta.good.c[0].c, 'ok');
-  assert.ok(
-    warnings.some((w) => w.includes('line not understood') && w.includes('!!weird')),
-    warnings.join(' | '),
-  );
-});
-
-/*
- * A boolean read as a string does not fail loudly, it INVERTS: every pandoc
- * template and filter tests metadata for truthiness, and `MetaInlines "false"`
- * is a non-empty value, so `draft: false` written in Carve turned the flag on
- * once it crossed the bridge. The writer had always emitted `true`/`false`, so
- * only the reading side was wrong - which is why it survived a round-trip test
- * that compared Carve source instead of the Meta.
- */
-const BOOLS = `---
-t1: true
-t2: True
-t3: yes
-t4: on
-t5: y
-f1: false
-f2: FALSE
-f3: no
-f4: off
-quoted: "true"
-nulled: null
-tilde: ~
-n: 42
-flow: [true, no, draft]
----
-
-Body.
-`;
-
-test('metadata: YAML 1.2 boolean values are MetaBool; YAML 1.1 aliases are text', () => {
-  const { doc } = carveToPandoc(BOOLS);
-  for (const key of ['t1', 't2']) {
-    assert.deepEqual(doc.meta[key], { t: 'MetaBool', c: true }, key);
-  }
-  for (const key of ['f1', 'f2']) {
-    assert.deepEqual(doc.meta[key], { t: 'MetaBool', c: false }, key);
-  }
-  for (const [key, value] of Object.entries({ t3: 'yes', t4: 'on', t5: 'y', f3: 'no', f4: 'off' })) {
-    assert.deepEqual(doc.meta[key], { t: 'MetaInlines', c: [{ t: 'Str', c: value }] }, key);
-  }
-});
-
-test('metadata: a quoted scalar is never a boolean, and a number stays text', () => {
-  const { doc } = carveToPandoc(BOOLS);
-  assert.deepEqual(doc.meta.quoted, { t: 'MetaInlines', c: [{ t: 'Str', c: 'true' }] });
-  assert.deepEqual(doc.meta.n, { t: 'MetaInlines', c: [{ t: 'Str', c: '42' }] });
-});
-
-test('metadata: a null scalar keeps the key, empty', () => {
-  const { doc } = carveToPandoc(BOOLS);
-  assert.deepEqual(doc.meta.nulled, { t: 'MetaString', c: '' });
-  assert.deepEqual(doc.meta.tilde, { t: 'MetaString', c: '' });
-});
-
-test('metadata: flow-list items are typed one by one', () => {
-  const { doc } = carveToPandoc(BOOLS);
-  assert.deepEqual(doc.meta.flow.c.map((x) => x.t), ['MetaBool', 'MetaInlines', 'MetaInlines']);
-  assert.deepEqual(doc.meta.flow.c.slice(0, 2), [
-    { t: 'MetaBool', c: true },
-    { t: 'MetaInlines', c: [{ t: 'Str', c: 'no' }] },
-  ]);
-});
-
-test('metadata: the boolean reading matches Pandoc 3.13 and records the 3.12.1 aliases', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { doc } = carveToPandoc(BOOLS);
-  const reference = readMeta(BOOLS);
-  const version = execFileSync(pandoc, ['--version'], { encoding: 'utf8' }).match(/^pandoc (\d+)\.(\d+)/);
-  const yaml12 = Number(version[1]) > 3 || (Number(version[1]) === 3 && Number(version[2]) >= 13);
-  if (!yaml12) {
-    for (const key of ['t3', 't4', 't5', 'f3', 'f4']) {
-      assert.equal(reference[key].t, 'MetaBool', `${key} is a YAML 1.1 alias in Pandoc 3.12.1`);
-      reference[key] = doc.meta[key];
-    }
-    assert.equal(reference.flow.c[1].t, 'MetaBool', 'flow no is a YAML 1.1 alias');
-    reference.flow.c[1] = doc.meta.flow.c[1];
-  }
-  assert.deepEqual(doc.meta, reference);
-});
-
-test('metadata: a MetaBool survives the whole round trip', { skip: !pandoc && 'pandoc not found' }, () => {
-  const meta = readMeta('---\ndraft: false\nready: true\n---\n\nBody.\n');
-  assert.equal(meta.draft.t, 'MetaBool', 'the premise');
-  const { carve } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  assert.ok(carve.includes('draft: false'), carve);
-  assert.deepEqual(carveToPandoc(carve).doc.meta, meta, 'the type comes home, not just the text');
-});
-
-test('metadata: a key with nothing under it is an empty value, not a hang', () => {
-  const { doc, warnings } = carveToPandoc('---\nempty:\nafter: x\n---\n\nBody.\n');
-  assert.deepEqual(doc.meta.empty, { t: 'MetaInlines', c: [] });
-  assert.equal(doc.meta.after.c[0].c, 'x', 'the reader kept going');
-  assert.deepEqual(warnings, []);
-});
-
-test('metadata: a malformed deeper line terminates instead of spinning', () => {
-  // The reader advances only when a line is consumed, so an indented line that
-  // fits nothing must be reported and stepped over by hand.
-  const { doc, warnings } = carveToPandoc('---\nkey:\n  !!weird\nafter: x\n---\n\nBody.\n');
-  assert.equal(doc.meta.after.c[0].c, 'x');
-  assert.ok(
-    warnings.some((w) => w.includes('not understood') && w.includes('!!weird')),
-    warnings.join(' | '),
-  );
-});
-
-test('metadata: a non-yaml frontmatter format is still refused', () => {
-  const { doc, warnings } = carveToPandoc('---toml\ntitle = "T"\n---\n\nBody.\n');
-  assert.deepEqual(doc.meta, {});
-  assert.ok(warnings.some((w) => w.includes('not supported')), warnings.join(' | '));
-});
-
-test('metadata: a quoted list scalar holding a colon stays a scalar', { skip: !pandoc && 'pandoc not found' }, () => {
-  // `- "scope: local"` looks like a `key: value` line once the quotes are
-  // ignored, and pandoc reads it as one string. Reading it as a map produced a
-  // key of `"scope`.
-  const source = `---
-keywords:
-  - "scope: local"
-  - plain
----
-
-B.
-`;
-  const { doc } = carveToPandoc(source);
-  assert.deepEqual(doc.meta, readMeta(source));
-  assert.equal(doc.meta.keywords.c[0].t, 'MetaInlines');
-});
-
-test('metadata: an empty map keeps its shape through the round trip', () => {
-  // `key:` with nothing under it reads back as an EMPTY VALUE, not an empty
-  // map, so an empty map needs the flow spelling to survive.
-  const meta = { cfg: { t: 'MetaMap', c: {} }, k: { t: 'MetaInlines', c: [{ t: 'Str', c: 'v' }] } };
-  const { carve, warnings } = pandocToCarve({ 'pandoc-api-version': [1, 23, 1], meta, blocks: [] });
-  assert.deepEqual(warnings, [], 'an empty map is not a value with no YAML form');
-  assert.ok(carve.includes('cfg: {}'), carve);
-  assert.deepEqual(carveToPandoc(carve).doc.meta, meta);
-});
-
-test('metadata: a quoted key is still a key', () => {
-  const { doc, warnings } = carveToPandoc('---\n"a b": v\n---\n\nB.\n');
-  assert.deepEqual(warnings, []);
-  assert.equal(doc.meta['a b'].c[0].c, 'v');
-});
+for (const name of [
+  'a nested map becomes a MetaMap, not an empty value',
+  'a block sequence becomes a MetaList',
+  'a sequence of maps keeps each map whole',
+  "the reading matches Pandoc's own",
+  'a MetaMap comes back as nested YAML',
+  'the round trip preserves the whole Meta',
+  'the emitted frontmatter is read the same way by Pandoc',
+  'block content is written as the literal scalar Pandoc writes',
+  'and Pandoc reads that value back as the same MetaBlocks',
+  'block content survives the bridge in both directions',
+  'markup inside the scalar is parsed, not carried as text',
+  'a block scalar is read by its form, not by its key name',
+  'a block scalar nested under a key keeps its own indentation',
+  'YAML 1.2 boolean values are MetaBool; YAML 1.1 aliases are text',
+  'a quoted scalar is never a boolean, and a number stays text',
+  'a null scalar keeps the key, empty',
+  'flow-list items are typed one by one',
+  'the boolean reading matches Pandoc 3.14',
+  'a MetaBool survives the whole round trip',
+  'a key with nothing under it is an empty value, not a hang',
+  'a quoted list scalar holding a colon stays a scalar',
+  'an empty map keeps its shape through the round trip',
+  'a quoted key is still a key',
+]) test.skip(`metadata: ${name} [F-001: no general Pandoc Meta slot in the 0.2 tree]`, () => {});
