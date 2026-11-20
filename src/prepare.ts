@@ -46,6 +46,9 @@ export function preparePandocForWriter(doc: PandocDoc, format: string, options: 
     if (options.offline && node.t === 'Image' && Array.isArray(node.c)) {
       const parts = node.c as [unknown, unknown, [string, string]];
       const source = parts[2][0];
+      if (/^data:image\/[a-z0-9.+-]+;base64,(?:[a-z0-9+/]{4})*(?:[a-z0-9+/]{2}==|[a-z0-9+/]{3}=)?$/iu.test(source)) {
+        return { t: 'Image', c: [visit(parts[0]), visit(parts[1]), parts[2]] };
+      }
       const resolved = options.resolveImage?.(source) ?? (options.resourceRoot ? localImage(source, options.resourceRoot) : undefined);
       if (!resolved) throw new Error(`offline image has no resolver: ${source}`);
       if (!/^image\/[a-z0-9.+-]+$/iu.test(resolved.mimeType)) throw new Error(`invalid image media type: ${resolved.mimeType}`);

@@ -99,3 +99,12 @@ test('offline library callback resolves images without file access', () => {
   assert.match(JSON.stringify(prepared), /data:image\/png;base64,AQID/u);
   assert.match(JSON.stringify(doc), /asset:one/u);
 });
+
+test('offline mode accepts self-contained Pandoc JSON image data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-host-'));
+  const data = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==';
+  const doc = { 'pandoc-api-version': [1, 23, 1], meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Image', c: [['', [], []], [{ t: 'Str', c: 'pixel' }], [data, '']] }] }] };
+  const result = run(['-f', 'json', '-t', 'docx', '--offline', '-o', join(dir, 'data.docx')], doc);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(execFileSync('unzip', ['-l', join(dir, 'data.docx')], { encoding: 'utf8' }), /word\/media\//u);
+});
