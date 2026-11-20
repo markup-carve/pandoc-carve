@@ -90,6 +90,41 @@ test('cli: missing Pandoc has a clear error', () => {
   assert.match(result.stderr, /pandoc not found/u);
 });
 
+test('cli: pdf requires an output file before Pandoc is called', () => {
+  const result = run(['-', '-t', 'pdf', '--pandoc', '/nonexistent/pandoc'], 'Hello.\n');
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, 'pandoc-carve: -t pdf requires -o <file.pdf>\n');
+});
+
+test('cli: pdf uses the output path to select the writer', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fake = join(dir, 'fake-pandoc.mjs');
+  const argsFile = join(dir, 'args.json');
+  const output = join(dir, 'out.pdf');
+  writeFileSync(fake, `#!${process.execPath}\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.PANDOC_ARGS_FILE, JSON.stringify(process.argv.slice(2)));\n`);
+  chmodSync(fake, 0o755);
+  const result = run(['-', '-t', 'pdf', '-o', output, '--pandoc', fake], 'Hello.\n', { PANDOC_ARGS_FILE: argsFile });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')), ['-f', 'json', '-o', output]);
+});
+
+test('cli: Pandoc writer exit status passes through on failure and success', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fake = join(dir, 'fake-pandoc.mjs');
+  writeFileSync(fake, `#!${process.execPath}\nprocess.stdout.write('writer output\\n');\nprocess.stderr.write('writer diagnostic\\n');\nprocess.exit(Number(process.env.PANDOC_EXIT_STATUS));\n`);
+  chmodSync(fake, 0o755);
+  for (const [writer, status, expectedStdout] of [['latex', 47, ''], ['pdf', 47, ''], ['latex', 0, 'writer output\n']]) {
+    const output = writer === 'pdf' ? ['-o', join(dir, 'out.pdf')] : [];
+    const result = run(['-', '-t', writer, ...output, '--pandoc', fake], 'Hello.\n', { PANDOC_EXIT_STATUS: String(status) });
+    assert.equal(result.status, status);
+    assert.equal(result.stdout, expectedStdout);
+    assert.equal(result.stderr, status === 0 ? '' : 'writer diagnostic\n');
+  }
+});
+
 test('cli: no arguments shows usage', () => {
   const result = run([]);
   assert.equal(result.status, 1);
