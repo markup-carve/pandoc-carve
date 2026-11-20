@@ -9,8 +9,8 @@ import { carveToPandocWithIncludes } from './node.js';
 const usage = `Usage: pandoc-carve [FILE|-] [options] [-- pandoc-args...]
 
   -f, --from FORMAT    carve (default for .crv and stdin), carve-json, json, or any Pandoc reader
-  -t, --to FORMAT      carve, json (default for Carve input), or any Pandoc writer
-  -o, --output FILE    output file (default: stdout)
+  -t, --to FORMAT      carve, json (default for Carve input), any Pandoc writer, or pdf
+  -o, --output FILE    output file (default: stdout; required for -t pdf)
   -s, --standalone     produce a standalone document (Pandoc -s)
   --include-root DIR   absolute containment root for includes (default: the input file's folder)
   --no-includes        leave include directives unexpanded
@@ -70,7 +70,11 @@ const to = args.to ?? (from === 'carve' || from === 'carve-json' ? 'json' : 'car
 const pandoc = (arguments_: string[], data?: Buffer): Buffer => {
   const result = spawnSync(args.pandocPath, arguments_, { input: data, maxBuffer: 256 * 1024 * 1024 });
   if (result.error) { const error = new Error(`pandoc not found: ${result.error.message}`); Object.assign(error, { status: 2 }); throw error; }
-  if (result.status !== 0) throw new Error(result.stderr?.toString().trim() || `pandoc exited ${result.status}`);
+  if (result.status !== 0) {
+    const error = new Error(result.stderr?.toString().trim() || `pandoc exited ${result.status}`);
+    Object.assign(error, { status: result.status ?? 1 });
+    throw error;
+  }
   return result.stdout;
 };
 
@@ -81,6 +85,7 @@ const displayFile = (file: string | undefined, root: string): string => {
 };
 
 try {
+  if (to === 'pdf' && output === '-') throw new Error('pandoc-carve: -t pdf requires -o <file.pdf>');
   if (from !== 'carve' && (args.includeRoot !== undefined || !args.includes)) throw new Error('--include-root and --no-includes only apply to Carve source input');
   if (args.includeRoot !== undefined && !path.isAbsolute(args.includeRoot)) throw new Error('--include-root must be an absolute path');
   const source = input === '-' ? readFileSync(0) : readFileSync(input);
@@ -122,7 +127,7 @@ try {
     warnings.push(...converted.warnings);
     result = Buffer.from(converted.carve);
   } else if (to === 'json') result = json;
-  else result = pandoc(['-f', 'json', '-t', to, ...(args.standalone ? ['-s'] : []), ...(output !== '-' ? ['-o', output] : []), ...args.passthrough], json);
+  else result = pandoc(['-f', 'json', ...(to === 'pdf' ? [] : ['-t', to]), ...(args.standalone ? ['-s'] : []), ...(output !== '-' ? ['-o', output] : []), ...args.passthrough], json);
   if (output === '-') process.stdout.write(result);
   else if (to === 'carve' || to === 'json') writeFileSync(output, result);
   for (const line of includeLines) process.stderr.write(line);
