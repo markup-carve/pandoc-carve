@@ -37,7 +37,7 @@ const { carve, warnings: sourceWarnings } = pandocToCarve(doc);
 
 `carveAstToPandoc` accepts a 2.0 document tree object or its JSON text and validates it against the engine's tree contract. `pandocToCarveAst` accepts a Pandoc JSON object or string. The source writer used by `pandocToCarve` may report an additional warning when the 2.0 tree contains a shape it cannot spell in Carve source.
 
-The document's typed title, subtitle, authors, date, and bibliography fields map to Pandoc metadata. General Pandoc metadata fields have no 0.2 tree slot and produce warnings on import. The full limitation is recorded as F-001 in the checkout's `_FINDINGS.md`.
+The document's typed title, subtitle, authors, date, and bibliography fields map to Pandoc metadata. General Pandoc metadata fields have no 0.2 tree slot and produce warnings on import. This limitation is F-001, the reason the metadata tests that need a general Meta slot are skipped.
 
 ## Mapping and limits
 

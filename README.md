@@ -42,6 +42,6 @@ Pandoc `Quoted` maps to paired Carve smart quote nodes. An ordered list with Pan
 
 ## Verification and limits
 
-`npm test` runs the full suite, including real Pandoc export and import checks for the example documents. The [format matrix](docs/roundtrip-0.2.md) measures 99 Carve probes across 17 formats and separates format-inherent loss from lost words, destinations, images, cells, math, and code. It lists every real-loss cell with its cause. The consumer findings and report are kept beside this checkout in `_FINDINGS.md` and `_REPORT.md`.
+`npm test` runs the full suite, including real Pandoc export and import checks for the example documents. The [format matrix](docs/roundtrip-0.2.md) measures 99 Carve probes across 17 formats and separates format-inherent loss from lost words, destinations, images, cells, math, and code. It lists every real-loss cell with its cause.
 
 The 0.1 implementation and dependency have been removed. This branch is not a release.
