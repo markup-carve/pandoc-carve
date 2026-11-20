@@ -1,36 +1,108 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import type { Diagnostic } from '@markup-carve/carve';
 import { carveAstToPandoc, carveToPandoc, pandocToCarve } from './convert.js';
+import { carveToPandocWithIncludes } from './node.js';
 
-const args = process.argv.slice(2);
-const usage = 'Usage: pandoc-carve [FILE|-] [-f carve|carve-json|json|FORMAT] [-t carve|json|FORMAT] [-o FILE] [--fail-on-loss]\n';
-if (args.includes('--help') || args.includes('-h')) { process.stdout.write(usage); process.exit(0); }
-if (args.length === 0) { process.stderr.write(usage); process.exit(1); }
-const value = (...names: string[]): string | undefined => {
-  const at = args.findIndex(arg => names.includes(arg));
-  return at < 0 ? undefined : args[at + 1];
-};
-const optionValues = new Set<string>();
-for (let i = 0; i < args.length; i++) if (['-f', '--from', '-t', '--to', '-o', '--output', '--input'].includes(args[i]!)) optionValues.add(args[i + 1] ?? '');
-const input = value('--input') ?? args.find(arg => arg === '-' || (!arg.startsWith('-') && !optionValues.has(arg))) ?? '-';
-const output = value('-o', '--output') ?? '-';
-const from = value('-f', '--from') ?? (input.endsWith('.crv') || input === '-' ? 'carve' : input.split('.').at(-1) ?? 'carve');
-const to = value('-t', '--to') ?? (from === 'carve' || from === 'carve-json' ? 'json' : 'carve');
-const failOnLoss = args.includes('--fail-on-loss');
+const usage = `Usage: pandoc-carve [FILE|-] [options] [-- pandoc-args...]
+
+  -f, --from FORMAT    carve (default for .crv and stdin), carve-json, json, or any Pandoc reader
+  -t, --to FORMAT      carve, json (default for Carve input), or any Pandoc writer
+  -o, --output FILE    output file (default: stdout)
+  -s, --standalone     produce a standalone document (Pandoc -s)
+  --include-root DIR   absolute containment root for includes (default: the input file's folder)
+  --no-includes        leave include directives unexpanded
+  --pandoc PATH        Pandoc executable (default: $PANDOC or "pandoc")
+  --fail-on-loss       exit 3 when the conversion reports a loss
+  -h, --help           show this help
+
+Arguments after -- go to Pandoc verbatim.
+`;
+
+interface Args {
+  input?: string;
+  from?: string;
+  to?: string;
+  output?: string;
+  standalone: boolean;
+  includeRoot?: string;
+  includes: boolean;
+  failOnLoss: boolean;
+  pandocPath: string;
+  passthrough: string[];
+}
+
+const fail = (message: string): never => { process.stderr.write(`pandoc-carve: ${message}\n${usage}`); process.exit(1); };
+
+function parseArgs(argv: string[]): Args {
+  const args: Args = { standalone: false, includes: true, failOnLoss: false, pandocPath: process.env.PANDOC ?? 'pandoc', passthrough: [] };
+  const value = (i: number): string => argv[i + 1] ?? fail(`${argv[i]} needs a value`);
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === '--') { args.passthrough = argv.slice(i + 1); break; }
+    else if (arg === '-h' || arg === '--help') { process.stdout.write(usage); process.exit(0); }
+    else if (arg === '-f' || arg === '--from') args.from = value(i++);
+    else if (arg === '-t' || arg === '--to') args.to = value(i++);
+    else if (arg === '-o' || arg === '--output') args.output = value(i++);
+    else if (arg === '--input') args.input = value(i++);
+    else if (arg === '-s' || arg === '--standalone') args.standalone = true;
+    else if (arg === '--include-root') args.includeRoot = value(i++);
+    else if (arg === '--no-includes') args.includes = false;
+    else if (arg === '--pandoc') args.pandocPath = value(i++);
+    else if (arg === '--fail-on-loss') args.failOnLoss = true;
+    else if (arg.startsWith('-') && arg !== '-') fail(`unknown option: ${arg}`);
+    else if (args.input === undefined) args.input = arg;
+    else fail(`unexpected argument: ${arg}`);
+  }
+  return args;
+}
+
+const argv = process.argv.slice(2);
+if (argv.length === 0) { process.stderr.write(usage); process.exit(1); }
+const args = parseArgs(argv);
+const input = args.input ?? '-';
+const output = args.output ?? '-';
+const from = args.from ?? (input.endsWith('.crv') || input === '-' ? 'carve' : input.split('.').at(-1) ?? 'carve');
+const to = args.to ?? (from === 'carve' || from === 'carve-json' ? 'json' : 'carve');
+
 const pandoc = (arguments_: string[], data?: Buffer): Buffer => {
-  const result = spawnSync(process.env.PANDOC ?? 'pandoc', arguments_, { input: data, maxBuffer: 64 * 1024 * 1024 });
+  const result = spawnSync(args.pandocPath, arguments_, { input: data, maxBuffer: 256 * 1024 * 1024 });
   if (result.error) { const error = new Error(`pandoc not found: ${result.error.message}`); Object.assign(error, { status: 2 }); throw error; }
   if (result.status !== 0) throw new Error(result.stderr?.toString().trim() || `pandoc exited ${result.status}`);
   return result.stdout;
 };
+
+const displayFile = (file: string | undefined, root: string): string => {
+  if (file === undefined) return input;
+  const relative = path.relative(root, path.resolve(root, file));
+  return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) ? '[outside-include-root]' : `[include-root]/${relative.split(path.sep).join('/')}`;
+};
+
 try {
+  if (from !== 'carve' && (args.includeRoot !== undefined || !args.includes)) throw new Error('--include-root and --no-includes only apply to Carve source input');
+  if (args.includeRoot !== undefined && !path.isAbsolute(args.includeRoot)) throw new Error('--include-root must be an absolute path');
   const source = input === '-' ? readFileSync(0) : readFileSync(input);
   let result: Buffer;
   const warnings: string[] = [];
+  const includeLines: string[] = [];
+  let includeLoss = false;
   let json: Buffer;
   if (from === 'carve') {
-    const converted = carveToPandoc(source.toString('utf8'));
+    const text = source.toString('utf8');
+    let converted: { doc: unknown; warnings: string[] };
+    if (args.includes && (input !== '-' || args.includeRoot !== undefined)) {
+      const includeRoot = path.resolve(args.includeRoot ?? path.dirname(path.resolve(input)));
+      const expanded = carveToPandocWithIncludes(text, { includeRoot, ...(input === '-' ? {} : { sourcePath: path.resolve(input) }) });
+      const root = realpathSync(includeRoot);
+      for (const entry of expanded.includeDiagnostics as Diagnostic[]) {
+        includeLines.push(`pandoc-carve: ${displayFile(entry.file, root)}: ${entry.code} - ${entry.message}\n`);
+        if (entry.severity !== 'hint') includeLoss = true;
+      }
+      if (expanded.suppressedIncludeDiagnostics) includeLines.push(`pandoc-carve: ${expanded.suppressedIncludeDiagnostics} additional include diagnostic(s) suppressed\n`);
+      converted = expanded;
+    } else converted = carveToPandoc(text);
     warnings.push(...converted.warnings);
     json = Buffer.from(JSON.stringify(converted.doc) + '\n');
   } else if (from === 'carve-json') {
@@ -42,7 +114,7 @@ try {
   } else if (from === 'json' || from === 'pandoc') {
     json = source;
   } else {
-    json = pandoc(['-f', from, '-t', 'json'], source);
+    json = pandoc(['-f', from, '-t', 'json', ...args.passthrough], source);
     warnings.push(`fidelity-unverified: Pandoc ${from} reader may normalize source content`);
   }
   if (to === 'carve') {
@@ -50,11 +122,12 @@ try {
     warnings.push(...converted.warnings);
     result = Buffer.from(converted.carve);
   } else if (to === 'json') result = json;
-  else result = pandoc(['-f', 'json', '-t', to, ...(output !== '-' ? ['-o', output] : [])], json);
+  else result = pandoc(['-f', 'json', '-t', to, ...(args.standalone ? ['-s'] : []), ...(output !== '-' ? ['-o', output] : []), ...args.passthrough], json);
   if (output === '-') process.stdout.write(result);
   else if (to === 'carve' || to === 'json') writeFileSync(output, result);
+  for (const line of includeLines) process.stderr.write(line);
   for (const warning of warnings) process.stderr.write(`pandoc-carve: degraded: ${warning}\n`);
-  if (failOnLoss && warnings.length) process.exitCode = 3;
+  if (args.failOnLoss && (warnings.length || includeLoss)) process.exitCode = 3;
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 1;

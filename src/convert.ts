@@ -47,6 +47,8 @@ const il = (xs: Inline[], c: Context): P.Inline[] => {
   return out;
 };
 const bl = (xs: Block[], c: Context): P.Block[] => xs.flatMap(x => emit(x, c));
+// C2-N-075: an expanded include reads as its children; an included file's frontmatter is not part of the host.
+const expanded = (xs: Node[]): Block[] => xs.flatMap(x => x.type === 'frontmatter' ? [] : x.type === 'include' && x.children !== undefined && !x.caption ? expanded(x.children) : [x as Block]);
 const cap = (x: CaptionNode | undefined, c: Context): P.Inline[] | null => x ? bl(x.children, c).flatMap(b => (b.t === 'Plain' || b.t === 'Para') ? b.c as P.Inline[] : []) : null;
 const alignment = (x?: string): P.Alignment => x === 'left' ? 'AlignLeft' : x === 'right' ? 'AlignRight' : x === 'center' ? 'AlignCenter' : 'AlignDefault';
 const safeTarget = (value: string, c: Context): string => { if (hasDeniedScheme(value)) { c.warnings.push('destination-denied: URL scheme is not allowed in Pandoc output'); return ''; } return value; };
@@ -152,7 +154,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
     case 'admonition': return [P.Div(P.attr(n.attrs?.id, ['carve-admonition', n.kind, ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.groupLabel !== undefined ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), [...openingBlocks(n.title, n.groupLabel, c), ...bl(n.children, c)])];
     case 'directive': return [P.Div(P.attr(n.attrs?.id, ['carve-directive', n.kind, ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...(n.groupLabel !== undefined ? [['carve-group-label', n.groupLabel] as [string, string]] : []), ...titleCarrier(n.title)]), [...openingBlocks(n.title, n.groupLabel, c), ...bl(n.children, c)])];
     case 'block_extension': c.warnings.push(`block_extension: ${n.name} uses fallback`); return [P.Div(P.attr('', ['carve-extension'], [['name', n.name]]), bl(n.fallback, c))];
-    case 'include': c.warnings.push('include: unresolved'); return [P.Div(P.attr('', ['carve-include'], [['path', n.path], ...(n.section ? [['section', n.section] as [string, string]] : []), ...(n.options ? [['options', JSON.stringify(n.options)] as [string, string]] : []), ...(n.invalid ? [['invalid', JSON.stringify(n.invalid)] as [string, string]] : [])]), [])];
+    case 'include': if (n.children !== undefined) return bl(expanded(n.children), c); c.warnings.push('include: unresolved'); return [P.Div(P.attr('', ['carve-include'], [['path', n.path], ...(n.section ? [['section', n.section] as [string, string]] : []), ...(n.options ? [['options', JSON.stringify(n.options)] as [string, string]] : []), ...(n.invalid ? [['invalid', JSON.stringify(n.invalid)] as [string, string]] : [])]), [])];
     case 'figure_group': return [P.Figure(P.attr(n.attrs?.id, ['carve-figure-group', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ...captionCarrier(n.caption)]), cap(n.caption, c), bl(n.children, c), n.caption?.short ? il(n.caption.short, c) : null)];
     case 'line_block': { const block = P.LineBlock(n.children.map(x => {
       if (x.type === 'comment') return [P.RawInline(`carve-comment-${x.form}`, x.value)];
@@ -201,8 +203,10 @@ export function carveAstToPandoc(input: DocumentNode | string): Result {
   const ast: unknown = typeof input === 'string' ? JSON.parse(input) : input;
   validateTree(ast);
   const c: Context = { warnings: [], notes: new Map(), activeNotes: new Set(), links: new Map(), targets: new Map(), noteCount: 0 };
-  for (const x of ast.children) { if (x.type === 'footnote' && !c.notes.has(x.key)) c.notes.set(x.key, x.children); if (x.type === 'link_reference_definition') c.links.set(x.key, [x.href, x.tooltip ?? '']); }
-  for (const x of ast.children) {
+  const flat = (xs: Node[]): Node[] => xs.flatMap(x => x.type === 'include' && x.children !== undefined ? flat(x.children) : [x]);
+  const top = flat(ast.children) as typeof ast.children;
+  for (const x of top) { if (x.type === 'footnote' && !c.notes.has(x.key)) c.notes.set(x.key, x.children); if (x.type === 'link_reference_definition') c.links.set(x.key, [x.href, x.tooltip ?? '']); }
+  for (const x of top) {
     if (x.type === 'heading') { const id = x.attrs?.id ?? x.generatedId; if (id) { const label = x.children.filter(node => node.type !== 'xref' || node.key !== id).flatMap(node => node.type === 'link' ? words(captionText(node.children)) : il([node], c)); while (label.at(-1)?.t === 'Space') label.pop(); c.targets.set(id, label); } }
     if ((x.type === 'paragraph' || x.type === 'block_quote' || x.type === 'code_block' || x.type === 'include' || x.type === 'table') && x.caption && x.attrs?.id) {
       const caption = x.caption?.children.flatMap(block => block.type === 'paragraph' ? block.children : []) ?? [];

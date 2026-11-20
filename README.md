@@ -15,9 +15,10 @@ node dist/cli.js examples/export/article.crv -t epub -o article.epub
 node dist/cli.js examples/import/paper.tex -f latex -o paper.crv
 node dist/cli.js examples/import/notes.rst -f rst -o notes.crv
 node dist/cli.js report.docx -f docx -o report.crv
+node dist/cli.js examples/export/article.crv -t html -s -o article.html -- --toc
 ```
 
-With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. The CLI uses `pandoc` for formats other than JSON. It accepts stdin with `-` and writes stdout unless `-o` is supplied.
+With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. The CLI uses `pandoc` for formats other than JSON. It accepts stdin with `-` and writes stdout unless `-o` is supplied. `-s` produces a standalone document, `--pandoc PATH` names the Pandoc executable, and arguments after `--` go to Pandoc verbatim. A named Carve file expands its includes from its folder; `--include-root DIR` sets an absolute containment root (and enables includes on stdin), `--no-includes` turns expansion off. See the [reference](docs/reference.md) for the details.
 
 ## Engine
 
@@ -36,7 +37,7 @@ const { doc, warnings: exportWarnings } = carveToPandoc('# Title');
 const { carve, warnings: importWarnings } = pandocToCarve(doc);
 ```
 
-`carveToCarveAst`, `carveAstToPandoc`, and `pandocToCarveAst` expose the validated 2.0 tree boundary. The bridge carries typed root title, subtitle, authors, date, and bibliography metadata through Pandoc JSON. Unsupported Pandoc metadata fields produce warnings.
+`carveToPandocWithIncludes(source, { includeRoot, sourcePath })` from `@markup-carve/pandoc-carve/node` converts a file-backed document with its includes expanded. `carveToCarveAst`, `carveAstToPandoc`, and `pandocToCarveAst` expose the validated 2.0 tree boundary. The bridge carries typed root title, subtitle, authors, date, and bibliography metadata through Pandoc JSON. Unsupported Pandoc metadata fields produce warnings.
 
 Pandoc `Quoted` maps to paired Carve smart quote nodes. An ordered list with Pandoc's `Example` style uses `carve-example=1` and `carve-example-delimiter=...` attributes on the Carve list; these attributes preserve the style through Carve source and Pandoc JSON. The Carve renderer does not implement Pandoc's document-wide Example counter.
 
