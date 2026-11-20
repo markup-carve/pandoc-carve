@@ -16,9 +16,12 @@ const mime: Record<string, string> = {
 };
 
 function localImage(source: string, root: string): { bytes: Uint8Array; mimeType: string } {
-  if (path.isAbsolute(source) || source.includes('\\') || source.includes('?') || source.includes('#')) throw new Error(`offline image target is not a contained path: ${source}`);
+  let decoded: string;
+  try { decoded = decodeURIComponent(source); }
+  catch { throw new Error(`offline image target has invalid encoding: ${source}`); }
+  if (path.isAbsolute(decoded) || decoded.includes('\\') || decoded.includes('?') || decoded.includes('#')) throw new Error(`offline image target is not a contained path: ${source}`);
   const realRoot = realpathSync(root);
-  const target = realpathSync(path.resolve(realRoot, source));
+  const target = realpathSync(path.resolve(realRoot, decoded));
   const relative = path.relative(realRoot, target);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error(`offline image target is outside resource root: ${source}`);
   const mimeType = mime[path.extname(target).toLowerCase()];

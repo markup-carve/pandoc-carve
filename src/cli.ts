@@ -147,12 +147,16 @@ try {
   } else if (to === 'json') result = json;
   else {
     const prepared = preparePandocForWriter(JSON.parse(json.toString('utf8')), to, { offline: args.offline, ...(args.resourceRoot ? { resourceRoot: args.resourceRoot } : {}) });
-    const odt = to === 'odt';
-    const written = pandoc(['-f', 'json', ...(to === 'pdf' ? [] : ['-t', to]), ...(args.standalone ? ['-s'] : []), ...(args.offline ? ['--sandbox'] : []), ...(!odt && output !== '-' ? ['-o', output] : []), ...args.passthrough], Buffer.from(JSON.stringify(prepared)));
-    result = odt ? finishOdtPageBreaks(written) : written;
+    const preparedJson = JSON.stringify(prepared);
+    const patchOdt = to === 'odt' && preparedJson.includes('CarvePageBreak');
+    const written = pandoc(['-f', 'json', ...(to === 'pdf' ? [] : ['-t', to]), ...(args.standalone ? ['-s'] : []), ...(args.offline ? ['--sandbox'] : []), ...(output !== '-' ? ['-o', output] : []), ...args.passthrough], Buffer.from(preparedJson));
+    if (patchOdt) {
+      result = finishOdtPageBreaks(output === '-' ? written : readFileSync(output));
+      if (output !== '-') writeFileSync(output, result);
+    } else result = written;
   }
   if (output === '-') process.stdout.write(result);
-  else if (to === 'carve' || to === 'json' || to === 'odt') writeFileSync(output, result);
+  else if (to === 'carve' || to === 'json') writeFileSync(output, result);
   for (const line of includeLines) process.stderr.write(line);
   for (const warning of warnings) process.stderr.write(`pandoc-carve: degraded: ${warning}\n`);
   if (args.failOnLoss && (warnings.length || includeLoss)) process.exitCode = 3;

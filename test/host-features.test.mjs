@@ -68,6 +68,10 @@ test('page breaks reach real DOCX, ODT, and LaTeX writers', () => {
   const latex = run(['-f', 'carve-ast-json', '-t', 'latex'], tree([page]));
   assert.equal(latex.status, 0, latex.stderr);
   assert.match(latex.stdout, /\\newpage/u);
+  const plainOdt = join(dir, 'plain.odt');
+  const plain = run(['-f', 'carve-ast-json', '-t', 'odt', '-o', plainOdt], tree([{ type: 'paragraph', children: [{ type: 'text', value: 'Plain' }] }]));
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(execFileSync('unzip', ['-p', plainOdt, 'styles.xml'], { encoding: 'utf8' }), /CarvePageBreak/u);
 });
 
 test('offline mode rejects remote images before Pandoc and embeds contained local images', () => {
@@ -85,6 +89,10 @@ test('offline mode rejects remote images before Pandoc and embeds contained loca
   const accepted = run(['-f', 'carve-ast-json', '-t', 'docx', '--offline', '--resource-root', dir, '-o', output], local);
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.match(execFileSync('unzip', ['-l', output], { encoding: 'utf8' }), /word\/media\//u);
+  writeFileSync(join(dir, 'a b.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', 'base64'));
+  const encoded = run(['-f', 'carve-ast-json', '-t', 'docx', '--offline', '--resource-root', dir, '-o', join(dir, 'encoded.docx')],
+    tree([{ type: 'paragraph', children: [{ type: 'image', src: 'a%20b.png', alt: 'a' }] }]));
+  assert.equal(encoded.status, 0, encoded.stderr);
   const noEscape = run(['-f', 'carve-ast-json', '-t', 'docx', '--offline', '--resource-root', dir, '-o', output],
     tree([{ type: 'paragraph', children: [{ type: 'image', src: '../a.png', alt: 'a' }] }]));
   assert.equal(noEscape.status, 1);

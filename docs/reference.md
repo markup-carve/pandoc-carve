@@ -27,7 +27,7 @@ pandoc-carve doc.crv -t latex -s -- --toc --template=paper.tex
 
 ### Offline conversion
 
-`--offline` enables Pandoc's sandbox and prevents remote image fetching. Images may already be embedded as base64 data URIs; otherwise each image must be supplied by `--resource-root DIR` or, in the Node API, by a `resolveImage` callback. The root must be absolute; image paths cannot escape it, including through symlinks. The bridge embeds image bytes as data URIs before Pandoc runs. A missing image fails conversion. `--offline` rejects Pandoc passthrough arguments because they can invoke external filters or override the sandbox. The option also rejects remote input filenames. Sandboxed Pandoc may require a build with embedded data files for some writers.
+`--offline` enables Pandoc's sandbox and prevents remote image fetching. Images may already be embedded as base64 data URIs; otherwise each image must be supplied by `--resource-root DIR` or, in the Node API, by a `resolveImage` callback. The root must be absolute; URL-encoded image paths are decoded before containment checks, and paths cannot escape the root, including through symlinks. The bridge embeds image bytes as data URIs before Pandoc runs. A missing image fails conversion. `--offline` rejects Pandoc passthrough arguments because they can invoke external filters or override the sandbox. The option also rejects remote input filenames. Sandboxed Pandoc may require a build with embedded data files for some writers.
 
 ```js
 import { carveToPandoc } from '@markup-carve/pandoc-carve';
