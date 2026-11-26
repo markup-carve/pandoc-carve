@@ -19,7 +19,7 @@ node dist/cli.js report.docx -f docx -o report.crv
 node dist/cli.js examples/export/article.crv -t html -s -o article.html -- --toc
 ```
 
-With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. The CLI uses `pandoc` for formats other than JSON. PDF output requires `-o` so Pandoc can select its PDF writer from the filename. It accepts stdin with `-` and writes stdout unless `-o` is supplied. `-s` produces a standalone document, `--pandoc PATH` names the Pandoc executable, and arguments after `--` go to Pandoc verbatim. A named Carve file expands its includes from its folder; `--include-root DIR` sets an absolute containment root (and enables includes on stdin), `--no-includes` turns expansion off. See the [reference](docs/reference.md) for the details.
+With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. `-t carve-ast-json` produces a Carve 2.0 AST JSON document instead. The CLI uses `pandoc` for formats other than JSON. PDF output requires `-o` so Pandoc can select its PDF writer from the filename. It accepts stdin with `-` and writes stdout unless `-o` is supplied. `-s` produces a standalone document, `--pandoc PATH` names the Pandoc executable, and arguments after `--` go to Pandoc verbatim. A named Carve file expands its includes from its folder; `--include-root DIR` sets an absolute containment root (and enables includes on stdin), `--no-includes` turns expansion off. See the [reference](docs/reference.md) for the details.
 
 ## Non-JS hosts (PHP, Rust)
 

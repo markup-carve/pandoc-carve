@@ -14,6 +14,10 @@
 - Table cell `valign`, column `resolvedValign` and invalid include options survive a round trip through Pandoc.
 - A blank Pandoc table cell imports as an empty cell paragraph instead of a cell the 0.2 reader refuses.
 
+### Improvements
+
+- `-t carve-ast-json` writes a bare Carve 2.0 AST JSON document from any Pandoc input, the inverse of `-f carve-ast-json`.
+
 ## 0.1.13 - 2026-11-12
 
 Requires the Carve engine 0.1.17. Round trips through Pandoc keep more of a document, and the bridge follows the 0.1.14 spec readings.

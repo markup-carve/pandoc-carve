@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import type { Diagnostic } from '@markup-carve/carve';
-import { carveAstToPandoc, carveToPandoc, pandocToCarve } from './convert.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarve, pandocToCarveAst } from './convert.js';
 import { carveToPandocWithIncludes } from './node.js';
 import { preparePandocForWriter } from './prepare.js';
 import { finishOdtPageBreaks } from './odt.js';
@@ -12,7 +12,7 @@ import { finishOdtPageBreaks } from './odt.js';
 const usage = `Usage: pandoc-carve [FILE|-] [options] [-- pandoc-args...]
 
   -f, --from FORMAT    carve (default for .crv and stdin), carve-ast-json, json, or any Pandoc reader
-  -t, --to FORMAT      carve, json (default for Carve input), any Pandoc writer, or pdf
+  -t, --to FORMAT      carve, carve-ast-json, json (default for Carve input), any Pandoc writer, or pdf
   -o, --output FILE    output file (default: stdout; required for -t pdf)
   -s, --standalone     produce a standalone document (Pandoc -s)
   --include-root DIR   absolute containment root for includes (default: the input file's folder)
@@ -144,6 +144,10 @@ try {
     const converted = pandocToCarve(json.toString('utf8'));
     warnings.push(...converted.warnings);
     result = Buffer.from(converted.carve);
+  } else if (to === 'carve-ast-json') {
+    const converted = pandocToCarveAst(json.toString('utf8'));
+    warnings.push(...converted.warnings);
+    result = Buffer.from(JSON.stringify(converted.ast) + '\n');
   } else if (to === 'json') result = json;
   else {
     const prepared = preparePandocForWriter(JSON.parse(json.toString('utf8')), to, { offline: args.offline, ...(args.resourceRoot ? { resourceRoot: args.resourceRoot } : {}) });
@@ -156,7 +160,7 @@ try {
     } else result = written;
   }
   if (output === '-') process.stdout.write(result);
-  else if (to === 'carve' || to === 'json') writeFileSync(output, result);
+  else if (to === 'carve' || to === 'carve-ast-json' || to === 'json') writeFileSync(output, result);
   for (const line of includeLines) process.stderr.write(line);
   for (const warning of warnings) process.stderr.write(`pandoc-carve: degraded: ${warning}\n`);
   if (args.failOnLoss && (warnings.length || includeLoss)) process.exitCode = 3;

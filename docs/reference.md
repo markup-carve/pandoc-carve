@@ -12,6 +12,7 @@ pandoc-carve report.docx -f docx -o report.crv
 pandoc-carve - -f json < report.json
 pandoc-carve - -f carve-json -t json < document-tree.json
 pandoc-carve - -f carve-ast-json -t docx -o out.docx < document-tree.json
+pandoc-carve in.docx -t carve-ast-json -o document-tree.json
 ```
 
 With Carve input, the default output is Pandoc JSON. With Pandoc input, the default output is Carve source. Use `-` for stdin, `-o` for a file, `-f` to select an input format, and `-t` to select an output format. Formats other than JSON require the `pandoc` executable; `--pandoc PATH` names it (default `$PANDOC`, then `pandoc`). `-s` asks Pandoc for a standalone document, and every argument after `--` goes to Pandoc verbatim, in both directions:
@@ -23,7 +24,7 @@ pandoc-carve doc.crv -t latex -s -- --toc --template=paper.tex
 
 `--fail-on-loss` exits with code 3 if the bridge reports a warning or an include fails; converted output is still written. A missing Pandoc executable exits with code 2. An unknown option is an error. `--help` prints the option summary.
 
-`-f carve-ast-json` accepts a bare 2.0 document or a 2.0 interchange envelope and validates it against the vendored tree schema. The older `-f carve-json` spelling remains available. A thematic break with the `page-break` class becomes a page break in DOCX, ODT, and LaTeX/PDF. The ODT writer adds a hard page break paragraph style to the archive. Other writers receive a plain thematic break. Pandoc JSON retains a `carve-page-break` carrier so the bridge can round trip the class. Pandoc's DOCX reader does not restore the original Carve class after a page break has been written to DOCX.
+`-f carve-ast-json` accepts a bare 2.0 document or a 2.0 interchange envelope and validates it against the vendored tree schema. The older `-f carve-json` spelling remains available. `-t carve-ast-json` goes the other way: it converts any Pandoc input to a bare 2.0 document, the same tree `pandocToCarveAst` returns. A thematic break with the `page-break` class becomes a page break in DOCX, ODT, and LaTeX/PDF. The ODT writer adds a hard page break paragraph style to the archive. Other writers receive a plain thematic break. Pandoc JSON retains a `carve-page-break` carrier so the bridge can round trip the class. Pandoc's DOCX reader does not restore the original Carve class after a page break has been written to DOCX.
 
 ### Offline conversion
 
