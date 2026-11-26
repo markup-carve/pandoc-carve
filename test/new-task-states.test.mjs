@@ -1,18 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { parse, treesEqual } from '@markup-carve/carve';
+import { carveToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 
-for (const [state, name] of [['/', 'progress'], ['!', 'blocked'], ['_', 'open alias']]) {
-  test(`${name} task state survives the Pandoc round trip`, () => {
-    const source = `- [${state}] task\n`;
-    const converted = carveToPandoc(source, { roundtrip: true });
-    assert.equal(converted.diagnostics.length, 0);
-    const back = pandocToCarve(converted.doc).carve;
-    assert.ok(back.includes(`[${state}]`), back);
-  });
-
-  test(`${name} task state is reported when the envelope is disabled`, () => {
-    const converted = carveToPandoc(`- [${state}] task\n`);
-    assert.ok(converted.diagnostics.some((finding) => finding.code === 'task-state-dropped'));
+for (const [mark, name] of [['/', 'progress'], ['!', 'blocked'], ['_', 'open alias']]) {
+  test(`${name} task mark survives the 0.2 Pandoc round trip`, () => {
+    const source = `- [${mark}] task\n`;
+    const original = parse(source);
+    const exported = carveToPandoc(source);
+    const returned = pandocToCarveAst(exported.doc).ast;
+    assert.ok(treesEqual(original, returned));
+    assert.ok(pandocToCarve(exported.doc).carve.includes(`[${mark}]`));
   });
 }

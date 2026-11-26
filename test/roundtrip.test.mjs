@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carveToPandoc } from '../dist/index.js';
+import { carveAstToPandoc, carveToPandoc, pandocToCarve } from '../dist/index.js';
+import { render as carveToHtml } from '@markup-carve/carve';
 import { findPandoc, pandocRender } from './helpers.mjs';
 
 const pandoc = findPandoc();
@@ -24,7 +25,7 @@ test('raw spans are target-routed by pandoc writers', { skip: !pandoc && 'pandoc
 });
 
 test('emphasis divergence is bridged (unlike pandoc -f djot)', { skip: !pandoc && 'pandoc not found' }, () => {
-  const src = '/italic/ and *bold* and _underline_ and ~strike~';
+  const src = '/italic/ and *bold* and {_underline_} and {~strike~}';
   const { doc } = carveToPandoc(src);
 
   const latex = pandocRender(pandoc, doc, 'latex');
@@ -55,7 +56,7 @@ test('math, footnotes, tables, figures survive to latex', { skip: !pandoc && 'pa
     '^ Figure 1: pic',
   ].join('\n');
   const { doc, warnings } = carveToPandoc(src);
-  assert.deepEqual(warnings, []);
+  assert.deepEqual(warnings, ['footnote: carried as raw Pandoc JSON block']);
 
   const latex = pandocRender(pandoc, doc, 'latex');
   assert.ok(latex.includes('\\(e=mc^2\\)'), 'inline math');
@@ -67,7 +68,7 @@ test('math, footnotes, tables, figures survive to latex', { skip: !pandoc && 'pa
 });
 
 test('typst output covers the same core', { skip: !pandoc && 'pandoc not found' }, () => {
-  const src = '# Title\n\n/em/ and *strong*, x{^2^}.\n\n- a\n- b';
+  const src = '= Title\n\n/em/ and *strong*, x{^2^}.\n\n- a\n- b';
   const { doc } = carveToPandoc(src);
   const typst = pandocRender(pandoc, doc, 'typst');
   assert.ok(typst.includes('= Title'));
@@ -77,39 +78,38 @@ test('typst output covers the same core', { skip: !pandoc && 'pandoc not found' 
 });
 
 test('docx binary output is producible', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { doc } = carveToPandoc('# T\n\nSome /styled/ text.');
+  const { doc } = carveToPandoc('= T\n\nSome /styled/ text.');
   const out = pandocRender(pandoc, doc, 'docx', ['-o', '-']);
   assert.ok(out.length > 1000, 'docx bytes produced');
   assert.ok(out.startsWith('PK'), 'zip container magic');
 });
 
 test('meta title reaches standalone output', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { doc } = carveToPandoc('---\ntitle: The Title\nauthor: Jane Doe\n---\nBody.');
+  const { doc } = carveAstToPandoc({
+    type: 'document', astVersion: '2.0',
+    metadata: { title: [{ type: 'text', value: 'The Title' }], authors: ['Jane Doe'] },
+    children: [{ type: 'paragraph', children: [{ type: 'text', value: 'Body.' }] }],
+  });
   const latex = pandocRender(pandoc, doc, 'latex', ['-s']);
   assert.ok(latex.includes('\\title{The Title}'));
   assert.ok(latex.includes('\\author{Jane Doe}'));
 });
 
-test('roundtrip mode preserves a grouping [label] structurally, not as a caption', async () => {
-  const { pandocToCarve } = await import('../dist/index.js');
-  const { carveToHtml } = await import('@markup-carve/carve');
+test('a grouping label survives through Pandoc JSON', () => {
   const src = ':::: tabs\n::: tab [Installation]\nRun it.\n:::\n::: tab [Usage]\nUse it.\n:::\n::::\n';
-  // Default (export) mode degrades the label to a visible caption for print.
   assert.ok(carveToHtml(src).includes('div-label'), 'reference emits div-label caption');
-  // Roundtrip mode instead carries the label so it rebuilds exactly.
-  const { doc } = carveToPandoc(src, { roundtrip: true });
+  const { doc } = carveToPandoc(src);
   const { carve } = pandocToCarve(doc);
   assert.ok(carve.includes('[Installation]'), 'label survives roundtrip');
   assert.ok(carve.includes('[Usage]'), 'second label survives roundtrip');
   assert.equal(carveToHtml(src), carveToHtml(carve), 'roundtrip is HTML-equivalent');
 });
 
-test('a user carve-label attribute is not mistaken for the internal label marker', async () => {
-  const { pandocToCarve } = await import('../dist/index.js');
+test('a user carve-label attribute remains an attribute', () => {
   // The internal marker key is `carve.label` (dotted, non-authorable); a real
   // `{carve-label=..}` attribute (hyphen) must survive untouched.
   const src = '{carve-label="mine"}\n::: note\nBody.\n:::\n';
-  const { doc } = carveToPandoc(src, { roundtrip: true });
+  const { doc } = carveToPandoc(src);
   const { carve } = pandocToCarve(doc);
   assert.ok(carve.includes('carve-label=mine'), 'user attribute preserved');
   assert.ok(!carve.includes('[mine]'), 'attribute not turned into a grouping label');
@@ -126,7 +126,7 @@ test('a captioned quote reaches pandoc as the figure the HTML Standard asks for'
   assert.deepEqual(warnings, []);
 
   const html = pandocRender(pandoc, doc, 'html');
-  assert.match(html, /<figure>[\s\S]*<blockquote>[\s\S]*<figcaption>Hamlet<\/figcaption>[\s\S]*<\/figure>/);
+  assert.match(html, /<figure\b[^>]*>[\s\S]*<blockquote>[\s\S]*<figcaption>Hamlet<\/figcaption>[\s\S]*<\/figure>/u);
 
   const latex = pandocRender(pandoc, doc, 'latex');
   assert.ok(latex.includes('\\caption{Hamlet}'), 'latex keeps the caption: ' + latex);

@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Breaking
+
+- Re-pinned to the renamed carve-js `next2` (`125128f4`). The CLI is `dist/cli.js` (was `dist/cli-v2.js`) and the vendored engine lives in `vendor/carve` (was `vendor/carve-v2`).
+- The 0.2 tree has no `figure` node: a captioned image or math paragraph, quote, code block or include carries its caption in its own `caption` slot and reaches Pandoc as a `Figure` around the block. A Pandoc `Figure` around one such block comes back as that block; any other `Figure` comes back as a `figure_group`.
+- `table_body.headRows` and `table_column.authored` are gone. A body's header rows travel as body rows of header cells, and the body partition is written back with `body-rows`, `body-header-rows` and `body-header-cols`.
+
+### Fixes
+
+- A duplicate footnote definition no longer replaces the first one in Pandoc output.
+- Table cell `valign`, column `resolvedValign` and invalid include options survive a round trip through Pandoc.
+- A blank Pandoc table cell imports as an empty cell paragraph instead of a cell the 0.2 reader refuses.
+
+### Improvements
+
+- `-t carve-ast-json` writes a bare Carve 2.0 AST JSON document from any Pandoc input, the inverse of `-f carve-ast-json`.
+
 ## 0.1.13 - 2026-11-12
 
 Requires the Carve engine 0.1.17. Round trips through Pandoc keep more of a document, and the bridge follows the 0.1.14 spec readings.

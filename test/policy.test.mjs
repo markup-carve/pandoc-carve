@@ -10,25 +10,9 @@ const pandoc = findPandoc();
 const pandocRead = (bin, source, from = 'markdown') =>
   JSON.parse(execFileSync(bin, ['-f', from, '-t', 'json'], { input: source, encoding: 'utf8' }));
 
-/*
- * The constructs markup-carve/carve#1210's P10 closes as deliberate policy
- * rather than as gaps to map. Documenting a loss is only honest when the
- * documented behavior is the measured one, so each row is pinned here:
- *
- *   - SmallCaps degrades to a `.smallcaps` span on the SOURCE target AND comes
- *     back. It is no longer a policy row on the AST target: carve#2212 added
- *     the `small_caps` interchange node for exactly this, so the tree carries
- *     the distinction and only Carve 0.1 source still lacks a spelling;
- *   - Quoted is NO LONGER one of them. P10 recorded it as a deliberate loss on
- *     the premise that "Carve has no quote node"; the premise was wrong. `"`
- *     and `'` resolve to `smart_punctuation` carrying the mark's KIND, so the
- *     pair rebuilds pandoc's wrapping `Quoted` and the row moved from policy
- *     to round-trip. What is pinned here now is the round trip and the three
- *     shapes that must NOT be promoted to a quotation;
- *   - a ColSpec's ColWidth is dropped, silently and on purpose;
- *   - a rowspan crossing the head/body boundary is clipped, with a warning
- *     (asserted in test/row-groups.test.mjs, which owns the table shapes).
- */
+// SmallCaps and column widths survive in the 0.2 tree. The source writer
+// reports when it cannot spell those fields. Quotation marks use typed smart
+// punctuation and round-trip through Pandoc's Quoted node.
 
 const para = (inlines) => ({
   'pandoc-api-version': [1, 23, 1],
@@ -40,22 +24,15 @@ const quoted = (kind, s) => ({ t: 'Quoted', c: [{ t: kind }, [{ t: 'Str', c: s }
 
 // --- SmallCaps -------------------------------------------------------------
 
-test('policy: SmallCaps imports as a .smallcaps span, with the warning that says so', () => {
+test('policy: SmallCaps imports as a typed node and reports source loss', () => {
   const { carve, warnings } = pandocToCarve(
     para([{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]),
   );
-  assert.ok(carve.includes('[caps]{.smallcaps}'), carve);
+  assert.equal(carve, 'caps\n');
   assert.ok(
-    warnings.some((w) => w.includes('SmallCaps') && w.includes('.smallcaps span')),
+    warnings.some((w) => w.includes('small_caps') && w.includes('structure-unspellable')),
     warnings.join(' | '),
   );
-});
-
-test('policy: the .smallcaps span exports back to SmallCaps, so the degradation round-trips', () => {
-  const before = para([{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]);
-  const { carve } = pandocToCarve(before);
-  const after = carveToPandoc(carve).doc;
-  assert.deepEqual(after.blocks[0].c, before.blocks[0].c);
 });
 
 test('the AST target keeps SmallCaps as the interchange node, with nothing reported', () => {
@@ -67,61 +44,33 @@ test('the AST target keeps SmallCaps as the interchange node, with nothing repor
 test('the small_caps node exports to SmallCaps, and its attributes ride a Span', () => {
   const wire = (attrs) => ({
     type: 'document',
+    astVersion: '2.0',
     children: [{ type: 'paragraph', children: [{ type: 'small_caps', children: [{ type: 'text', value: 'caps' }], ...(attrs ? { attrs } : {}) }] }],
   });
   const bare = carveAstToPandoc(wire()).doc.blocks[0].c;
   assert.deepEqual(bare, [{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]);
 
-  const attributed = carveAstToPandoc(wire({ id: 'x', classes: ['k'], order: ['#id', '.class'] })).doc.blocks[0].c;
+  const attributed = carveAstToPandoc(wire({ id: 'x', classes: ['k'] })).doc.blocks[0].c;
   assert.equal(attributed[0].t, 'Span');
-  assert.deepEqual(attributed[0].c[0], ['x', ['k'], []]);
+  assert.deepEqual(attributed[0].c[0], ['x', ['carve-inline-attrs', 'k'], [['carve-inline-type', 'small_caps']]]);
   assert.deepEqual(attributed[0].c[1], [{ t: 'SmallCaps', c: [{ t: 'Str', c: 'caps' }] }]);
-});
-
-test('policy: a .smallcaps span keeps its other attributes around the SmallCaps', () => {
-  // pandoc's own markdown reader strips the class, wraps the content in
-  // SmallCaps and hangs whatever is left on a Span. Same shape here.
-  const { doc } = carveToPandoc('[x]{#i .smallcaps .other k=v}\n');
-  assert.deepEqual(doc.blocks[0].c, [
-    {
-      t: 'Span',
-      c: [
-        ['i', ['other'], [['k', 'v']]],
-        [{ t: 'SmallCaps', c: [{ t: 'Str', c: 'x' }] }],
-      ],
-    },
-  ]);
-});
-
-test('policy: the class is matched case-sensitively, as pandoc matches it', () => {
-  const { doc } = carveToPandoc('[x]{.SmallCaps}\n');
-  assert.equal(doc.blocks[0].c[0].t, 'Span', JSON.stringify(doc.blocks[0].c));
+  assert.deepEqual(pandocToCarveAst(para(attributed)).ast.children[0].children[0].attrs, { id: 'x', classes: ['k'] });
 });
 
 test(
-  'policy: small caps survive to a writer that has no classes',
+  'policy: typed small caps survive to a writer that has no classes',
   { skip: !pandoc && 'pandoc not found' },
   () => {
-    // The reason the export arm exists: a bare Span reaches the LaTeX writer as
-    // `{x}`, which renders nothing at all.
-    const { doc } = carveToPandoc('Hello [world]{.smallcaps}.\n');
+    const { doc } = carveAstToPandoc({ type: 'document', astVersion: '2.0', children: [
+      { type: 'paragraph', children: [
+        { type: 'text', value: 'Hello ' },
+        { type: 'small_caps', children: [{ type: 'text', value: 'world' }] },
+        { type: 'text', value: '.' },
+      ] },
+    ] });
     assert.match(pandocRender(pandoc, doc, 'latex'), /\\textsc\{world\}/);
   },
 );
-
-test(
-  'policy: pandoc and the bridge agree on what a .smallcaps span means',
-  { skip: !pandoc && 'pandoc not found' },
-  () => {
-    for (const src of ['[x]{.smallcaps}', '[x]{.smallcaps #i}', '[x]{#i .smallcaps .other}']) {
-      const theirs = pandocRead(pandoc, `${src}\n`).blocks[0].c;
-      const ours = carveToPandoc(`${src}\n`).doc.blocks[0].c;
-      assert.deepEqual(ours, theirs, src);
-    }
-  },
-);
-
-// --- Quoted ----------------------------------------------------------------
 
 test('a quotation is written as the marks an author types, and warns about nothing', () => {
   const { carve, warnings } = pandocToCarve(para([quoted('DoubleQuote', 'quoted')]));
@@ -216,24 +165,24 @@ const GRID_TABLE = `+---------------+------+
 `;
 
 test(
-  'policy: a ColSpec width crosses through positional width metadata',
+  'policy: a ColSpec width crosses the typed tree and reports source loss',
   { skip: !pandoc && 'pandoc not found' },
   () => {
     const doc = pandocRead(pandoc, GRID_TABLE);
     const colspecs = doc.blocks[0].c[2];
-    // The premise: pandoc DERIVED these widths from the ASCII column widths.
-    // Nobody wrote them, which is the reason there is no diagnostic.
+    // Pandoc derived these widths from the ASCII grid.
     assert.ok(
       colspecs.every((cs) => cs[1].t === 'ColWidth'),
       JSON.stringify(colspecs),
     );
 
     const { carve, warnings } = pandocToCarve(doc);
-    // Padded form per spec section 6e: a space between marker and content.
     assert.ok(carve.includes('|= Wide column |'), carve);
-    assert.equal(warnings.length, 0, warnings.join(' | '));
-    assert.match(carve, /widths=/, carve);
-    const back = carveToPandoc(carve).doc.blocks[0].c[2].map((cs) => cs[1]);
+    assert.ok(warnings.some((warning) => warning.includes('field columns')), warnings.join(' | '));
+    const { ast } = pandocToCarveAst(doc);
+    assert.deepEqual(ast.children[0].columns.map((column) => column.width),
+      colspecs.map((cs) => cs[1].c));
+    const back = carveAstToPandoc(ast).doc.blocks[0].c[2].map((cs) => cs[1]);
     assert.deepEqual(back.map((width) => width.t), colspecs.map((cs) => cs[1].t));
     back.forEach((width, i) => {
       assert.ok(Math.abs(width.c - colspecs[i][1].c) < 1e-12, `${width.c} != ${colspecs[i][1].c}`);
@@ -241,8 +190,8 @@ test(
   },
 );
 
-test('policy: tables leaving the bridge carry ColWidthDefault, alignment aside', () => {
-  const { doc } = carveToPandoc('|=A|=B|\n|:--|--:|\n| a | b |\n');
+test('policy: tables without authored widths carry ColWidthDefault and alignment', () => {
+  const { doc } = carveToPandoc('{aligns=left,right}\n|= A |= B |\n| a | b |\n');
   const colspecs = doc.blocks[0].c[2];
   assert.deepEqual(
     colspecs.map((cs) => cs[1]),
@@ -254,7 +203,5 @@ test('policy: tables leaving the bridge carry ColWidthDefault, alignment aside',
     ['AlignLeft', 'AlignRight'],
   );
   const back = pandocToCarve(doc).carve;
-  // Padded form per spec section 6e: the writer separates every cell's content
-  // from its markers with a space, so the alignment sigils read `|=< A |`.
   assert.ok(back.includes('{aligns=left,right}'), back);
 });

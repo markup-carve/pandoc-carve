@@ -1,5 +1,8 @@
 # Round-trip provenance envelope
 
+> [!NOTE]
+> This page describes pandoc-carve 0.1 (`main`). The Carve 0.2 bridge on `next2` has no `--roundtrip` option or provenance envelope; the CLI refuses the flag as an unknown option.
+
 `roundtrip: true` preserves Carve-only AST information in a private Pandoc
 wrapper when Pandoc has no native field for it. This is an interoperability
 aid for the Pandoc JSON AST path, not a promise that arbitrary Pandoc writers

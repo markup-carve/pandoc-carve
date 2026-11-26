@@ -1,124 +1,70 @@
 # pandoc-carve
 
-Bidirectional [Carve](https://github.com/markup-carve/carve) and Pandoc bridge.
-It exports Carve through Pandoc's writers and imports any format handled by a
-Pandoc reader.
+This `next2` branch evaluates the draft Carve 0.2 tree with a vendored `carve-js` engine. It converts Carve source and Pandoc JSON in both directions. Pandoc 3.14 is used for the format measurements and end-to-end examples. The [test-port tracker](docs/test-port-0.2.md) records the completed 0.1 test migration.
 
-```text
-.crv -> Carve AST -> Pandoc JSON -> LaTeX, Typst, DOCX, PDF, EPUB, ...
-DOCX, LaTeX, RST, ... -> Pandoc JSON -> Carve AST -> .crv
-```
+## Command line
 
-The bridge maps parsed nodes instead of converting through HTML. It preserves
-structure such as tables with spans, footnotes, math, admonitions, attributes,
-and target-routed raw content when Pandoc can represent it.
-
-## Install
+Build with `npm ci && npm run build`, then run the branch CLI:
 
 ```bash
-npm install @markup-carve/pandoc-carve
+node dist/cli.js examples/export/article.crv -t latex -o article.tex
+node dist/cli.js examples/export/article.crv -t typst -o article.typ
+node dist/cli.js examples/export/article.crv -t docx -o article.docx
+node dist/cli.js examples/export/article.crv -t html -o article.html
+node dist/cli.js examples/export/article.crv -t epub -o article.epub
+node dist/cli.js examples/export/article.crv -t pdf -o article.pdf
+node dist/cli.js examples/import/paper.tex -f latex -o paper.crv
+node dist/cli.js examples/import/notes.rst -f rst -o notes.crv
+node dist/cli.js report.docx -f docx -o report.crv
+node dist/cli.js examples/export/article.crv -t html -s -o article.html -- --toc
 ```
 
-The CLI requires Pandoc 3.x on `PATH` for formats other than JSON. CI currently
-tests Pandoc 3.14 and 3.12.1. Pandoc is not bundled.
+With no `-t`, Carve input produces Pandoc JSON. With a Pandoc input format, the CLI produces Carve source. `-t carve-ast-json` produces a Carve 2.0 AST JSON document instead. The CLI uses `pandoc` for formats other than JSON. PDF output requires `-o` so Pandoc can select its PDF writer from the filename. It accepts stdin with `-` and writes stdout unless `-o` is supplied. `-s` produces a standalone document, `--pandoc PATH` names the Pandoc executable, and arguments after `--` go to Pandoc verbatim. A named Carve file expands its includes from its folder; `--include-root DIR` sets an absolute containment root (and enables includes on stdin), `--no-includes` turns expansion off. See the [reference](docs/reference.md) for the details.
 
-## CLI
+## Non-JS hosts (PHP, Rust)
+
+Pass a Carve 2.0 AST JSON document from a PHP or Rust host to the CLI. The CLI validates it against the vendored 2.0 tree schema before conversion. For example, a PHP host can encode a tree and export DOCX:
+
+```php
+<?php
+$tree = Carve::parse("# Report\n");
+$json = Carve::encodeTree($tree);
+$process = proc_open('pandoc-carve -f carve-ast-json -t docx -o report.docx', [
+    0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
+], $pipes);
+fwrite($pipes[0], $json);
+fclose($pipes[0]);
+$stderr = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+if (proc_close($process) !== 0) throw new RuntimeException($stderr);
+```
+
+`--offline --resource-root /absolute/images` embeds local image bytes from that directory and rejects image targets it cannot resolve. Use `--offline` without a root when the document has no images. The Node API also accepts a `resolveImage` callback for hosts that store image bytes elsewhere. See the [reference](docs/reference.md#offline-conversion).
+
+## Engine
+
+The Carve engine is the npm git dependency `@markup-carve/carve`, pinned to a carve-js `next2` commit in `package.json`. `vendor/carve` holds the engine's data the tests read at that commit: its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit, and a test checks it against the pin. To move the pin, change the commit in `package.json`, run `npm install`, check out carve-js at the same commit, then:
 
 ```bash
-# Export
-pandoc-carve doc.crv -t latex -o doc.tex
-pandoc-carve doc.crv -t typst -o doc.typ
-pandoc-carve doc.crv -t docx -o doc.docx
-pandoc-carve doc.crv -t pdf -o doc.pdf
-
-# Import
-pandoc-carve report.docx -f docx -o report.crv
-pandoc-carve paper.tex -f latex -o paper.crv
-
-# Emit or consume Pandoc JSON without invoking pandoc
-pandoc-carve doc.crv -t json
-pandoc -f rst -t json doc.rst | pandoc-carve - -f json
+node scripts/vendor-carve.mjs /path/to/carve-js
 ```
-
-Anything that cannot be mapped faithfully produces a diagnostic. Use
-`--diagnostics report.json` for the versioned JSON report and `--fail-on-loss`
-to return exit code 3 when a conversion degrades or drops content. Imports
-through a Pandoc reader other than `-f json` also return 3 because fidelity
-before the Pandoc JSON boundary cannot be verified.
-
-Named input files expand contained includes by default, rooted at their own
-directory. Use `--no-includes` to keep directives literal. Standard input
-expands includes only when `--include-root` is supplied.
-
-The [CLI reference](docs/reference.md#cli) covers standalone documents,
-additional Pandoc arguments, includes, serialized Carve AST input, and every
-diagnostic option.
 
 ## API
 
 ```js
-import {
-  carveToPandoc,
-  carveToPandocJson,
-  pandocToCarve,
-} from '@markup-carve/pandoc-carve'
+import { carveToPandoc, pandocToCarve } from '@markup-carve/pandoc-carve';
 
-const exported = carveToPandoc('Hello /world/!')
-const json = carveToPandocJson('Hello /world/!')
-const imported = pandocToCarve(json)
+const { doc, warnings: exportWarnings } = carveToPandoc('# Title');
+const { carve, warnings: importWarnings } = pandocToCarve(doc);
 ```
 
-Each direction returns structured diagnostics alongside its output. Node.js
-hosts can use `carveToPandocWithIncludes` from the `/node` entry point for
-contained file expansion and dependency tracking.
+`carveToPandocWithIncludes(source, { includeRoot, sourcePath })` from `@markup-carve/pandoc-carve/node` converts a file-backed document with its includes expanded. `carveToCarveAst`, `carveAstToPandoc`, and `pandocToCarveAst` expose the validated 2.0 tree boundary. The bridge carries typed root title, subtitle, authors, date, and bibliography metadata through Pandoc JSON. Unsupported Pandoc metadata fields produce warnings.
 
-Use `carveToCarveAst` to serialize source, `carveAstToPandoc` to convert a
-serialized Carve tree, and `pandocToCarveAst` for the reverse direction. These
-functions consume the versioned AST defined by the Carve specification, not an
-implementation-specific runtime tree.
+Pandoc `Quoted` maps to paired Carve smart quote nodes. An ordered list with Pandoc's `Example` style uses `carve-example=1` and `carve-example-delimiter=...` attributes on the Carve list; these attributes preserve the style through Carve source and Pandoc JSON. The Carve renderer does not implement Pandoc's document-wide Example counter.
 
-## Round trips
+## Verification and limits
 
-With round-trip metadata enabled, the test suite requires
-`carve -> Pandoc AST -> carve` to render equivalent normalized HTML across the
-corpus apart from an explicit known-lossy list:
+`npm test` runs the full suite, including real Pandoc export and import checks for the example documents. The [format matrix](docs/roundtrip-0.2.md) measures 99 Carve probes across 17 formats and separates format-inherent loss from lost words, destinations, images, cells, math, and code. It lists every real-loss cell with its cause.
 
-```js
-const result = carveToPandoc(source, { roundtrip: true })
-```
-
-The CLI equivalent is `--roundtrip`. Private Span and Div metadata preserves
-comments, attribute placement, typed citations, and future Carve nodes through
-Pandoc JSON. Other writers may expose or discard that metadata. See the
-[provenance envelope](docs/roundtrip-provenance.md) for its format and safety
-rules.
-
-## Fidelity and limitations
-
-Pandoc's AST does not represent every Carve construct, and output formats have
-their own limits. The bridge reports those cases rather than silently dropping
-them. Highlights include:
-
-- underline, highlight, and custom attributes depend on target-format support;
-- complex Carve table structure may be normalized by a writer;
-- grouped UI constructs such as tabs degrade to labeled blocks;
-- raw target content only survives in matching writers;
-- comments and attribute placement require round-trip metadata.
-
-These limits are measured rather than asserted.
-[pandoc-format-fidelity](https://github.com/markup-carve/pandoc-format-fidelity) runs Carve
-source through this bridge and back for every writer it lists, and publishes the verdicts per
-format: `results/carve-rt.json` holds the Carve round-trip lane, and
-[the report](https://github.com/markup-carve/pandoc-format-fidelity/blob/main/docs/index.html)
-covers every pandoc writer and reader.
-
-Dangerous URL schemes such as `javascript:` are blanked and reported. The
-[URL policy](docs/reference.md#dangerous-url-schemes-are-blanked) documents the
-exact behavior. The [mapping and limitations reference](docs/reference.md#what-maps-to-what)
-contains the node table and per-format limits; the [options section](docs/reference.md#options)
-covers API configuration.
-
-## Development
-
-Contributor setup, tests, and maintenance commands are in the
-[development guide](docs/development.md).
+The 0.1 implementation and dependency have been removed. This branch is not a release.

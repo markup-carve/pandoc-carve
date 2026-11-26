@@ -1,286 +1,239 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
-import { findPandoc, migrationReportSchema, ownedImporterFixtures } from './helpers.mjs';
-import Ajv2020 from 'ajv/dist/2020.js';
 
-const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
-const pandoc = findPandoc();
-const reportSchema = migrationReportSchema();
-const validateMigrationReport = new Ajv2020({ strict: true }).compile(reportSchema);
-const assertMigrationReport = report => assert.equal(
-  validateMigrationReport(report), true, JSON.stringify(validateMigrationReport.errors),
-);
-
-function run(args, input) {
-  return spawnSync(process.execPath, [cli, ...args], {
-    input,
-    encoding: 'utf8',
-    env: { ...process.env, PANDOC: pandoc ?? 'pandoc-definitely-missing' },
-  });
-}
-
-test('cli: -t json emits a valid pandoc document without pandoc', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'doc.crv');
-  writeFileSync(file, '# Hi\n\n/there/\n');
-  const result = run([file, '-t', 'json']);
-  assert.equal(result.status, 0, result.stderr);
-  const doc = JSON.parse(result.stdout);
-  assert.deepEqual(doc['pandoc-api-version'], [1, 23, 1]);
-  assert.equal(doc.blocks[0].t, 'Header');
+const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+const run = (args, input, env = {}) => spawnSync(process.execPath, [cli, ...args], {
+  input, encoding: 'utf8', env: { ...process.env, ...env },
 });
 
-test('cli: reads stdin with "-"', () => {
+const doc = (blocks, meta = {}) => ({ 'pandoc-api-version': [1, 23, 1], meta, blocks });
+
+test('cli: -t json emits a Pandoc document without invoking Pandoc', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'doc.crv');
+  writeFileSync(file, '= Hi\n\n*bold*\n');
+  const result = run([file, '-t', 'json'], undefined, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output['pandoc-api-version'], [1, 23, 1]);
+  assert.equal(output.blocks[0].t, 'Header');
+});
+
+test('cli: reads Carve source from stdin', () => {
   const result = run(['-', '-t', 'json'], '*bold*\n');
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.includes('"Strong"'));
+  assert.match(result.stdout, /"Strong"/u);
 });
 
-test('cli: stdin includes are opt-in through an absolute root', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  writeFileSync(join(dir, 'child.crv'), 'Included.\n');
-  const literal = run(['-', '-t', 'json'], '{{ child.crv }}\n');
-  assert.equal(literal.status, 0, literal.stderr);
-  assert.match(literal.stdout, /child\.crv/);
-  const expanded = run(['-', '-t', 'json', '--include-root', dir], '{{ child.crv }}\n');
-  assert.equal(expanded.status, 0, expanded.stderr);
-  assert.match(expanded.stdout, /Included/);
-});
-
-test('cli: named files expand from their directory and --no-includes opts out', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'main.crv');
-  writeFileSync(file, '{{ child.crv }}\n');
-  writeFileSync(join(dir, 'child.crv'), 'Included.\n');
-  const expanded = run([file, '-t', 'json']);
-  assert.equal(expanded.status, 0, expanded.stderr);
-  assert.match(expanded.stdout, /Included/);
-  const literal = run([file, '-t', 'json', '--no-includes']);
-  assert.equal(literal.status, 0, literal.stderr);
-  assert.match(literal.stdout, /child\.crv/);
-});
-
-test('cli: include warnings expose no absolute containment path', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'main.crv');
-  writeFileSync(file, '{{ ../outside.crv }}\n');
-  const result = run([file, '-t', 'json', '--include-root', dir]);
+test('cli: -f carve-json converts a handwritten 0.2 tree', () => {
+  const ast = { type: 'document', astVersion: '2.0', children: [
+    { type: 'heading', level: 1, children: [{ type: 'text', value: 'Hi' }] },
+  ] };
+  const result = run(['-', '-f', 'carve-json', '-t', 'json'], JSON.stringify(ast));
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stderr, /include-unresolved/);
-  assert.doesNotMatch(result.stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(JSON.parse(result.stdout).blocks[0].c[2][0].c, 'Hi');
 });
 
-test('cli: include warnings remain contained when the root is a symlink', () => {
+test('cli: -f carve-json refuses a non-Carve payload', () => {
+  const result = run(['-', '-f', 'carve-json', '-t', 'json'], '{"blocks":[]}');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /not a Carve AST document/u);
+});
+
+test('cli: conversion warnings land on stderr', () => {
+  const result = run(['-', '-t', 'json'], 'a :heart: b\n');
+  assert.equal(result.status, 0);
+  assert.match(result.stderr, /pandoc-carve: degraded: symbol/u);
+});
+
+test('cli: an unverified Pandoc reader fails the loss gate', () => {
+  const result = run(['-', '-f', 'markdown', '--fail-on-loss'], 'plain');
+  assert.equal(result.status, 3, result.stderr);
+  assert.match(result.stderr, /fidelity-unverified/u);
+  assert.match(result.stdout, /plain/u);
+});
+
+test('cli: fail-on-loss rejects conversion warnings and still emits output', () => {
+  const result = run(['-', '-t', 'json', '--fail-on-loss'], 'a :heart: b\n');
+  assert.equal(result.status, 3, result.stderr);
+  assert.equal(JSON.parse(result.stdout).blocks[0].t, 'Para');
+});
+
+test('cli: omitted Pandoc metadata fails the loss gate', () => {
+  const input = JSON.stringify(doc([{ t: 'Para', c: [{ t: 'Str', c: 'item' }] }],
+    { custom: { t: 'MetaString', c: 'value' } }));
+  const result = run(['-', '-f', 'json', '--fail-on-loss'], input);
+  assert.equal(result.status, 3, result.stderr);
+  assert.match(result.stdout, /item/u);
+  assert.match(result.stderr, /metadata custom: no typed 0\.2 slot/u);
+});
+
+test('cli: converts to LaTeX through Pandoc', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const link = `${dir}-link`;
-  symlinkSync(dir, link, 'dir');
-  try {
-    const file = join(link, 'main.crv');
-    writeFileSync(file, '{{ missing.crv }}\n');
-    const result = run([file, '-t', 'json', '--include-root', link]);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /\[include-root\]\/main\.crv/);
-    assert.doesNotMatch(result.stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  } finally {
-    rmSync(link);
-    rmSync(dir, { recursive: true, force: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'doc.crv');
+  const output = join(dir, 'doc.tex');
+  writeFileSync(file, 'Some *emphasis* here.\n');
+  const result = run([file, '-t', 'latex', '-o', output]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(readFileSync(output, 'utf8'), /\\textbf\{emphasis\}/u);
+});
+
+test('cli: missing Pandoc has a clear error', () => {
+  const result = run(['-', '-t', 'latex'], 'x\n', { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /pandoc not found/u);
+});
+
+test('cli: pdf requires an output file before Pandoc is called', () => {
+  const result = run(['-', '-t', 'pdf', '--pandoc', '/nonexistent/pandoc'], 'Hello.\n');
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, 'pandoc-carve: -t pdf requires -o <file.pdf>\n');
+});
+
+test('cli: pdf uses the output path to select the writer', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fake = join(dir, 'fake-pandoc.mjs');
+  const argsFile = join(dir, 'args.json');
+  const output = join(dir, 'out.pdf');
+  writeFileSync(fake, `#!${process.execPath}\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.PANDOC_ARGS_FILE, JSON.stringify(process.argv.slice(2)));\n`);
+  chmodSync(fake, 0o755);
+  const result = run(['-', '-t', 'pdf', '-o', output, '--pandoc', fake], 'Hello.\n', { PANDOC_ARGS_FILE: argsFile });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')), ['-f', 'json', '-o', output]);
+});
+
+test('cli: Pandoc writer exit status passes through on failure and success', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fake = join(dir, 'fake-pandoc.mjs');
+  writeFileSync(fake, `#!${process.execPath}\nprocess.stdout.write('writer output\\n');\nprocess.stderr.write('writer diagnostic\\n');\nprocess.exit(Number(process.env.PANDOC_EXIT_STATUS));\n`);
+  chmodSync(fake, 0o755);
+  for (const [writer, status, expectedStdout] of [['latex', 47, ''], ['pdf', 47, ''], ['latex', 0, 'writer output\n']]) {
+    const output = writer === 'pdf' ? ['-o', join(dir, 'out.pdf')] : [];
+    const result = run(['-', '-t', writer, ...output, '--pandoc', fake], 'Hello.\n', { PANDOC_EXIT_STATUS: String(status) });
+    assert.equal(result.status, status);
+    assert.equal(result.stdout, expectedStdout);
+    assert.equal(result.stderr, status === 0 ? '' : 'writer diagnostic\n');
   }
 });
 
-test('cli: include failures participate in structured diagnostics and fail-on-loss', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'main.crv');
-  writeFileSync(file, '{{ missing.crv }}\n');
-  const result = run([file, '-t', 'json', '--diagnostics', '-', '--fail-on-loss']);
-  assert.equal(result.status, 3, result.stderr);
-  const report = JSON.parse(result.stderr);
-  assertMigrationReport(report);
-  assert.equal(report.diagnostics[0].code, 'include-unresolved');
-  assert.equal(report.diagnostics[0].details.file, '[include-root]/main.crv');
-});
-
-test('cli: normalized include renames do not fail on loss', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'main.crv');
-  writeFileSync(file, '{#dup}\n# Main\n\n{{ child.crv }}\n');
-  writeFileSync(join(dir, 'child.crv'), '{#dup}\n# Child\n');
-  const result = run([file, '-t', 'json', '--diagnostics', '-', '--fail-on-loss']);
-  assert.equal(result.status, 0, result.stderr);
-  const report = JSON.parse(result.stderr);
-  const renamed = report.diagnostics.find(item => item.code === 'include-id-rename');
-  assert.equal(renamed.fidelity, 'normalized');
-});
-
-test('cli: stdin include diagnostics omit an unknown file identity', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const result = run(['-', '-t', 'json', '--include-root', dir, '--diagnostics', '-'], '{{ missing.crv }}\n');
-  assert.equal(result.status, 0, result.stderr);
-  const report = JSON.parse(result.stderr);
-  assert.equal(Object.hasOwn(report.diagnostics[0].details, 'file'), false);
-});
-
-test('cli: reports the count of suppressed include warnings', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'main.crv');
-  writeFileSync(file, Array.from({ length: 105 }, (_, index) => `{{ missing-${index}.crv }}`).join('\n'));
-  const result = run([file, '-t', 'json']);
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stderr, /5 additional include warning\(s\) suppressed/);
-});
-
-test('cli: -f carve-json converts a serialized AST from any engine', () => {
-  // The wire form of `# Hi`, written by hand: no engine produced it, which is
-  // the point - PART 12 is what the CLI reads here, not carve-js.
-  const ast = {
-    type: 'document',
-    srcByteLength: 5,
-    children: [{ type: 'heading', level: 1, children: [{ type: 'text', value: 'Hi' }] }],
-  };
-  const result = run(['-', '-f', 'carve-json', '-t', 'json'], JSON.stringify(ast));
-  assert.equal(result.status, 0, result.stderr);
-  const doc = JSON.parse(result.stdout);
-  assert.equal(doc.blocks[0].t, 'Header');
-  assert.equal(doc.blocks[0].c[2][0].c, 'Hi');
-});
-
-test('cli: -f carve-json refuses a payload that is not a Carve AST', () => {
-  const result = run(['-', '-f', 'carve-json', '-t', 'json'], '{"blocks":[]}');
+test('cli: no arguments shows usage', () => {
+  const result = run([]);
   assert.equal(result.status, 1);
-  assert.ok(result.stderr.includes('not a Carve AST document'), result.stderr);
+  assert.match(result.stderr, /Usage/u);
 });
 
-test('cli: -f carve-json rejects source-only include options', () => {
-  const result = run(['-', '-f', 'carve-json', '--no-includes'], '{}');
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /only apply to Carve source input/);
-});
-
-test('cli: Pandoc readers reject source-only include options', () => {
-  const result = run(['-', '-f', 'json', '--include-root', tmpdir()], '{}');
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /only apply to Carve source input/);
-});
-
-test('cli: degradation warnings land on stderr', () => {
-  const result = run(['-', '-t', 'json'], 'a :heart: b\n');
-  assert.equal(result.status, 0);
-  assert.ok(result.stderr.includes('pandoc-carve: degraded:'));
-});
-
-test('cli: structured diagnostics stay separate from converted output', () => {
+const includeFixture = (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const report = join(dir, 'diagnostics.json');
-  const result = run(['-', '-t', 'json', '--diagnostics', report], 'a :heart: b\n');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'doc.crv'), 'Intro\n\n{{ part.crv }}\n');
+  writeFileSync(join(dir, 'part.crv'), 'Included *text*\n');
+  return dir;
+};
+
+test('cli: -s writes a standalone document', (t) => {
+  const dir = includeFixture(t);
+  const result = run(['-t', 'html', '-s', join(dir, 'doc.crv')]);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).blocks[0].t, 'Para');
-  const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
-  assertMigrationReport(reportEnvelope);
-  assert.equal(reportEnvelope.schemaVersion, 2);
-  assert.equal(reportEnvelope.sourceFormat, 'carve');
-  assert.equal(reportEnvelope.diagnostics[0].code, 'symbol-unresolved');
+  assert.match(result.stdout, /<!DOCTYPE html>/u);
+  assert.doesNotMatch(run(['-t', 'html', join(dir, 'doc.crv')]).stdout, /<!DOCTYPE/u);
+});
+
+test('cli: a named file expands its includes', (t) => {
+  const dir = includeFixture(t);
+  const result = run(['-t', 'html', join(dir, 'doc.crv')]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '<p>Intro</p>\n<p>Included <strong>text</strong></p>\n');
   assert.equal(result.stderr, '');
 });
 
-test('cli: inbound diagnostics name the original source format', () => {
-  const report = join(tmpdir(), `pandoc-carve-inbound-${process.pid}.json`);
-  const input = JSON.stringify({
-    'pandoc-api-version': [1, 23, 1],
-    meta: {},
-    blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'plain' }] }],
-  });
-  const result = run(['-', '-f', 'json', '--diagnostics', report], input);
+test('cli: --no-includes leaves the include unexpanded', (t) => {
+  const dir = includeFixture(t);
+  const result = run(['-t', 'html', '--no-includes', join(dir, 'doc.crv')]);
   assert.equal(result.status, 0, result.stderr);
-  const reportEnvelope = JSON.parse(readFileSync(report, 'utf8'));
-  assertMigrationReport(reportEnvelope);
-  assert.equal(reportEnvelope.schemaVersion, 2);
-  assert.equal(reportEnvelope.sourceFormat, 'pandoc-json');
-  assert.deepEqual(reportEnvelope.diagnostics, []);
+  assert.match(result.stdout, /class="carve-include" data-path="part\.crv"/u);
+  assert.match(result.stderr, /include: unresolved/u);
 });
 
-test('cli: replays every shared Pandoc fidelity fixture', () => {
-  const fixtures = ownedImporterFixtures();
-  for (const fixture of fixtures) {
-    const report = join(tmpdir(), `pandoc-carve-fixture-${process.pid}-${fixture.id}.json`);
-    const result = run(['-', '-f', 'json', '--diagnostics', report], fixture.input);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, fixture.expected.output, fixture.id);
-    const actual = JSON.parse(readFileSync(report, 'utf8'));
-    assertMigrationReport(actual);
-    assert.equal(actual.schemaVersion, 2);
-    assert.equal(actual.sourceFormat, fixture.sourceFormat);
-    assert.equal(fixture.runner, 'external');
-    assert.equal(fixture.repository, 'markup-carve/pandoc-carve');
-    assert.deepEqual(
-      actual.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
-      fixture.expected.diagnostics,
-      fixture.id,
-    );
-  }
-});
-
-test('cli: a Pandoc reader boundary fails closed', () => {
-  const report = join(tmpdir(), `pandoc-carve-reader-${process.pid}.json`);
-  const result = run(['-', '-f', 'markdown', '--diagnostics', report, '--fail-on-loss'], 'plain');
-  if (!pandoc) return assert.equal(result.status, 2);
-  assert.equal(result.status, 3, result.stderr);
-  const envelope = JSON.parse(readFileSync(report, 'utf8'));
-  assertMigrationReport(envelope);
-  assert.equal(envelope.sourceFormat, 'pandoc-json');
-  assert.deepEqual(
-    envelope.diagnostics.map(({ code, fidelity, confidence }) => ({ code, fidelity, confidence })),
-    [{ code: 'fidelity-unverified', fidelity: 'dropped', confidence: 'fallback' }],
-  );
-});
-
-test('cli: fail-on-loss rejects both degradation and dropped content', () => {
-  const degraded = run(['-', '-t', 'json', '--fail-on-loss'], 'a :heart: b\n');
-  assert.equal(degraded.status, 3, degraded.stderr);
-  const lossy = run(['-', '-t', 'json', '--fail-on-loss'], 'visible %% secret\n');
-  assert.equal(lossy.status, 3, lossy.stderr);
-  assert.doesNotThrow(() => JSON.parse(lossy.stdout), 'converted output is still complete');
-});
-
-test('cli: losing an example-list counter fails the loss gate', () => {
-  const input = JSON.stringify({
-    'pandoc-api-version': [1, 23, 1], meta: {},
-    blocks: [{ t: 'OrderedList', c: [[1, { t: 'Example' }, { t: 'TwoParens' }],
-      [[{ t: 'Plain', c: [{ t: 'Str', c: 'item' }] }]]] }],
-  });
-  const result = run(['-', '-f', 'json', '--fail-on-loss', '--diagnostics', '-'], input);
-  assert.equal(result.status, 3, result.stderr);
-  assert.match(result.stdout, /item/);
-  const diagnostics = JSON.parse(result.stderr).diagnostics;
-  assert.equal(diagnostics.length, 1);
-  assert.equal(diagnostics[0].code, 'ordered-list-counter-degraded');
-});
-
-test('cli: converts to latex through pandoc', { skip: !pandoc && 'pandoc not found' }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'pandoc-carve-'));
-  const file = join(dir, 'doc.crv');
-  const out = join(dir, 'doc.tex');
-  writeFileSync(file, 'Some /emphasis/ here.\n');
-  const result = run([file, '-t', 'latex', '-o', out]);
+test('cli: stdin expands includes only with --include-root', (t) => {
+  const dir = includeFixture(t);
+  const source = '{{ part.crv }}\n';
+  assert.match(run(['-', '-t', 'json'], source).stdout, /carve-include/u);
+  const result = run(['-', '-t', 'json', '--include-root', dir], source);
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(readFileSync(out, 'utf8').includes('\\emph{emphasis}'));
+  assert.match(result.stdout, /"Strong"/u);
+  assert.doesNotMatch(result.stdout, /carve-include/u);
 });
 
-test('cli: helpful error when pandoc is missing', () => {
-  const result = spawnSync(process.execPath, [cli, '-', '-t', 'latex'], {
-    input: 'x\n',
-    encoding: 'utf8',
-    env: { ...process.env, PANDOC: '/nonexistent/pandoc' },
-  });
-  assert.equal(result.status, 2);
-  assert.ok(result.stderr.includes('not found'));
+test('cli: --include-root is absolute and applies to Carve source only', (t) => {
+  const dir = includeFixture(t);
+  const relative = run([join(dir, 'doc.crv'), '-t', 'json', '--include-root', 'relative']);
+  assert.equal(relative.status, 1);
+  assert.match(relative.stderr, /--include-root must be an absolute path/u);
+  const imported = run(['-', '-f', 'json', '--no-includes'], JSON.stringify(doc([])));
+  assert.equal(imported.status, 1);
+  assert.match(imported.stderr, /only apply to Carve source input/u);
 });
 
-test('cli: usage on no args', () => {
-  const result = run([]);
+test('cli: an include outside the root is reported and fails the loss gate', (t) => {
+  const dir = includeFixture(t);
+  writeFileSync(join(dir, 'doc.crv'), '{{ ../outside.crv }}\n');
+  const result = run([join(dir, 'doc.crv'), '-t', 'json', '--fail-on-loss']);
+  assert.equal(result.status, 3, result.stderr);
+  assert.match(result.stderr, /include-outside-root/u);
+});
+
+test('cli: arguments after -- and --pandoc reach Pandoc', (t) => {
+  const dir = includeFixture(t);
+  const fake = join(dir, 'fake-pandoc.mjs');
+  writeFileSync(fake, `#!${process.execPath}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n`);
+  chmodSync(fake, 0o755);
+  const exported = run([join(dir, 'doc.crv'), '-t', 'latex', '-s', '--pandoc', fake, '--', '--toc', '-V', 'x=y'], undefined, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(exported.status, 0, exported.stderr);
+  assert.deepEqual(JSON.parse(exported.stdout), ['-f', 'json', '-t', 'latex', '-s', '--toc', '-V', 'x=y']);
+  const imported = run(['-', '-f', 'markdown', '-t', 'json', '--pandoc', fake, '--', '--tab-stop=2'], 'x\n');
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.deepEqual(JSON.parse(imported.stdout), ['-f', 'markdown', '-t', 'json', '--tab-stop=2']);
+});
+
+test('cli: --toc after -- builds a table of contents', (t) => {
+  const dir = includeFixture(t);
+  writeFileSync(join(dir, 'doc.crv'), '= One\n\n= Two\n');
+  const result = run([join(dir, 'doc.crv'), '-t', 'html', '-s', '--', '--toc']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /id="TOC"/u);
+});
+
+test('cli: an unknown option is an error', () => {
+  const result = run(['-', '-t', 'json', '--roundtrip'], 'x\n');
   assert.equal(result.status, 1);
-  assert.ok(result.stderr.includes('Usage'));
+  assert.match(result.stderr, /unknown option: --roundtrip/u);
+});
+
+test('cli: -t carve-ast-json writes a schema-valid Carve tree that reads back', async () => {
+  const { Ajv2020 } = await import('ajv/dist/2020.js');
+  const schema = JSON.parse(readFileSync(new URL('../vendor/carve/ast-schema.json', import.meta.url), 'utf8'));
+  const validate = new Ajv2020({ strict: false }).compile(schema);
+  const input = JSON.stringify(doc([
+    { t: 'Header', c: [1, ['', [], []], [{ t: 'Str', c: 'Hi' }]] },
+    { t: 'Para', c: [{ t: 'Strong', c: [{ t: 'Str', c: 'bold' }] }] },
+  ]));
+  const result = run(['-', '-f', 'json', '-t', 'carve-ast-json'], input, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(result.status, 0, result.stderr);
+  const tree = JSON.parse(result.stdout);
+  assert.equal(tree.type, 'document');
+  assert.ok(validate(tree), JSON.stringify(validate.errors));
+  const back = run(['-', '-f', 'carve-ast-json', '-t', 'json'], result.stdout, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(back.status, 0, back.stderr);
+  const blocks = JSON.parse(back.stdout).blocks;
+  assert.equal(blocks[0].t, 'Header');
+  assert.equal(blocks[1].c[0].t, 'Strong');
 });

@@ -1,42 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { carveToPandoc } from '../dist/index.js';
-import { findPandoc, pandocRender, shortfall } from './helpers.mjs';
+import { findPandoc, pandocRender } from './helpers.mjs';
 
-const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
-const fixtures = readdirSync(fixturesDir).filter((f) => f.endsWith('.md') || f.endsWith('.crv'));
+const root = new URL('..', import.meta.url).pathname;
+const fixtureNames = [
+  'examples/export/article.crv',
+  'examples/export/interactive.crv',
+  'examples/export/spans.crv',
+  'test/fixtures/probes-0.2/figure_group.crv',
+];
+const fixtures = fixtureNames.filter((name) => existsSync(join(root, name)));
 const pandoc = findPandoc();
 
-// Every test below this line is generated from `fixtures`, so an empty
-// directory - or a filter that stops matching the extensions in it - registers
-// nothing and exits 0. Measured: `rm -f test/fixtures/*` left this file passing
-// its one remaining test (markup-carve/carve#755, variant 2).
-test('the fixture corpus is non-empty, so a broken glob cannot pass as a clean run', () => {
-  const thin = shortfall({
-    label: 'FIXTURES',
-    actual: fixtures.length,
-    atLeast: 4,
-    of: 'file(s) in test/fixtures',
-    hint: 'the .md and .crv files there are the population; a run over none of ' +
-      'them registers no per-fixture test at all.',
-  });
-  assert.equal(thin, null, thin ?? '');
+test('the 0.2 fixture corpus is complete before per-file tests run', () => {
+  assert.deepEqual(fixtures, fixtureNames);
 });
 
 for (const fixture of fixtures) {
-  const source = readFileSync(join(fixturesDir, fixture), 'utf8');
-
   test(`corpus: ${fixture} converts without throwing`, () => {
+    const source = readFileSync(join(root, fixture), 'utf8');
     const { doc } = carveToPandoc(source);
     assert.deepEqual(doc['pandoc-api-version'], [1, 23, 1]);
     assert.ok(Array.isArray(doc.blocks));
     assert.ok(doc.blocks.length > 0);
   });
 
-  test(`corpus: ${fixture} is accepted by pandoc (native, latex, typst, html)`, { skip: !pandoc && 'pandoc not found' }, () => {
+  test(`corpus: ${fixture} is accepted by Pandoc in four formats`, { skip: !pandoc && 'pandoc not found' }, () => {
+    const source = readFileSync(join(root, fixture), 'utf8');
     const { doc } = carveToPandoc(source);
     for (const target of ['native', 'latex', 'typst', 'html']) {
       const out = pandocRender(pandoc, doc, target);
@@ -45,29 +38,15 @@ for (const fixture of fixtures) {
   });
 }
 
-test('corpus: conversion of adversarial snippets never throws', () => {
-  const nasty = [
-    '',
-    '\n\n\n',
-    '|',
-    '| a |',
-    '^ caption without target',
-    '[^only-def]: orphan',
-    '</#nowhere>',
-    '::: unknown-admonition\nx\n:::',
-    '`unclosed',
-    '/unclosed em',
-    '{#attr-without-block}',
-    '- [x]',
-    ':: term-no-def',
-    '$`',
-    '![](no-alt.png)',
-    '%%',
-    '---\nbroken yaml: [unclosed\n---\nbody',
-    'a\u0000b',
-    '\ufeffbom',
+test('corpus: adversarial snippets never throw during conversion', () => {
+  const inputs = [
+    '', '\n\n\n', '|', '| a |', '^ caption without target',
+    '[^only-def]: orphan', '</#nowhere>', '::: unknown-admonition\nx\n:::',
+    '`unclosed', '/unclosed em', '{#attr-without-block}', '- [x]',
+    ':: term-no-def', '$`', '![](no-alt.png)', '%%',
+    '---\nbroken yaml: [unclosed\n---\nbody', 'a\u0000b', '\ufeffbom',
   ];
-  for (const src of nasty) {
-    assert.doesNotThrow(() => carveToPandoc(src), `input: ${JSON.stringify(src)}`);
+  for (const source of inputs) {
+    assert.doesNotThrow(() => carveToPandoc(source), `input: ${JSON.stringify(source)}`);
   }
 });

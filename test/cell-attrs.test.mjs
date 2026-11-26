@@ -1,31 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { parse } from '@markup-carve/carve';
-import { carveToPandoc, carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
+import { carveToCarveAst, carveToPandoc, carveAstToPandoc, pandocToCarve, pandocToCarveAst } from '../dist/index.js';
 import { findPandoc, pandocRender } from './helpers.mjs';
 
 const pandoc = findPandoc();
-
-/*
- * A cell's attribute block is glued to the opening pipe (`|{.x} content`) and a
- * row's follows the closing one (`| a | b |{.cls}`) - grammar PART 7, corpus
- * case `99-table-cell-attributes`. Pandoc has an `Attr` on both `Cell` and
- * `Row`, so neither is a degradation; both were simply dropped, with no warning
- * in either direction. Measured before this file existed: every converted cell
- * and row carried `["", [], []]`, and the reverse direction discarded the Attr
- * it destructured past.
- *
- * A space before the brace is ordinary content, which is why every fixture here
- * glues it.
- */
-
-const SRC = '|=A |=B |\n|---|---|\n|{#c1 .hi k=v} c |{.y} d |{.rowcls}\n';
-
+const SRC = '|= A |= B |\n|{#c1 .hi k=v} c |{.y} d |{.rowcls}\n';
 const bodyOf = (doc) => doc.blocks[0].c[4][0][3];
 const headOf = (doc) => doc.blocks[0].c[3][1];
+const body = (ast) => ast.children[0].children.find((x) => x.type === 'table_body');
+const row = (ast) => body(ast).children[0];
+const T = (value, extra = {}) => ({ type: 'table_cell', header: false, ...extra, children: value ? [{ type: 'cell_paragraph', children: [{ type: 'text', value }] }] : [] });
+const oneRowAst = (cells) => ({ type: 'document', astVersion: '2.0', children: [{ type: 'table', columns: cells.map(() => ({ type: 'table_column' })), children: [{ type: 'table_body', children: [{ type: 'table_row', children: cells }] }] }] });
 
-test('cell attrs: a cell attribute block reaches pandoc as the cell Attr', () => {
+test('cell attrs: a cell attribute block reaches Pandoc as the cell Attr', () => {
   const { doc, warnings } = carveToPandoc(SRC);
   const cells = bodyOf(doc)[0][1];
   assert.deepEqual(cells[0][0], ['c1', ['hi'], [['k', 'v']]]);
@@ -33,206 +21,85 @@ test('cell attrs: a cell attribute block reaches pandoc as the cell Attr', () =>
   assert.deepEqual(warnings, []);
 });
 
-test('cell attrs: a row attribute block reaches pandoc as the row Attr', () => {
-  const { doc } = carveToPandoc(SRC);
-  assert.deepEqual(bodyOf(doc)[0][0], ['', ['rowcls'], []]);
+test('cell attrs: a row attribute block reaches Pandoc as the row Attr', () => {
+  assert.deepEqual(bodyOf(carveToPandoc(SRC).doc)[0][0], ['', ['rowcls'], []]);
 });
 
 test('cell attrs: a cell with no attributes still carries the empty Attr', () => {
-  const { doc } = carveToPandoc('|=A |\n|---|\n| plain |\n');
+  const { doc } = carveToPandoc('|= A |\n| plain |\n');
   assert.deepEqual(bodyOf(doc)[0][1][0][0], ['', [], []]);
   assert.deepEqual(bodyOf(doc)[0][0], ['', [], []]);
 });
 
-test('cell attrs: both Attrs come back on the way in', () => {
-  const { doc } = carveToPandoc(SRC);
-  const { ast } = pandocToCarveAst(doc);
-  const row = ast.children[0].rows[1];
-  assert.deepEqual(row.attrs, { classes: ['rowcls'], order: ['.class'] });
-  assert.deepEqual(row.cells[0].attrs, {
-    id: 'c1',
-    classes: ['hi'],
-    keyValues: { k: 'v' },
-    order: ['#id', '.class', 'key'],
-  });
-  assert.deepEqual(row.cells[1].attrs, { classes: ['y'], order: ['.class'] });
+test('cell attrs: row and cell Attrs come back into 0.2 children', () => {
+  const ast = pandocToCarveAst(carveToPandoc(SRC).doc).ast;
+  assert.deepEqual(row(ast).attrs, { classes: ['rowcls'] });
+  assert.deepEqual(row(ast).children[0].attrs, { id: 'c1', classes: ['hi'], keyValues: [['k', 'v']] });
+  assert.deepEqual(row(ast).children[1].attrs, { classes: ['y'] });
 });
 
-test('cell attrs: the round trip preserves them through Carve source', () => {
-  // separatorWidths records the authored separator row, which pandoc has no slot for.
-  const strip = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'pos' || k === 'separatorWidths' ? undefined : v)));
+test('cell attrs: a source round trip preserves row and cell attributes', () => {
   const source = pandocToCarve(carveToPandoc(SRC).doc).carve;
   assert.ok(source.includes('{#c1 .hi k=v}'), source);
   assert.ok(source.includes('{.rowcls}'), source);
-  // Not byte-identical: fmt normalizes the padding inside a cell. The AST is
-  // what has to survive, and it does.
-  assert.deepEqual(strip(parse(source)).children, strip(parse(SRC)).children);
+  const left = carveToCarveAst(source).children[0].children[1].children[0];
+  const right = carveToCarveAst(SRC).children[0].children[1].children[0];
+  assert.deepEqual(left.attrs, right.attrs);
+  assert.deepEqual(left.children.map((x) => x.attrs), right.children.map((x) => x.attrs));
 });
 
-test('cell attrs: a head-row cell keeps its Attr too', () => {
-  // `|=` header cells have no attribute slot in the grammar, but a header
-  // derived from the delimiter row does, and that is the shape fmt writes.
-  //
-  // THE SPACE AFTER THE BRACE IS THE RULING, not padding. edge-cases.md
-  // "Cell attributes bind after the kind and alignment markers": the block is
-  // followed by the space that ends the marker run (T11), "without it the
-  // braces would be content too". Measured on the engine, `|{.hh}H|` renders
-  // `<th scope="col">{.hh}H</th>` - the braces are TEXT and the cell carries no
-  // attributes at all - while `|{.hh} H |` renders
-  // `<th scope="col" class="hh">H</th>`.
-  //
-  // So this test used to assert a contract the spec rejects: it expected
-  // `['', ['hh'], []]` from a spelling that produces no attributes, and only
-  // passed against an engine old enough to accept the glued form. The
-  // expectations below are unchanged; the SOURCE is corrected to the ruled
-  // spelling, which is the shape they were always describing.
-  const src = '|{.hh} H |\n|---|\n|{.dd} d |\n';
-  const { doc } = carveToPandoc(src);
+test('cell attrs: a head-row cell keeps its Attr', () => {
+  const { doc } = carveToPandoc('|={.hh} H |\n|{.dd} d |\n');
   assert.deepEqual(headOf(doc)[0][1][0][0], ['', ['hh'], []]);
-  const { ast } = pandocToCarveAst(doc);
-  assert.deepEqual(ast.children[0].rows[0].cells[0].attrs, { classes: ['hh'], order: ['.class'] });
-  assert.equal(ast.children[0].rows[0].cells[0].header, true);
+  const head = pandocToCarveAst(doc).ast.children[0].children[0];
+  assert.deepEqual(head.children[0].children[0].attrs, { classes: ['hh'] });
+  assert.equal(head.children[0].children[0].header, true);
 });
 
-test('cell attrs: attributes on a continuation cell are reported, not dropped quietly', () => {
-  // The grammar cannot produce this - a cell carrying attributes is never a
-  // bare span cell - but the exchange AST can, and pandoc omits covered
-  // positions entirely, so there is no node left to hang them on.
-  const ast = {
-    type: 'document',
-    children: [
-      {
-        type: 'table',
-        rows: [
-          {
-            type: 'table_row',
-            cells: [
-              { type: 'table_cell', header: false, children: [{ type: 'text', value: 'a' }] },
-              {
-                type: 'table_cell',
-                header: false,
-                children: [],
-                span: 'colspan',
-                attrs: { classes: ['zz'], order: ['.class'] },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
+test('cell attrs: attributes on a continuation cell survive through the row carrier', () => {
+  const ast = oneRowAst([T('a'), T('', { span: 'colspan', attrs: { classes: ['zz'] } })]);
   const { doc, warnings } = carveAstToPandoc(ast);
-  assert.equal(bodyOf(doc)[0][1].length, 1, 'the covered position is not emitted');
-  assert.ok(
-    warnings.some((w) => w.includes('continuation cell at row 1, col 2')),
-    warnings.join(' | '),
-  );
+  assert.equal(bodyOf(doc)[0][1].length, 1);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(row(pandocToCarveAst(doc).ast).children[1].attrs, { classes: ['zz'] });
 });
 
-test('cell attrs: an ORPHAN continuation keeps its attributes and is not reported', () => {
-  // A continuation with no origin does not resolve: it falls through and
-  // becomes a real cell, which carries the attributes. Warning there would
-  // report a loss that did not happen.
-  const ast = {
-    type: 'document',
-    children: [
-      {
-        type: 'table',
-        rows: [
-          {
-            type: 'table_row',
-            cells: [
-              {
-                type: 'table_cell',
-                header: false,
-                children: [],
-                span: 'colspan',
-                attrs: { classes: ['orphan'], order: ['.class'] },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
+test('cell attrs: an orphan continuation keeps its attributes in the row carrier', () => {
+  const ast = oneRowAst([T('', { span: 'colspan', attrs: { classes: ['orphan'] } })]);
   const { doc, warnings } = carveAstToPandoc(ast);
-  assert.deepEqual(bodyOf(doc)[0][1][0][0], ['', ['orphan'], []], 'kept on the fallback cell');
-  assert.ok(
-    warnings.some((w) => w.includes('has no origin')),
-    'the orphan itself is still reported',
-  );
-  assert.ok(
-    !warnings.some((w) => w.includes('are dropped')),
-    `nothing was dropped: ${warnings.join(' | ')}`,
-  );
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(row(pandocToCarveAst(doc).ast).children[0].attrs, { classes: ['orphan'] });
 });
 
-test('cell attrs: rowGroups and cell attrs compose', () => {
-  // The row-group partition rebuilds the row lists; the attrs must ride along
-  // rather than being lost at the split.
-  const ast = {
-    type: 'document',
-    children: [
-      {
-        type: 'table',
-        rows: [
-          { type: 'table_row', cells: [{ type: 'table_cell', header: true, children: [{ type: 'text', value: 'H' }] }] },
-          {
-            type: 'table_row',
-            attrs: { classes: ['br'], order: ['.class'] },
-            cells: [{ type: 'table_cell', header: false, children: [{ type: 'text', value: 'b' }], attrs: { id: 'bc' } }],
-          },
-          {
-            type: 'table_row',
-            attrs: { classes: ['fr'], order: ['.class'] },
-            cells: [{ type: 'table_cell', header: false, children: [{ type: 'text', value: 'f' }] }],
-          },
-        ],
-        rowGroups: { headRows: 1, bodies: [{ headRows: 0, bodyRows: 1 }], footRows: 1 },
-      },
-    ],
-  };
+test('cell attrs: section nodes and cell attrs compose', () => {
+  const ast = { type: 'document', astVersion: '2.0', children: [{ type: 'table', columns: [{ type: 'table_column' }], children: [
+    { type: 'table_head', children: [{ type: 'table_row', children: [T('H', { header: true })] }] },
+    { type: 'table_body', children: [{ type: 'table_row', attrs: { classes: ['br'] }, children: [T('b', { attrs: { id: 'bc' } })] }] },
+    { type: 'table_foot', children: [{ type: 'table_row', attrs: { classes: ['fr'] }, children: [T('f')] }] },
+  ] }] };
   const { doc } = carveAstToPandoc(ast);
-  assert.deepEqual(bodyOf(doc)[0][0], ['', ['br'], []], 'body row attr');
-  assert.deepEqual(bodyOf(doc)[0][1][0][0], ['bc', [], []], 'body cell attr');
-  assert.deepEqual(doc.blocks[0].c[5][1][0][0], ['', ['fr'], []], 'foot row attr');
-
-  const back = pandocToCarveAst(doc).ast.children[0];
-  assert.deepEqual(back.rows[1].attrs, { classes: ['br'], order: ['.class'] });
-  assert.deepEqual(back.rows[2].attrs, { classes: ['fr'], order: ['.class'] });
-  assert.equal(back.rowGroups.footRows, 1);
+  assert.deepEqual(bodyOf(doc)[0][0], ['', ['br'], []]);
+  assert.deepEqual(bodyOf(doc)[0][1][0][0], ['bc', [], []]);
+  assert.deepEqual(doc.blocks[0].c[5][1][0][0], ['', ['fr'], []]);
+  const groups = pandocToCarveAst(doc).ast.children[0].children;
+  assert.deepEqual(groups.map((x) => x.type), ['table_head', 'table_body', 'table_foot']);
+  assert.deepEqual(groups[1].children[0].attrs, { classes: ['br'] });
+  assert.deepEqual(groups[2].children[0].attrs, { classes: ['fr'] });
 });
 
-test('cell attrs: pandoc writes them into HTML', { skip: !pandoc && 'pandoc not found' }, () => {
-  const { doc } = carveToPandoc(SRC);
-  const html = pandocRender(pandoc, doc, 'html');
+test('cell attrs: Pandoc writes them into HTML', { skip: !pandoc && 'pandoc not found' }, () => {
+  const html = pandocRender(pandoc, carveToPandoc(SRC).doc, 'html');
   assert.ok(html.includes('id="c1"'), html);
-  assert.ok(/class="[^"]*\bhi\b/.test(html), html);
-  assert.ok(/class="[^"]*\browcls\b/.test(html), html);
+  assert.ok(/class="[^"]*\bhi\b/u.test(html), html);
+  assert.ok(/class="[^"]*\browcls\b/u.test(html), html);
   assert.ok(html.includes('k="v"'), html);
 });
 
-test('cell attrs: a table pandoc read from HTML imports both Attrs', { skip: !pandoc && 'pandoc not found' }, () => {
-  // Pandoc's own reader is the fixture. Its grid-table syntax has no attribute
-  // spelling, but HTML does, and this is the shape a Word or Docs export takes.
-  const doc = JSON.parse(
-    execFileSync(pandoc, ['-f', 'html', '-t', 'json'], {
-      input: '<table><tr class="rr"><td id="c" class="cc" data-k="v">a</td></tr></table>',
-      encoding: 'utf8',
-    }),
-  );
-  assert.deepEqual(bodyOf(doc)[0][0], ['', ['rr'], []], 'the premise: pandoc kept the row class');
-
-  const { ast } = pandocToCarveAst(doc);
-  const row = ast.children[0].rows[0];
-  assert.deepEqual(row.attrs, { classes: ['rr'], order: ['.class'] });
-  assert.deepEqual(row.cells[0].attrs, {
-    id: 'c',
-    classes: ['cc'],
-    keyValues: { k: 'v' },
-    order: ['#id', '.class', 'key'],
-  });
-
+test('cell attrs: a table Pandoc read from HTML imports both Attrs', { skip: !pandoc && 'pandoc not found' }, () => {
+  const doc = JSON.parse(execFileSync(pandoc, ['-f', 'html', '-t', 'json'], { input: '<table><tr class="rr"><td id="c" class="cc" data-k="v">a</td></tr></table>', encoding: 'utf8' }));
+  const ast = pandocToCarveAst(doc).ast;
+  assert.deepEqual(row(ast).attrs, { classes: ['rr'] });
+  assert.deepEqual(row(ast).children[0].attrs, { id: 'c', classes: ['cc'], keyValues: [['k', 'v']] });
   const source = pandocToCarve(doc).carve;
   assert.ok(source.includes('{#c .cc k=v}'), source);
   assert.ok(source.includes('{.rr}'), source);

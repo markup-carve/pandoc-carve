@@ -2,7 +2,7 @@
     1
     ( "Interactive-constructs-and-graceful-degradation"
     , []
-    , []
+    , [ ( "carve-generated-id" , "1" ) ]
     )
     [ Str "Interactive"
     , Space
@@ -151,7 +151,10 @@
     , Space
     , Str "it."
     ]
-, Header 2 ( "Tabs" , [] , [] ) [ Str "Tabs" ]
+, Header
+    2
+    ( "Tabs" , [] , [ ( "carve-generated-id" , "1" ) ] )
+    [ Str "Tabs" ]
 , Para
     [ Str "A"
     , Space
@@ -232,9 +235,12 @@
     , Str "apart."
     ]
 , Div
-    ( "" , [ "admonition" , "tabs" ] , [] )
+    ( "" , [ "tabs" ] , [] )
     [ Div
-        ( "" , [ "admonition" , "tab" ] , [] )
+        ( ""
+        , [ "tab" ]
+        , [ ( "carve-group-label" , "Installation" ) ]
+        )
         [ Para [ Strong [ Str "Installation" ] ]
         , Para
             [ Str "Run"
@@ -246,7 +252,7 @@
             ]
         ]
     , Div
-        ( "" , [ "admonition" , "tab" ] , [] )
+        ( "" , [ "tab" ] , [ ( "carve-group-label" , "Usage" ) ] )
         [ Para [ Strong [ Str "Usage" ] ]
         , Para
             [ Str "Call"
@@ -267,7 +273,7 @@
     ]
 , Header
     2
-    ( "Code-group" , [] , [] )
+    ( "Code-group" , [] , [ ( "carve-generated-id" , "1" ) ] )
     [ Str "Code" , Space , Str "group" ]
 , Para
     [ Str "Same"
@@ -315,12 +321,24 @@
     , Str "stack."
     ]
 , Div
-    ( "" , [ "admonition" , "code-group" ] , [] )
+    ( "" , [ "code-group" ] , [] )
     [ CodeBlock
-        ( "" , [ "js" ] , [] ) "export default { port: 3000 };"
-    , CodeBlock ( "" , [ "json" ] , [] ) "{ \"port\": 3000 }"
+        ( ""
+        , [ "js" ]
+        , [ ( "carve-group-label" , "config.js" ) ]
+        )
+        "export default { port: 3000 };\n"
+    , CodeBlock
+        ( ""
+        , [ "json" ]
+        , [ ( "carve-group-label" , "config.json" ) ]
+        )
+        "{ \"port\": 3000 }\n"
     ]
-, Header 2 ( "Spoiler" , [] , [] ) [ Str "Spoiler" ]
+, Header
+    2
+    ( "Spoiler" , [] , [ ( "carve-generated-id" , "1" ) ] )
+    [ Str "Spoiler" ]
 , Para
     [ Str "A"
     , Space
@@ -368,7 +386,13 @@
     , Str "shown."
     ]
 , Div
-    ( "" , [ "admonition" , "spoiler" ] , [] )
+    ( ""
+    , [ "spoiler" ]
+    , [ ( "carve-title"
+        , "[{\"type\":\"text\",\"value\":\"Answer\"}]"
+        )
+      ]
+    )
     [ Para [ Strong [ Str "Answer" ] ]
     , Para
         [ Str "The"
@@ -382,9 +406,18 @@
         , Str "42."
         ]
     ]
-, Header 2 ( "Disclosure" , [] , [] ) [ Str "Disclosure" ]
+, Header
+    2
+    ( "Disclosure" , [] , [ ( "carve-generated-id" , "1" ) ] )
+    [ Str "Disclosure" ]
 , Div
-    ( "" , [ "admonition" , "details" ] , [] )
+    ( ""
+    , [ "details" ]
+    , [ ( "carve-title"
+        , "[{\"type\":\"text\",\"value\":\"Show details\"}]"
+        )
+      ]
+    )
     [ Para [ Strong [ Str "Show" , Space , Str "details" ] ]
     , Para
         [ Str "A"
@@ -414,7 +447,10 @@
     ]
 , Header
     2
-    ( "Mermaid-and-math" , [] , [] )
+    ( "Mermaid-and-math"
+    , []
+    , [ ( "carve-generated-id" , "1" ) ]
+    )
     [ Str "Mermaid" , Space , Str "and" , Space , Str "math" ]
 , Para
     [ Str "The"
@@ -479,7 +515,7 @@
     ]
 , CodeBlock
     ( "" , [ "mermaid" ] , [] )
-    "graph TD; A[Carve] --> B[Pandoc]; B --> C[LaTeX];"
+    "graph TD; A[Carve] --> B[Pandoc]; B --> C[LaTeX];\n"
 , Para
     [ Str "Inline"
     , Space

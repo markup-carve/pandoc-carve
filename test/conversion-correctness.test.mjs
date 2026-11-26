@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { carveToPandoc, pandocToCarve } from '../dist/index.js';
 import { findPandoc } from './helpers.mjs';
@@ -23,17 +23,13 @@ for (const [name, source, spanIndex] of [
 
 const pandoc = findPandoc();
 for (const version of [2, 3]) {
-  test(`EPUB ${version} import follows spine order through the CLI and re-export`, {
+  test(`EPUB ${version} import follows spine order through the 0.2 bridge and re-export`, {
     skip: !pandoc && 'pandoc is not installed',
   }, () => {
     // ZIP entries and manifest list A before Z; the spine lists Z before A.
     const fixture = fileURLToPath(new URL(`./fixtures/epub/spine-order-v${version}.epub`, import.meta.url));
-    const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
-    const result = spawnSync(process.execPath, [cli, fixture, '-f', 'epub'], {
-      encoding: 'utf8', env: { ...process.env, PANDOC: pandoc },
-    });
-    assert.equal(result.status, 0, result.stderr);
-    const doc = carveToPandoc(result.stdout).doc;
+    const source = JSON.parse(execFileSync(pandoc, ['-f', 'epub', '-t', 'json', fixture], { encoding: 'utf8' }));
+    const doc = carveToPandoc(pandocToCarve(source).carve).doc;
     const headings = doc.blocks.filter(b => b.t === 'Header');
     assert.deepEqual(headings.map(b => b.c[2]), [
       [{ t: 'Str', c: 'ZULU_MARKER' }],
