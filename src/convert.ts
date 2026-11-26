@@ -526,7 +526,7 @@ export function pandocToCarveAst(input: P.PandocDoc | string): { ast: DocumentNo
   const warnings: string[] = [];
   const comments = newCommentState();
   commentStates.set(warnings, comments);
-  collectCommentEnds(doc.blocks, comments.ends);
+  collectCommentEnds([doc.meta, doc.blocks], comments.ends);
   const metadata: NonNullable<DocumentNode['metadata']> = {};
   const metaInlines = (name: string): Inline[] | undefined => doc.meta?.[name]?.t === 'MetaInlines' ? inlineList(doc.meta[name]!.c as P.Inline[], warnings) : undefined;
   const title = metaInlines('title'); if (title) metadata.title = title;

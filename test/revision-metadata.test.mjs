@@ -56,6 +56,13 @@ test('revision: a comment range across paragraphs lands at the comment-end', () 
   assert.equal(repaired(warnings).length, 1);
 });
 
+test('revision: a ranged comment in a metadata title lands at its comment-end', () => {
+  const input = { 'pandoc-api-version': API, meta: { title: { t: 'MetaInlines', c: [commentStart('4', [str('note')]), str('Title'), commentEnd('4')] } }, blocks: [] };
+  const { ast, warnings } = pandocToCarveAst(input);
+  assert.deepEqual(ast.metadata.title.map(n => n.type), ['text', 'critic_comment']);
+  assert.deepEqual(repaired(warnings), ['import-structure-repaired: comment 4 covered a range; it is written as a point comment at the range end and the range is lost']);
+});
+
 test('revision: a comment without a comment-end stays at its start and is reported', () => {
   const { ast, warnings } = pandocToCarveAst(doc([str('a'), commentStart('9', [str('lost')]), str('b')]));
   assert.deepEqual(inlinesOf(ast).map(n => n.type), ['text', 'critic_comment', 'text']);
