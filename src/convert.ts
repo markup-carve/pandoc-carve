@@ -144,7 +144,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
       return P.citation(x.key, x.mode === 'suppress-author' ? 'SuppressAuthor' : x.mode === 'author-in-text' ? 'AuthorInText' : 'NormalCitation', il(x.prefix ?? [], c), [...locator, ...il(x.suffix ?? [], c)], c.noteCount + 1);
     }), words(n.raw))];
     case 'inline_extension': c.warnings.push(`inline_extension: ${n.name} uses fallback`); return [P.Span(P.attr(n.attrs?.id, ['carve-extension', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['name', n.name]]), il(n.fallback ?? n.children, c))];
-    case 'critic_comment': { if (!n.attrs) return [P.RawInline('carve-critic-comment', n.value)]; const id = String(c.commentCount++); return [P.Span(P.attr(n.attrs.id, ['comment-start', ...(n.attrs.classes ?? [])], [['comment-id', id], ...toPandocRevision(n.attrs.keyValues)]), words(n.value)), P.Span(P.attr('', ['comment-end'], [['comment-id', id]]), [])]; }
+    case 'critic_comment': { if (!n.attrs) return [P.RawInline('carve-critic-comment', n.value)]; const id = String(c.commentCount++); return [P.Span(P.attr(n.attrs.id, ['comment-start', ...(n.attrs.classes ?? [])], [['comment-id', id], ...toPandocRevision(n.attrs.keyValues)]), literalInlines(n.value)), P.Span(P.attr('', ['comment-end'], [['comment-id', id]]), [])]; }
     case 'comment': return n.form === 'braced' ? [P.RawInline('carve-comment', n.value)] : [P.RawBlock(`carve-comment-${n.form}`, n.value)];
     case 'caption_number': return words(String(n.n ?? '#'));
     case 'paragraph': { const para = P.Para(il(n.children, c)); return n.attrs || n.role || n.lang || n.dir ? [P.Div(P.attr(n.attrs?.id, ['carve-paragraph', ...(n.attrs?.classes ?? [])], [...(languageAttr(n)[2]), ...(n.role === 'image' ? [['carve-block-image', '1'] as [string, string]] : []), ...(n.role === 'math' ? [['carve-block-math', '1'] as [string, string]] : [])]), [para])] : [para]; }
@@ -310,7 +310,8 @@ function commentText(xs: P.PandocNode[]): { text: string; flattened: boolean } {
   let text = ''; let flattened = false;
   const walk = (nodes: P.PandocNode[]): void => { for (const x of nodes) {
     if (x.t === 'Str') text += String(x.c);
-    else if (x.t === 'Space' || x.t === 'SoftBreak') text += ' ';
+    else if (x.t === 'Space') text += ' ';
+    else if (x.t === 'SoftBreak') text += '\n';
     else if (x.t === 'LineBreak') { text += ' '; flattened = true; }
     else if (x.t === 'Code' || x.t === 'Math') { text += String((x.c as [unknown, string])[1]); flattened = true; }
     else if (x.t === 'Span' || x.t === 'Link' || x.t === 'Quoted' || x.t === 'Cite') { walk((x.c as unknown[]).find(part => Array.isArray(part) && part.every(y => y && typeof y === 'object' && 't' in (y as object))) as P.PandocNode[] ?? []); flattened = true; }

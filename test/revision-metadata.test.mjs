@@ -83,12 +83,15 @@ test('revision: an editorial comment with attributes writes a comment-start and 
     { type: 'text', value: 'a' },
     { type: 'critic_comment', value: 'check', attrs: { keyValues: [['author', 'bob'], ['datetime', '2026-11-21T09:30Z']] } },
     { type: 'critic_comment', value: 'plain' },
+    { type: 'critic_comment', value: 'two  spaces\nand a line', attrs: { keyValues: [['author', 'bob']] } },
   ] }] };
   const { doc: out } = carveAstToPandoc(ast);
   assert.deepEqual(out.blocks[0].c.slice(1), [
     span(['comment-start'], [['comment-id', '0'], ['author', 'bob'], ['date', '2026-11-21T09:30Z']], [str('check')]),
     commentEnd('0'),
     { t: 'RawInline', c: ['carve-critic-comment', 'plain'] },
+    span(['comment-start'], [['comment-id', '1'], ['author', 'bob']], [str('two'), space, space, str('spaces'), { t: 'SoftBreak' }, str('and'), space, str('a'), space, str('line')]),
+    commentEnd('1'),
   ]);
   const back = pandocToCarveAst(out);
   assert.deepEqual(inlinesOf(back.ast), ast.children[0].children);
