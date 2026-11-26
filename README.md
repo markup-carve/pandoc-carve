@@ -1,6 +1,6 @@
 # pandoc-carve
 
-This `next2` branch evaluates the draft Carve 0.2 tree with a vendored `carve-js` engine. It converts Carve source and Pandoc JSON in both directions. Pandoc 3.14 is used for the format measurements and end-to-end examples. The [test-port tracker](docs/test-port-0.2.md) records the completed 0.1 test migration.
+This `main` branch evaluates the draft Carve 0.2 tree with a vendored `carve-js` engine. It converts Carve source and Pandoc JSON in both directions. Pandoc 3.14 is used for the format measurements and end-to-end examples. The [test-port tracker](docs/test-port-0.2.md) records the completed 0.1 test migration.
 
 ## Command line
 
@@ -44,7 +44,7 @@ if (proc_close($process) !== 0) throw new RuntimeException($stderr);
 
 ## Engine
 
-The Carve engine is the npm git dependency `@markup-carve/carve`, pinned to a carve-js `next2` commit in `package.json`. `vendor/carve` holds the engine's data the tests read at that commit: its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit, and a test checks it against the pin. To move the pin, change the commit in `package.json`, run `npm install`, check out carve-js at the same commit, then:
+The Carve engine is the npm git dependency `@markup-carve/carve`, pinned to a carve-js commit reachable from `main` in `package.json`. `vendor/carve` holds the engine's data the tests read at that commit: its tree schema, node slots and the render examples of its conformance data. `vendor/carve/SOURCE.json` names the commit, and a test checks it against the pin. To move the pin, change the commit in `package.json`, run `npm install`, check out carve-js at the same commit, then:
 
 ```bash
 node scripts/vendor-carve.mjs /path/to/carve-js
