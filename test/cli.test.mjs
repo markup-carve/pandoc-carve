@@ -217,3 +217,23 @@ test('cli: an unknown option is an error', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /unknown option: --roundtrip/u);
 });
+
+test('cli: -t carve-ast-json writes a schema-valid Carve tree that reads back', async () => {
+  const { Ajv2020 } = await import('ajv/dist/2020.js');
+  const schema = JSON.parse(readFileSync(new URL('../vendor/carve/ast-schema.json', import.meta.url), 'utf8'));
+  const validate = new Ajv2020({ strict: false }).compile(schema);
+  const input = JSON.stringify(doc([
+    { t: 'Header', c: [1, ['', [], []], [{ t: 'Str', c: 'Hi' }]] },
+    { t: 'Para', c: [{ t: 'Strong', c: [{ t: 'Str', c: 'bold' }] }] },
+  ]));
+  const result = run(['-', '-f', 'json', '-t', 'carve-ast-json'], input, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(result.status, 0, result.stderr);
+  const tree = JSON.parse(result.stdout);
+  assert.equal(tree.type, 'document');
+  assert.ok(validate(tree), JSON.stringify(validate.errors));
+  const back = run(['-', '-f', 'carve-ast-json', '-t', 'json'], result.stdout, { PANDOC: '/nonexistent/pandoc' });
+  assert.equal(back.status, 0, back.stderr);
+  const blocks = JSON.parse(back.stdout).blocks;
+  assert.equal(blocks[0].t, 'Header');
+  assert.equal(blocks[1].c[0].t, 'Strong');
+});
