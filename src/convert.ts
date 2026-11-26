@@ -8,7 +8,7 @@ import { isDangerousAttrName, renderedAttrValue } from './attribute-sanitize.js'
 export { treesEqual };
 export type { DocumentNode, Node };
 type Result = { doc: P.PandocDoc; warnings: string[] };
-type Context = { warnings: string[]; notes: Map<string, Block[]>; activeNotes: Set<string>; links: Map<string, [string, string]>; targets: Map<string, P.Inline[]>; noteCount: number };
+type Context = { warnings: string[]; notes: Map<string, Block[]>; activeNotes: Set<string>; links: Map<string, [string, string]>; targets: Map<string, P.Inline[]>; noteCount: number; commentCount: number };
 type SmartKind = Extract<Inline, { type: 'smart_punctuation' }>['kind'];
 const SMART = new Map(SMART_PUNCTUATION.map((entry) => [entry.kind, entry]));
 const smartPunctuation = (kind: SmartKind): Inline => { const { glyph, source } = SMART.get(kind)!; return { type: 'smart_punctuation', kind, glyph, source }; };
@@ -58,6 +58,10 @@ const openingBlocks = (title: Inline[] | undefined, groupLabel: string | undefin
   ...(title === undefined ? [] : [P.Para([P.Strong(il(title, c))])]),
   ...(groupLabel === undefined ? [] : [P.Para([P.Strong(words(groupLabel))])]),
 ];
+// Pandoc's docx reader and writer name the revision time `date`; Carve names it `datetime` (carve#6788).
+const hasRevisionKeys = (a?: Attrs): boolean => Boolean(a?.keyValues?.some(([key]) => key === 'author' || key === 'datetime'));
+const toPandocRevision = (kvs: [string, string][] = []): [string, string][] => kvs.map(([key, value]) => [key === 'datetime' ? 'date' : key, value]);
+const fromPandocRevision = (kvs: [string, string][]): [string, string][] => kvs.map(([key, value]) => [key === 'date' ? 'datetime' : key, value]);
 const inlineAttr = (n: Inline, child: P.Inline): P.Inline => n.attrs ? P.Span(P.attr(n.attrs.id, ['carve-inline-attrs', ...(n.attrs.classes ?? [])], [...(n.attrs.keyValues ?? []), ['carve-inline-type', n.type]]), [child]) : child;
 function cell(x: TableCellNode, c: Context, headerSection: boolean): P.PCell { return { attr: P.attr(x.attrs?.id, x.attrs?.classes, [...(x.attrs?.keyValues ?? []), ...(x.span ? [['carve-span', x.span] as [string, string]] : []), ...(x.scope ? [['carve-scope', x.scope] as [string, string]] : []), ...(x.valign ? [['carve-valign', x.valign] as [string, string]] : []), ...(x.headerIds ? [['carve-header-ids', JSON.stringify(x.headerIds)] as [string, string]] : []), ...(x.header && !headerSection ? [['carve-header', '1'] as [string, string]] : [])]), align: alignment(x.align), rowSpan: x.rowspan ?? 1, colSpan: x.colspan ?? 1, blocks: x.children.flatMap(n => n.type === 'cell_paragraph' ? [P.Plain(il(n.children, c))] : emit(n, c)) }; }
 function rows(xs: (TableRowNode | { type: 'comment' })[], c: Context, headerSection = false): P.PRow[] { return xs.flatMap(x => {
@@ -113,8 +117,8 @@ function emit(n: Node, c: Context): P.PandocNode[] {
     case 'small_caps': return [inlineAttr(n, P.SmallCaps(il(n.children, c)))];
     case 'span': return [P.Span(languageAttr(n), il(n.children, c))];
     case 'highlight': return [P.Span(P.attr(n.attrs?.id, ['mark', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
-    case 'delete': return [P.Span(P.attr(n.attrs?.id, ['carve-delete', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
-    case 'insert': return [P.Span(P.attr(n.attrs?.id, ['carve-insert', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
+    case 'delete': if (hasRevisionKeys(n.attrs)) return [P.Span(P.attr(n.attrs?.id, ['deletion', ...(n.attrs?.classes ?? [])], toPandocRevision(n.attrs?.keyValues)), il(n.children, c))]; return [P.Span(P.attr(n.attrs?.id, ['carve-delete', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
+    case 'insert': if (hasRevisionKeys(n.attrs)) return [P.Span(P.attr(n.attrs?.id, ['insertion', ...(n.attrs?.classes ?? [])], toPandocRevision(n.attrs?.keyValues)), il(n.children, c))]; return [P.Span(P.attr(n.attrs?.id, ['carve-insert', ...(n.attrs?.classes ?? [])], n.attrs?.keyValues), il(n.children, c))];
     case 'code': return [P.Code(attr(n.attrs), stripBidi(n.value))];
     case 'literal_inline': return [P.Span(P.attr(n.attrs?.id, ['carve-literal', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['value', JSON.stringify(stripBidi(n.value))]]), literalInlines(n.value))];
     case 'math': return [inlineAttr(n, n.display ? P.MathDisplay(stripBidi(n.value)) : P.MathInline(stripBidi(n.value)))];
@@ -140,7 +144,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
       return P.citation(x.key, x.mode === 'suppress-author' ? 'SuppressAuthor' : x.mode === 'author-in-text' ? 'AuthorInText' : 'NormalCitation', il(x.prefix ?? [], c), [...locator, ...il(x.suffix ?? [], c)], c.noteCount + 1);
     }), words(n.raw))];
     case 'inline_extension': c.warnings.push(`inline_extension: ${n.name} uses fallback`); return [P.Span(P.attr(n.attrs?.id, ['carve-extension', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['name', n.name]]), il(n.fallback ?? n.children, c))];
-    case 'critic_comment': return [P.RawInline('carve-critic-comment', n.value)];
+    case 'critic_comment': { if (!n.attrs) return [P.RawInline('carve-critic-comment', n.value)]; const id = String(c.commentCount++); return [P.Span(P.attr(n.attrs.id, ['comment-start', ...(n.attrs.classes ?? [])], [['comment-id', id], ...toPandocRevision(n.attrs.keyValues)]), words(n.value)), P.Span(P.attr('', ['comment-end'], [['comment-id', id]]), [])]; }
     case 'comment': return n.form === 'braced' ? [P.RawInline('carve-comment', n.value)] : [P.RawBlock(`carve-comment-${n.form}`, n.value)];
     case 'caption_number': return words(String(n.n ?? '#'));
     case 'paragraph': { const para = P.Para(il(n.children, c)); return n.attrs || n.role || n.lang || n.dir ? [P.Div(P.attr(n.attrs?.id, ['carve-paragraph', ...(n.attrs?.classes ?? [])], [...(languageAttr(n)[2]), ...(n.role === 'image' ? [['carve-block-image', '1'] as [string, string]] : []), ...(n.role === 'math' ? [['carve-block-math', '1'] as [string, string]] : [])]), [para])] : [para]; }
@@ -202,7 +206,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
 export function carveAstToPandoc(input: DocumentNode | string): Result {
   const ast: unknown = typeof input === 'string' ? JSON.parse(input) : input;
   validateTree(ast);
-  const c: Context = { warnings: [], notes: new Map(), activeNotes: new Set(), links: new Map(), targets: new Map(), noteCount: 0 };
+  const c: Context = { warnings: [], notes: new Map(), activeNotes: new Set(), links: new Map(), targets: new Map(), noteCount: 0, commentCount: 0 };
   const flat = (xs: Node[]): Node[] => xs.flatMap(x => x.type === 'include' && x.children !== undefined ? flat(x.children) : [x]);
   const top = flat(ast.children) as typeof ast.children;
   for (const x of top) { if (x.type === 'footnote' && !c.notes.has(x.key)) c.notes.set(x.key, x.children); if (x.type === 'link_reference_definition') c.links.set(x.key, [x.href, x.tooltip ?? '']); }
@@ -284,7 +288,68 @@ function checkPandocNodeDepth(doc: P.PandocDoc): void {
     }
   }
 }
-const inlineList = (xs: P.PandocNode[], warnings: string[]): Inline[] => xs.flatMap(x => importInline(x, warnings));
+type CommentState = { ends: Set<string>; open: Map<string, Inline>; ended: Set<string> };
+const commentStates = new WeakMap<string[], CommentState>();
+const newCommentState = (): CommentState => ({ ends: new Set(), open: new Map(), ended: new Set() });
+const commentMark = (x: P.PandocNode | undefined, kind: 'comment-start' | 'comment-end'): string | undefined => {
+  if (x?.t !== 'Span') return undefined;
+  const a = (x.c as [P.Attr, unknown])[0];
+  return a[1].includes(kind) ? a[2].find(([key]) => key === 'comment-id')?.[1] ?? '' : undefined;
+};
+function collectCommentEnds(value: unknown, ends: Set<string>): void {
+  const stack = [value];
+  while (stack.length) {
+    const item = stack.pop();
+    if (!item || typeof item !== 'object') continue;
+    const id = commentMark(item as P.PandocNode, 'comment-end');
+    if (id) ends.add(id);
+    stack.push(...Object.values(item as Record<string, unknown>));
+  }
+}
+function commentText(xs: P.PandocNode[]): { text: string; flattened: boolean } {
+  let text = ''; let flattened = false;
+  const walk = (nodes: P.PandocNode[]): void => { for (const x of nodes) {
+    if (x.t === 'Str') text += String(x.c);
+    else if (x.t === 'Space' || x.t === 'SoftBreak') text += ' ';
+    else if (x.t === 'LineBreak') { text += ' '; flattened = true; }
+    else if (x.t === 'Code' || x.t === 'Math') { text += String((x.c as [unknown, string])[1]); flattened = true; }
+    else if (x.t === 'Span' || x.t === 'Link' || x.t === 'Quoted' || x.t === 'Cite') { walk((x.c as unknown[]).find(part => Array.isArray(part) && part.every(y => y && typeof y === 'object' && 't' in (y as object))) as P.PandocNode[] ?? []); flattened = true; }
+    else if (Array.isArray(x.c) && x.c.every(y => y && typeof y === 'object' && 't' in y)) { walk(x.c as P.PandocNode[]); flattened = true; }
+    else flattened = true;
+  } };
+  walk(xs);
+  return { text, flattened };
+}
+function importComment(node: P.PandocNode, id: string, warnings: string[]): Inline {
+  const [a, xs] = node.c as [P.Attr, P.PandocNode[]];
+  const { text, flattened } = commentText(xs);
+  if (flattened) warnings.push(`import-structure-repaired: comment ${id} formatting is flattened to the text of an editorial comment`);
+  return withAttr({ type: 'critic_comment', value: text }, [a[0], a[1].filter(x => x !== 'comment-start'), fromPandocRevision(a[2].filter(([key]) => key !== 'comment-id'))]);
+}
+// A Carve editorial comment is a point. A Pandoc comment covers the inlines up to its comment-end,
+// so a ranged comment is written at the range end and the lost range is reported (carve#6788, C2-M-082).
+const inlineList = (xs: P.PandocNode[], warnings: string[]): Inline[] => xs.flatMap((x, i) => {
+  let state = commentStates.get(warnings);
+  if (!state) { state = newCommentState(); commentStates.set(warnings, state); }
+  const start = commentMark(x, 'comment-start');
+  if (start !== undefined) {
+    const comment = importComment(x, start, warnings);
+    if (commentMark(xs[i + 1], 'comment-end') === start) return [comment];
+    if (start && state.ends.has(start) && !state.ended.has(start) && !state.open.has(start)) { state.open.set(start, comment); return []; }
+    warnings.push(`import-structure-repaired: comment ${start} has no comment-end after it; it is written as a point comment at its start`);
+    return [comment];
+  }
+  const end = commentMark(x, 'comment-end');
+  if (end !== undefined) {
+    if (commentMark(xs[i - 1], 'comment-start') === end) return [];
+    const comment = state.open.get(end);
+    if (!comment) { state.ended.add(end); return []; }
+    state.open.delete(end);
+    warnings.push(`import-structure-repaired: comment ${end} covered a range; it is written as a point comment at the range end and the range is lost`);
+    return [comment];
+  }
+  return importInline(x, warnings);
+});
 const blockList = (xs: P.PandocNode[], warnings: string[]): Block[] => xs.flatMap(x => importBlock(x, warnings));
 function importItem(item: P.PandocNode[], warnings: string[]): Extract<Node, { type: 'list_item' }> {
   const copy = item.map(node => ({ ...node }));
@@ -331,7 +396,7 @@ function importInline(node: P.PandocNode, warnings: string[]): Inline[] {
     case 'RawInline': return c[0] === 'carve-comment' ? [{ type: 'comment', form: 'braced', value: c[1] }] : c[0].startsWith('carve-comment-') ? [{ type: 'comment', form: c[0].slice('carve-comment-'.length) as 'line', value: c[1] }] : c[0] === 'carve-critic-comment' ? [{ type: 'critic_comment', value: c[1] }] : [{ type: 'raw_inline', format: c[0], value: c[1] }];
     case 'Link': { const a = c[0] as P.Attr; const f = Object.fromEntries(a[2]); const clean: P.Attr = [a[0], a[1], a[2].filter(([k]) => !['carve-key','carve-form','carve-unresolved','carve-autolink','carve-xref','carve-namespace','carve-display-form','carve-empty-tooltip'].includes(k))]; if (f['carve-autolink']) { const label = (c[1] as P.PandocNode[]).map(part => part.t === 'Str' ? String(part.c) : part.t === 'Space' ? ' ' : '').join(''); return c[2][0] ? [withAttr({ type: 'autolink', href: c[2][0], ...(label !== c[2][0] ? { text: label } : {}) }, clean)] : [withAttr({ type: 'link', href: '', children: inlineList(c[1], warnings) }, clean)]; } if (f['carve-xref']) return [withAttr({ type: 'xref', key: f['carve-key'] ?? '', namespace: (f['carve-namespace'] ?? 'heading') as 'heading', ...(f['carve-display-form'] ? { display: f['carve-display-form'] as 'full' } : {}), ...(!f['carve-unresolved'] ? { href: c[2][0] } : {}) }, clean)]; return [withAttr({ type: 'link', children: inlineList(c[1], warnings), ...(f['carve-unresolved'] ? {} : { href: c[2][0] }), ...(c[2][1] || f['carve-empty-tooltip'] ? { tooltip: c[2][1] } : {}), ...(f['carve-key'] ? { key: f['carve-key'], namespace: 'link', refForm: f['carve-form'] === 'collapsed' ? 'collapsed' as const : 'full' as const } : {}) }, clean)]; }
     case 'Image': { const a = c[0] as P.Attr; const f = Object.fromEntries(a[2]); const clean: P.Attr = [a[0], a[1], a[2].filter(([k]) => !['carve-key','carve-form','carve-unresolved','carve-long-description','carve-empty-tooltip'].includes(k))]; let longDescription: Block[] | undefined; try { if (f['carve-long-description']) longDescription = JSON.parse(f['carve-long-description']); } catch { warnings.push('Image: invalid long description carrier'); } return [withAttr({ type: 'image', ...(f['carve-unresolved'] ? {} : { src: c[2][0] }), alt: c[1].map((x: P.PandocNode) => x.t === 'Str' ? String(x.c) : x.t === 'Space' ? ' ' : '').join(''), ...(longDescription ? { longDescription } : {}), ...(c[2][1] || f['carve-empty-tooltip'] ? { tooltip: c[2][1] } : {}), ...(f['carve-key'] ? { key: f['carve-key'], namespace: 'link', refForm: f['carve-form'] === 'collapsed' ? 'collapsed' as const : 'full' as const } : {}) }, clean)]; }
-    case 'Span': { const a = c[0] as P.Attr; const fields = Object.fromEntries(a[2]); if (a[1].includes('carve-footnote-ref')) return [withAttr({ type: 'footnote_ref', namespace: 'footnote', key: fields['key'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-footnote-ref'), a[2].filter(([key]) => key !== 'key')])]; const children = inlineList(c[1], warnings); if (a[1].includes('carve-extension')) return [withAttr({ type: 'inline_extension', name: fields['name'] ?? '', children }, [a[0], a[1].filter(x => x !== 'carve-extension'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-literal')) { const clean: P.Attr = [a[0], a[1].filter(x => x !== 'carve-literal'), a[2].filter(([k]) => k !== 'value')]; try { return [withAttr({ type: 'literal_inline', value: JSON.parse(fields['value'] ?? '""') }, clean)]; } catch { warnings.push('Literal: invalid value carrier'); return [withAttr({ type: 'literal_inline', value: '' }, clean)]; } } if (a[1].includes('carve-ruby')) { try { const pairs = JSON.parse(fields['carve-pairs'] ?? '[]') as Extract<Inline, {type: 'ruby'}>['pairs']; return [withAttr({ type: 'ruby', pairs }, [a[0], a[1].filter(x => x !== 'carve-ruby'), a[2].filter(([key]) => key !== 'carve-pairs')])]; } catch { warnings.push('Ruby: invalid pairs carrier'); } } if (a[1].includes('carve-smart')) return [{ type: 'smart_punctuation', kind: (fields['kind'] ?? 'em_dash') as Extract<Inline, {type: 'smart_punctuation'}>['kind'], source: fields['source'] ?? '', glyph: fields['glyph'] ?? captionText(children) }]; if (a[1].includes('carve-delete')) return [withAttr({ type: 'delete', children }, [a[0], a[1].filter(x => x !== 'carve-delete'), a[2]])]; if (a[1].includes('carve-insert')) return [withAttr({ type: 'insert', children }, [a[0], a[1].filter(x => x !== 'carve-insert'), a[2]])]; if (a[1].includes('carve-mention')) return [{ type: 'mention', target: fields['target'] ?? '', kind: fields['kind'] ?? 'user' }]; if (a[1].includes('carve-tag')) return [{ type: 'tag', name: fields['name'] ?? '' }]; if (a[1].includes('carve-symbol')) return [withAttr({ type: 'symbol', name: fields['name'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-symbol'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-abbreviation')) return [{ type: 'abbreviation', namespace: 'abbr', key: fields['key'] ?? '', ...(fields['expansion'] ? { expansion: fields['expansion'] } : {}) }]; if (a[1].includes('carve-inline-attrs') && children.length === 1 && children[0]?.type === fields['carve-inline-type']) return [withAttr(children[0]!, [a[0], a[1].filter(x => x !== 'carve-inline-attrs'), a[2].filter(([k]) => k !== 'carve-inline-type')]) as Inline]; return a[1].includes('mark') ? [withAttr({ type: 'highlight', children }, [a[0], a[1].filter(x => x !== 'mark'), a[2]])]: [withAttr({ type: 'span', children }, a)]; }
+    case 'Span': { const a = c[0] as P.Attr; const fields = Object.fromEntries(a[2]); if (a[1].includes('carve-footnote-ref')) return [withAttr({ type: 'footnote_ref', namespace: 'footnote', key: fields['key'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-footnote-ref'), a[2].filter(([key]) => key !== 'key')])]; const children = inlineList(c[1], warnings); if (a[1].includes('carve-extension')) return [withAttr({ type: 'inline_extension', name: fields['name'] ?? '', children }, [a[0], a[1].filter(x => x !== 'carve-extension'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-literal')) { const clean: P.Attr = [a[0], a[1].filter(x => x !== 'carve-literal'), a[2].filter(([k]) => k !== 'value')]; try { return [withAttr({ type: 'literal_inline', value: JSON.parse(fields['value'] ?? '""') }, clean)]; } catch { warnings.push('Literal: invalid value carrier'); return [withAttr({ type: 'literal_inline', value: '' }, clean)]; } } if (a[1].includes('carve-ruby')) { try { const pairs = JSON.parse(fields['carve-pairs'] ?? '[]') as Extract<Inline, {type: 'ruby'}>['pairs']; return [withAttr({ type: 'ruby', pairs }, [a[0], a[1].filter(x => x !== 'carve-ruby'), a[2].filter(([key]) => key !== 'carve-pairs')])]; } catch { warnings.push('Ruby: invalid pairs carrier'); } } if (a[1].includes('carve-smart')) return [{ type: 'smart_punctuation', kind: (fields['kind'] ?? 'em_dash') as Extract<Inline, {type: 'smart_punctuation'}>['kind'], source: fields['source'] ?? '', glyph: fields['glyph'] ?? captionText(children) }]; if (a[1].includes('deletion')) return [withAttr({ type: 'delete', children }, [a[0], a[1].filter(x => x !== 'deletion'), fromPandocRevision(a[2])])]; if (a[1].includes('insertion')) return [withAttr({ type: 'insert', children }, [a[0], a[1].filter(x => x !== 'insertion'), fromPandocRevision(a[2])])]; if (a[1].includes('carve-delete')) return [withAttr({ type: 'delete', children }, [a[0], a[1].filter(x => x !== 'carve-delete'), a[2]])]; if (a[1].includes('carve-insert')) return [withAttr({ type: 'insert', children }, [a[0], a[1].filter(x => x !== 'carve-insert'), a[2]])]; if (a[1].includes('carve-mention')) return [{ type: 'mention', target: fields['target'] ?? '', kind: fields['kind'] ?? 'user' }]; if (a[1].includes('carve-tag')) return [{ type: 'tag', name: fields['name'] ?? '' }]; if (a[1].includes('carve-symbol')) return [withAttr({ type: 'symbol', name: fields['name'] ?? '' }, [a[0], a[1].filter(x => x !== 'carve-symbol'), a[2].filter(([key]) => key !== 'name')])]; if (a[1].includes('carve-abbreviation')) return [{ type: 'abbreviation', namespace: 'abbr', key: fields['key'] ?? '', ...(fields['expansion'] ? { expansion: fields['expansion'] } : {}) }]; if (a[1].includes('carve-inline-attrs') && children.length === 1 && children[0]?.type === fields['carve-inline-type']) return [withAttr(children[0]!, [a[0], a[1].filter(x => x !== 'carve-inline-attrs'), a[2].filter(([k]) => k !== 'carve-inline-type')]) as Inline]; return a[1].includes('mark') ? [withAttr({ type: 'highlight', children }, [a[0], a[1].filter(x => x !== 'mark'), a[2]])]: [withAttr({ type: 'span', children }, a)]; }
     case 'Note': {
       const blocks = blockList(c, warnings);
       if (blocks.length === 1 && blocks[0]?.type === 'paragraph') return [{ type: 'inline_footnote', children: blocks[0].children }];
@@ -458,6 +523,9 @@ export function pandocToCarveAst(input: P.PandocDoc | string): { ast: DocumentNo
   const doc = typeof input === 'string' ? JSON.parse(input) as P.PandocDoc : input;
   checkPandocNodeDepth(doc);
   const warnings: string[] = [];
+  const comments = newCommentState();
+  commentStates.set(warnings, comments);
+  collectCommentEnds(doc.blocks, comments.ends);
   const metadata: NonNullable<DocumentNode['metadata']> = {};
   const metaInlines = (name: string): Inline[] | undefined => doc.meta?.[name]?.t === 'MetaInlines' ? inlineList(doc.meta[name]!.c as P.Inline[], warnings) : undefined;
   const title = metaInlines('title'); if (title) metadata.title = title;
