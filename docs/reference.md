@@ -89,3 +89,21 @@ The document's typed title, subtitle, authors, date, and bibliography fields map
 The bridge rejects Pandoc JSON nested beyond its import limit before recursive conversion. It also bounds list depth. The 0.2 example corpus includes 200 nested superscripts and passes these guards.
 
 Some Pandoc writers remove bridge attributes or change structure. The [round trip matrix](roundtrip-0.2.md) measures 99 source probes across 17 formats and records the first difference for each cell. The [test port tracker](test-port-0.2.md) records every original test file's 0.2 disposition.
+
+### Track changes and comments
+
+Pandoc's docx reader with `--track-changes=all`, and its docx writer, use `Span` nodes of class `insertion`, `deletion`, `comment-start` and `comment-end`, with the keys `author` and `date`. The bridge maps them to Carve's revision keys `author` and `datetime` (carve#6788):
+
+| Carve 0.2 | Pandoc JSON |
+| --- | --- |
+| `{+12+}{author=Ann datetime=2026-11-20T10:00Z}` | `Span` of class `insertion` with `author` and `date` |
+| `{-10-}{author=Ann datetime=2026-11-20T10:00Z}` | `Span` of class `deletion` with `author` and `date` |
+| `{# check #}{author=Bob datetime=2026-11-21T09:30Z}` | a `comment-start` `Span` holding the comment text, then an empty `comment-end` `Span` with the same `comment-id` |
+
+An insert or delete with neither `author` nor `datetime`, and an editorial comment without `author`, keep their bridge carriers: Pandoc's docx writer drops a comment that names no author. A revision with only `datetime` becomes a native span, and Pandoc's docx writer adds `author=unknown` to it. A Carve comment is a point, while a Word comment covers a range: the bridge writes a ranged comment where its `comment-end` stands and reports the lost range with `import-structure-repaired`. A comment body with formatting or several paragraphs becomes its plain text, also reported.
+
+The pinned carve-js does not read an attribute block on an editorial comment yet, so Carve source output reports `field-unspellable` for those attributes; the AST JSON output keeps them.
+
+```bash
+node dist/cli.js review.docx -f docx -o review.crv -- --track-changes=all
+```
