@@ -99,7 +99,7 @@ Pandoc's docx reader with `--track-changes=all`, and its docx writer, use `Span`
 | `{-10-}{author=Ann datetime=2026-11-20T10:00Z}` | `Span` of class `deletion` with `author` and `date` |
 | `{# check #}{author=Bob datetime=2026-11-21T09:30Z}` | a `comment-start` `Span` holding the comment text, then an empty `comment-end` `Span` with the same `comment-id` |
 
-An insert or delete without `author` or `datetime`, and an editorial comment without `author`, keep their bridge carriers: Pandoc's docx writer drops a comment that names no author. A Carve comment is a point, while a Word comment covers a range: the bridge writes a ranged comment where its `comment-end` stands and reports the lost range with `import-structure-repaired`. A comment body with formatting or several paragraphs becomes its plain text, also reported.
+An insert or delete with neither `author` nor `datetime`, and an editorial comment without `author`, keep their bridge carriers: Pandoc's docx writer drops a comment that names no author. A revision with only `datetime` becomes a native span, and Pandoc's docx writer adds `author=unknown` to it. A Carve comment is a point, while a Word comment covers a range: the bridge writes a ranged comment where its `comment-end` stands and reports the lost range with `import-structure-repaired`. A comment body with formatting or several paragraphs becomes its plain text, also reported.
 
 The pinned carve-js does not read an attribute block on an editorial comment yet, so Carve source output reports `field-unspellable` for those attributes; the AST JSON output keeps them.
 
