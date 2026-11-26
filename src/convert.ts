@@ -58,6 +58,8 @@ const openingBlocks = (title: Inline[] | undefined, groupLabel: string | undefin
   ...(title === undefined ? [] : [P.Para([P.Strong(il(title, c))])]),
   ...(groupLabel === undefined ? [] : [P.Para([P.Strong(words(groupLabel))])]),
 ];
+// One Space per space and a SoftBreak per newline; tabs stay in Str, so commentText reads the value back.
+const commentInlines = (s: string): P.Inline[] => s.split(/(\n| )/u).filter(Boolean).map(x => x === ' ' ? P.Space : x === '\n' ? P.SoftBreak : P.Str(x));
 // Pandoc's docx reader and writer name the revision time `date`; Carve names it `datetime` (carve#6788).
 const hasRevisionKeys = (a?: Attrs): boolean => Boolean(a?.keyValues?.some(([key]) => key === 'author' || key === 'datetime'));
 const toPandocRevision = (kvs: [string, string][] = []): [string, string][] => kvs.map(([key, value]) => [key === 'datetime' ? 'date' : key, value]);
@@ -145,7 +147,7 @@ function emit(n: Node, c: Context): P.PandocNode[] {
     }), words(n.raw))];
     case 'inline_extension': c.warnings.push(`inline_extension: ${n.name} uses fallback`); return [P.Span(P.attr(n.attrs?.id, ['carve-extension', ...(n.attrs?.classes ?? [])], [...(n.attrs?.keyValues ?? []), ['name', n.name]]), il(n.fallback ?? n.children, c))];
     // Pandoc's docx writer drops a comment-start without an author.
-    case 'critic_comment': { if (!n.attrs?.keyValues?.some(([key]) => key === 'author')) return [inlineAttr(n, P.RawInline('carve-critic-comment', n.value))]; const id = String(c.commentCount++); return [P.Span(P.attr(n.attrs.id, ['comment-start', ...(n.attrs.classes ?? [])], [['comment-id', id], ...toPandocRevision(n.attrs.keyValues)]), literalInlines(n.value)), P.Span(P.attr('', ['comment-end'], [['comment-id', id]]), [])]; }
+    case 'critic_comment': { if (!n.attrs?.keyValues?.some(([key]) => key === 'author')) return [inlineAttr(n, P.RawInline('carve-critic-comment', n.value))]; const id = String(c.commentCount++); return [P.Span(P.attr(n.attrs.id, ['comment-start', ...(n.attrs.classes ?? [])], [['comment-id', id], ...toPandocRevision(n.attrs.keyValues)]), commentInlines(n.value)), P.Span(P.attr('', ['comment-end'], [['comment-id', id]]), [])]; }
     case 'comment': return n.form === 'braced' ? [P.RawInline('carve-comment', n.value)] : [P.RawBlock(`carve-comment-${n.form}`, n.value)];
     case 'caption_number': return words(String(n.n ?? '#'));
     case 'paragraph': { const para = P.Para(il(n.children, c)); return n.attrs || n.role || n.lang || n.dir ? [P.Div(P.attr(n.attrs?.id, ['carve-paragraph', ...(n.attrs?.classes ?? [])], [...(languageAttr(n)[2]), ...(n.role === 'image' ? [['carve-block-image', '1'] as [string, string]] : []), ...(n.role === 'math' ? [['carve-block-math', '1'] as [string, string]] : [])]), [para])] : [para]; }

@@ -90,7 +90,7 @@ test('revision: an editorial comment with an author writes a comment-start and c
     { type: 'text', value: 'a' },
     { type: 'critic_comment', value: 'check', attrs: { keyValues: [['author', 'bob'], ['datetime', '2026-11-21T09:30Z']] } },
     { type: 'critic_comment', value: 'plain' },
-    { type: 'critic_comment', value: 'two  spaces\nand a line', attrs: { keyValues: [['author', 'bob']] } },
+    { type: 'critic_comment', value: 'two  spaces\nand a\tline', attrs: { keyValues: [['author', 'bob']] } },
     { type: 'critic_comment', value: 'no author', attrs: { classes: ['k'], keyValues: [['datetime', '2026-11-21T09:30Z']] } },
   ] }] };
   const { doc: out } = carveAstToPandoc(ast);
@@ -98,7 +98,7 @@ test('revision: an editorial comment with an author writes a comment-start and c
     span(['comment-start'], [['comment-id', '0'], ['author', 'bob'], ['date', '2026-11-21T09:30Z']], [str('check')]),
     commentEnd('0'),
     { t: 'RawInline', c: ['carve-critic-comment', 'plain'] },
-    span(['comment-start'], [['comment-id', '1'], ['author', 'bob']], [str('two'), space, space, str('spaces'), { t: 'SoftBreak' }, str('and'), space, str('a'), space, str('line')]),
+    span(['comment-start'], [['comment-id', '1'], ['author', 'bob']], [str('two'), space, space, str('spaces'), { t: 'SoftBreak' }, str('and'), space, str('a\tline')]),
     commentEnd('1'),
     span(['carve-inline-attrs', 'k'], [['datetime', '2026-11-21T09:30Z'], ['carve-inline-type', 'critic_comment']], [{ t: 'RawInline', c: ['carve-critic-comment', 'no author'] }]),
   ]);
