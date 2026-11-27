@@ -2,21 +2,31 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
+Converts Carve 0.2 documents to and from Pandoc. Hosts in other languages can hand over a Carve AST JSON tree, and conversion can run offline.
+
 ### Breaking
 
-- Re-pinned to the renamed carve-js `next2` (`125128f4`). The CLI is `dist/cli.js` (was `dist/cli-v2.js`) and the vendored engine lives in `vendor/carve` (was `vendor/carve-v2`).
-- The 0.2 tree has no `figure` node: a captioned image or math paragraph, quote, code block or include carries its caption in its own `caption` slot and reaches Pandoc as a `Figure` around the block. A Pandoc `Figure` around one such block comes back as that block; any other `Figure` comes back as a `figure_group`.
-- `table_body.headRows` and `table_column.authored` are gone. A body's header rows travel as body rows of header cells, and the body partition is written back with `body-rows`, `body-header-rows` and `body-header-cols`.
+- The bridge reads and writes the Carve 0.2 tree with the carve-js 0.2 engine; Carve input is read as Carve 0.2.
+- Requires Node.js 22 or newer.
+- The 0.2 tree has no `figure` node: a captioned image or math paragraph, quote, code block or include carries its caption in its own `caption` slot and reaches Pandoc as a `Figure` around the block. A Pandoc `Figure` around one such block comes back as that block; any other `Figure` comes back as a `figure_group` (#294).
+- `table_body.headRows` and `table_column.authored` are gone. A body's header rows travel as body rows of header cells, and the body partition is written back with `body-rows`, `body-header-rows` and `body-header-cols` (#294).
 
 ### Fixes
 
-- A duplicate footnote definition no longer replaces the first one in Pandoc output.
-- Table cell `valign`, column `resolvedValign` and invalid include options survive a round trip through Pandoc.
-- A blank Pandoc table cell imports as an empty cell paragraph instead of a cell the 0.2 reader refuses.
+- A duplicate footnote definition no longer replaces the first one in Pandoc output (#294).
+- Table cell `valign`, column `resolvedValign` and invalid include options survive a round trip through Pandoc (#294).
+- A blank Pandoc table cell imports as an empty cell paragraph instead of a cell the 0.2 reader refuses (#294).
 
 ### Improvements
 
-- `-t carve-ast-json` writes a bare Carve 2.0 AST JSON document from any Pandoc input, the inverse of `-f carve-ast-json`.
+- `-f carve-ast-json` takes a Carve AST JSON document or envelope from any host (PHP, Rust) and validates it against the tree schema; `-t carve-ast-json` writes one from any Pandoc input (#308, #310).
+- A thematic break with the `page-break` class becomes a page break in DOCX, ODT and LaTeX/PDF (#308).
+- `--offline` with `--resource-root` runs Pandoc sandboxed and embeds local images; the Node API takes a `resolveImage` callback (#308).
+- Pandoc track changes and Word comments map to Carve insert, delete and editorial comments with `author` and `datetime`, in both directions (#309).
+
+**Full Changelog**: https://github.com/markup-carve/pandoc-carve/compare/0.1.13...0.2.0
 
 ## 0.1.13 - 2026-11-12
 
